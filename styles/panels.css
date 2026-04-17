@@ -1196,3 +1196,135 @@ select.coach-model-input:focus { outline: none; border-color: var(--c-primary); 
   border-top: 1px solid var(--c-border);
   font-size: 13px;
 }
+
+/* ──────────────────────────────────────────────────────────────── */
+/* Engine power button — primary on/off control, impossible to miss */
+/* ──────────────────────────────────────────────────────────────── */
+.engine-power {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 14px 18px;
+  margin: 0 0 10px 0;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #34a853 0%, #1e7b2e 100%);
+  color: white;
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.06s ease,
+              box-shadow 0.12s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.engine-power:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.engine-power:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) inset;
+}
+.engine-power.off {
+  background: linear-gradient(180deg, #e53935 0%, #a02724 100%);
+}
+.engine-power-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.9),
+              0 0 0 2px rgba(255, 255, 255, 0.25);
+  animation: enginePulse 1.6s ease-in-out infinite;
+  margin-bottom: 2px;
+}
+.engine-power.off .engine-power-dot {
+  animation: none;
+  opacity: 0.9;
+}
+@keyframes enginePulse {
+  0%, 100% { transform: scale(1);    opacity: 1;   }
+  50%      { transform: scale(1.25); opacity: 0.6; }
+}
+.engine-power-label {
+  font-size: 20px;
+  line-height: 1;
+}
+.engine-power-sub {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.85;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+/* Row that holds the big ENGINE power + THREAT side by side. Power
+   button takes the bulk; threat is narrower. */
+.engine-power-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+.engine-power-row .engine-power {
+  flex: 2 1 auto;      /* wider */
+  margin-bottom: 0;
+}
+.threat-btn {
+  flex: 1 1 0;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 10px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ff9800 0%, #cc6f00 100%);
+  color: white;
+  font-family: var(--font-sans);
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: transform 0.06s ease, box-shadow 0.12s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.threat-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.threat-btn:active { transform: translateY(1px); }
+.threat-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.threat-label { font-size: 18px; line-height: 1; }
+.threat-sub   { font-size: 10px; font-weight: 500; opacity: 0.9; letter-spacing: 0.2px; text-transform: uppercase; }
+
+.threat-output {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-left: 3px solid #ff9800;
+  background: rgba(255, 152, 0, 0.08);
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.threat-output .threat-move {
+  font-family: var(--font-san);
+  font-weight: 700;
+  font-size: 16px;
+  color: #cc6f00;
+}
+.threat-output .threat-score { font-family: var(--font-mono); color: var(--c-muted); }

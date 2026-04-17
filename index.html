@@ -196,11 +196,30 @@
     <section class="tools">
       <!-- Engine output -->
       <div class="ceval">
+        <!-- Huge engine on/off toggle + Threat button. The power button
+             mirrors the 🔒 Engine lock in the header so users can't miss
+             the engine state. Threat passes the move to the other side
+             (null-move) and analyzes what they'd do — exposing the
+             opponent's biggest plan/threat. -->
+        <div class="engine-power-row">
+          <button id="engine-power" class="engine-power" aria-live="polite">
+            <span class="engine-power-dot" aria-hidden="true"></span>
+            <span class="engine-power-label">ENGINE: ON · analyzing</span>
+            <span class="engine-power-sub">click to stop</span>
+          </button>
+          <button id="btn-threat" class="threat-btn"
+                  title="Pass to the other side and see what they'd do — their biggest threat">
+            <span class="threat-label">🎯 THREAT</span>
+            <span class="threat-sub">what's their best move?</span>
+          </button>
+        </div>
+        <div id="threat-output" class="threat-output" hidden></div>
+
         <div class="ceval-top">
           <span id="score-pearl" class="pearl">—</span>
           <div class="ceval-meta">
-            <span id="depth-label" class="meta-big">depth 0/0</span>
-            <span id="nps-label"   class="meta-nps">0 kN/s · 0 nodes</span>
+            <span id="depth-label" class="meta-big">engine booting…</span>
+            <span id="nps-label"   class="meta-nps">—</span>
           </div>
         </div>
         <div class="ceval-bar"><span id="ceval-bar-fill"></span></div>

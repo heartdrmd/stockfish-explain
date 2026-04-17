@@ -13,6 +13,10 @@ export class BoardController extends EventTarget {
     // ** Truth: `chess` holds the latest *live* position.
     // `viewPly` is which ply the user is looking at; null = live/end.
     this.chess = new Chess();
+    // The FEN we started the game from. Matters when the user pasted a
+    // custom FEN or used the position editor — scrolling back to ply 0
+    // must show THAT position, not the standard chess starting array.
+    this.startingFen = this.chess.fen();
     this.viewPly = null;   // int: show position AFTER this many plies; null = live
     this.cg = null;
     this.orientation = 'white';
@@ -157,7 +161,10 @@ export class BoardController extends EventTarget {
     } else {
       n = Math.max(0, n);
       this.viewPly = n;
-      const replay = new Chess();
+      // Replay from the GAME's starting FEN, not the standard chess array —
+      // otherwise a pasted position flashes the default start when the user
+      // scrolls back.
+      const replay = new Chess(this.startingFen);
       const verbose = this.chess.history({ verbose: true });
       let lastMove = null;
       for (let i = 0; i < n; i++) {
@@ -237,10 +244,11 @@ export class BoardController extends EventTarget {
 
   async _onUserMove(orig, dest, _meta) {
     if (!this.isAtLive()) {
-      // User moved from an old ply — branch? For now, truncate history and branch.
+      // User moved from an old ply — truncate history and branch from here.
       const verbose = this.chess.history({ verbose: true });
       const keep = this.viewPly || 0;
-      this.chess.reset();
+      // Rebuild from the game's starting FEN (respects pasted positions).
+      this.chess = new Chess(this.startingFen);
       for (let i = 0; i < keep; i++) {
         const m = verbose[i];
         this.chess.move({ from: m.from, to: m.to, promotion: m.promotion });
@@ -329,6 +337,7 @@ export class BoardController extends EventTarget {
 
   newGame() {
     this.chess.reset();
+    this.startingFen = this.chess.fen();   // back to standard start
     this.viewPly = null;
     this.cg.set({
       fen: this.chess.fen(),

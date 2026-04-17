@@ -186,10 +186,16 @@ async function main() {
   // download them.
   const isPagesHost = /\.github\.io$/i.test(location.hostname);
 
-  // Default to the STRONGEST engine available in the current environment.
-  let currentFlavor = threadable
-    ? (isPagesHost ? 'lite' : 'full')
-    : 'lite-single';
+  // Default to the last-used engine flavor (persisted) if it still exists
+  // in the dropdown AND is valid in this environment. Otherwise fall back
+  // to the strongest engine available in the current environment.
+  const FLAVOR_STORAGE = 'stockfish-explain.engine-flavor';
+  const savedFlavor = localStorage.getItem(FLAVOR_STORAGE);
+  const flavorOptions = [...ui.selectFlavor.querySelectorAll('option')].map(o => o.value);
+  const flavorValid = savedFlavor && flavorOptions.includes(savedFlavor);
+  let currentFlavor = flavorValid
+    ? savedFlavor
+    : (threadable ? (isPagesHost ? 'lite' : 'full') : 'lite-single');
   ui.selectFlavor.value = currentFlavor;
 
   // Disable multi-thread flavors if the page isn't cross-origin-isolated
@@ -332,6 +338,7 @@ async function main() {
   ui.selectFlavor.addEventListener('change', async () => {
     const f = ui.selectFlavor.value;
     if (f === currentFlavor) return;
+    localStorage.setItem(FLAVOR_STORAGE, f);
     engine.terminate();
     engine = new Engine();
     engine.setSkill(+ui.rangeSkill.value);
@@ -649,8 +656,11 @@ async function main() {
     }
 
     // Replace board.chess with a FRESH instance at the pasted FEN.
-    // This clears history entirely — undo now stops here.
+    // This clears history entirely — undo now stops here. We also update
+    // the board's startingFen so that scrolling back to ply 0 shows the
+    // pasted position (not the standard chess starting array).
     board.chess = tmp;
+    board.startingFen = tmp.fen();
     board.viewPly = null;
     board.cg.set({
       fen: board.chess.fen(),
@@ -712,19 +722,114 @@ async function main() {
       btnLock.title = 'Engine is active. Click to lock OFF.';
     }
   }
-  btnLock.addEventListener('click', () => {
+  // Unified lock toggle — used by both the small header button and the big
+  // ENGINE power button next to the eval panel. Keeps both in sync.
+  function toggleEngineLocked() {
     locked = !locked;
     localStorage.setItem('stockfish-explain.engine-locked', locked ? '1' : '0');
     updateLockButton();
+    updatePowerButton();
     if (locked) {
       engine.stop();
-      ui.narrationText.textContent = '🔒 Engine locked OFF. Unlock to resume analysis.';
+      ui.narrationText.textContent = '🔒 Engine stopped. Click the big ENGINE button to resume.';
     } else {
       fireAnalysis();
     }
-  });
+  }
+  btnLock.addEventListener('click', toggleEngineLocked);
+
+  // Big ENGINE power button in the eval panel — same state as lock.
+  const powerBtn = document.getElementById('engine-power');
+  function updatePowerButton() {
+    if (!powerBtn) return;
+    const label = powerBtn.querySelector('.engine-power-label');
+    const sub   = powerBtn.querySelector('.engine-power-sub');
+    if (locked) {
+      powerBtn.classList.add('off');
+      if (label) label.textContent = 'ENGINE: OFF';
+      if (sub)   sub.textContent   = 'click to start analysis';
+    } else {
+      powerBtn.classList.remove('off');
+      if (label) label.textContent = 'ENGINE: ON · analyzing';
+      if (sub)   sub.textContent   = 'click to stop';
+    }
+  }
+  if (powerBtn) powerBtn.addEventListener('click', toggleEngineLocked);
+  updatePowerButton();
   updateLockButton();
-  if (locked) ui.narrationText.textContent = '🔒 Engine locked OFF. Click 🔒 Engine locked in the header to unlock.';
+
+  // ─── Threat button ─────────────────────────────────────────────
+  // Passes the move to the opponent (null move) and asks Stockfish:
+  // "what's their biggest threat right now?" Very common analysis aid.
+  const threatBtn = document.getElementById('btn-threat');
+  const threatOut = document.getElementById('threat-output');
+  if (threatBtn && threatOut) {
+    threatBtn.addEventListener('click', async () => {
+      if (!engineReady) return;
+      const fen  = board.isAtLive() ? board.fen() : rebuildFenAtPly(board.chess, board.viewPly);
+      const parts = fen.split(' ');
+      if (parts.length < 4) return;
+      // Flip side-to-move; reset en-passant (would be illegal now anyway).
+      parts[1] = parts[1] === 'w' ? 'b' : 'w';
+      parts[3] = '-';
+      const flipped = parts.join(' ');
+
+      // Quick legality check — if they have no legal moves (stalemate /
+      // checkmate on their side), bail with a clear message.
+      let flippedChess;
+      try { flippedChess = new Chess(flipped); }
+      catch { threatOut.innerHTML = `<em>Can't pass — illegal position.</em>`; threatOut.hidden = false; return; }
+      if (flippedChess.isGameOver()) {
+        threatOut.innerHTML = `<em>Nothing to threaten — opponent has no legal moves (checkmate / stalemate).</em>`;
+        threatOut.hidden = false;
+        return;
+      }
+
+      threatBtn.disabled = true;
+      threatOut.hidden = false;
+      threatOut.innerHTML = `<em>Thinking about the opponent's best idea…</em>`;
+
+      // Stop current search, run one-shot depth-14 on the flipped FEN.
+      engine.stop();
+      const done = new Promise(resolve => {
+        const onBest = (ev) => { engine.removeEventListener('bestmove', onBest); resolve(ev.detail); };
+        engine.addEventListener('bestmove', onBest);
+      });
+      engine.start(flipped, { depth: 14 });
+      const result = await done;
+
+      const top = result?.topMoves?.[0];
+      if (!top || !top.pv?.length) {
+        threatOut.innerHTML = `<em>No clear threat found.</em>`;
+      } else {
+        // Convert UCI PV to SAN from the flipped position
+        const chess = new Chess(flipped);
+        const sans = [];
+        for (const uci of top.pv.slice(0, 6)) {
+          try {
+            const mv = chess.move({ from: uci.slice(0,2), to: uci.slice(2,4), promotion: uci.length>4?uci[4]:undefined });
+            if (!mv) break;
+            sans.push(mv.san);
+          } catch { break; }
+        }
+        const scoreStr = top.scoreKind === 'mate'
+          ? `#${top.score}`
+          : `${top.score >= 0 ? '+' : ''}${(top.score / 100).toFixed(2)}`;
+        const side = parts[1] === 'w' ? 'White' : 'Black';
+        threatOut.innerHTML = `
+          <strong>Opponent's best plan (${side} to move):</strong>
+          <span class="threat-move">${sans[0] || top.pv[0]}</span>
+          <span class="threat-score">(${scoreStr} from their POV · depth ${result.history?.slice(-1)[0]?.depth || 14})</span>
+          <br>
+          <span class="muted">Line: ${sans.join(' ') || top.pv.slice(0,6).join(' ')}</span>`;
+      }
+
+      threatBtn.disabled = false;
+      // Resume normal analysis of the real position
+      fireAnalysis();
+    });
+  }
+  if (locked) ui.narrationText.textContent = '🔒 Engine stopped. Click the big ENGINE button (next to the eval) to start analysis.';
 
   const btnPause = document.getElementById('btn-pause');
   btnPause.addEventListener('click', () => {
