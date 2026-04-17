@@ -1309,21 +1309,24 @@ select.coach-model-input:focus { outline: none; border-color: var(--c-primary); 
 }
 /* Active state — user clicked, engine is thinking. Pulsing and a
    darker saturated orange so the button is visibly "doing something". */
+/* Active state — grey instead of orange so the color change vs the
+   normal orange Threat button is obvious and unambiguous. */
 .threat-btn.active {
   opacity: 1;
-  background: linear-gradient(180deg, #ff6d00 0%, #b34700 100%);
-  box-shadow: 0 0 0 3px rgba(255, 109, 0, 0.45),
-              0 2px 6px rgba(0, 0, 0, 0.25),
-              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  background: linear-gradient(180deg, #666 0%, #333 100%);
+  color: #e8e8e8;
+  box-shadow: 0 0 0 3px rgba(200, 200, 200, 0.35),
+              0 2px 6px rgba(0, 0, 0, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.15);
   animation: threatPulse 0.9s ease-in-out infinite;
 }
 @keyframes threatPulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(255, 109, 0, 0.45),
-                         0 2px 6px rgba(0, 0, 0, 0.25),
-                         inset 0 1px 0 rgba(255, 255, 255, 0.2); }
-  50%      { box-shadow: 0 0 0 8px rgba(255, 109, 0, 0.15),
-                         0 2px 10px rgba(0, 0, 0, 0.3),
-                         inset 0 1px 0 rgba(255, 255, 255, 0.2); }
+  0%, 100% { box-shadow: 0 0 0 3px rgba(200, 200, 200, 0.35),
+                         0 2px 6px rgba(0, 0, 0, 0.3),
+                         inset 0 1px 0 rgba(255, 255, 255, 0.15); }
+  50%      { box-shadow: 0 0 0 8px rgba(180, 180, 180, 0.18),
+                         0 2px 10px rgba(0, 0, 0, 0.35),
+                         inset 0 1px 0 rgba(255, 255, 255, 0.15); }
 }
 .threat-label { font-size: 18px; line-height: 1; }
 .threat-sub   { font-size: 10px; font-weight: 500; opacity: 0.9; letter-spacing: 0.2px; text-transform: uppercase; }

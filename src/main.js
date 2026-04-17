@@ -858,14 +858,31 @@ async function main() {
   // toggles off OR makes a move / navigates the board.
   window.__threatMode = false;
 
+  // Track the engine info listener so we can remove it on exit.
+  let threatInfoListener = null;
+  let threatFlippedFen   = null;
+
   function enterThreatMode() {
     if (!engineReady) return;
     const fen  = board.isAtLive() ? board.fen() : rebuildFenAtPly(board.chess, board.viewPly);
     const parts = fen.split(' ');
     if (parts.length < 4) return;
-    parts[1] = parts[1] === 'w' ? 'b' : 'w';  // flip side-to-move
-    parts[3] = '-';                           // reset en-passant
+    const originalSide = parts[1];               // 'w' or 'b'
+    parts[1] = originalSide === 'w' ? 'b' : 'w'; // flip side-to-move
+    parts[3] = '-';                              // reset en-passant
+    const flippedSide = parts[1];
+    // Move-number convention:
+    //   original White-to-move  → Black gets the move at SAME fullmove,
+    //                             notated "N... <move>"
+    //   original Black-to-move  → White gets the move at fullmove+1,
+    //                             notated "(N+1). <move>"
+    const origFullmove  = parseInt(parts[5] || '1', 10) || 1;
+    const threatFullmove = flippedSide === 'w' ? origFullmove + 1 : origFullmove;
+    // When we bumped fullmove for White, also bump the FEN counter so
+    // the engine/explainer agree.
+    if (flippedSide === 'w') parts[5] = String(threatFullmove);
     const flipped = parts.join(' ');
+    threatFlippedFen = flipped;
 
     // Legality check
     let flippedChess;
@@ -882,18 +899,67 @@ async function main() {
     const label = threatBtn.querySelector('.threat-label');
     const sub   = threatBtn.querySelector('.threat-sub');
     if (label) label.textContent = '🎯 THREAT · ON';
-    if (sub)   sub.textContent   = `click to turn off · analyzing ${parts[1] === 'w' ? 'White' : 'Black'}`;
+    const side = flippedSide === 'w' ? 'White' : 'Black';
+    if (sub)   sub.textContent   = `click to turn off · analyzing ${side}`;
 
     threatOut.hidden = false;
-    const side = parts[1] === 'w' ? 'White' : 'Black';
-    threatOut.innerHTML = `<strong>Threat mode ON — analyzing ${side}'s best move continuously.</strong><br>
-      <span class="muted">Main eval panel is showing ${side}'s lines. Click 🎯 THREAT again to return to normal analysis, or make a move.</span>`;
+    threatOut.innerHTML = `<strong>🎯 Threat mode — analyzing ${side} at move ${threatFullmove}${flippedSide === 'b' ? '…' : '.'}</strong>
+      <div class="threat-live muted"><em>Waiting for first search results…</em></div>`;
 
     ui.narrationText.innerHTML =
       `🎯 <strong>Threat mode</strong> — engine is calculating as if it were <strong>${side}'s turn</strong>. Toggle off or move to resume normal analysis.`;
 
+    // Subscribe to live engine info so the threat panel keeps updating
+    // with the current best move + eval as depth climbs.
+    threatInfoListener = (ev) => {
+      if (!window.__threatMode) return;
+      const info = ev.detail;
+      // Pick multipv=1 (best line)
+      if (!info || info.multipv !== 1 || !info.pv || !info.pv.length) return;
+      try {
+        const chess = new Chess(flipped);
+        const sans = [];
+        for (const uci of info.pv.slice(0, 8)) {
+          const mv = chess.move({
+            from: uci.slice(0,2),
+            to:   uci.slice(2,4),
+            promotion: uci.length > 4 ? uci[4] : undefined,
+          });
+          if (!mv) break;
+          sans.push(mv.san);
+        }
+        if (!sans.length) return;
+        // Build a properly-numbered SAN line:
+        //   if threat side is Black: "N... move, N+1. move, N+1... move"
+        //   if threat side is White: "M. move, M... move, M+1. move"
+        let side = flippedSide;     // whose move is NEXT in the PV (starts with threat side)
+        let fm   = threatFullmove;
+        const numbered = [];
+        for (const san of sans) {
+          if (side === 'w') numbered.push(`${fm}. ${san}`);
+          else              numbered.push(`${fm}... ${san}`);
+          // Advance
+          if (side === 'w') side = 'b';
+          else              { side = 'w'; fm++; }
+        }
+        const score = info.scoreKind === 'mate'
+          ? `#${info.score}`
+          : `${info.score >= 0 ? '+' : ''}${(info.score / 100).toFixed(2)}`;
+        const liveEl = threatOut.querySelector('.threat-live');
+        if (liveEl) {
+          liveEl.innerHTML = `
+            <span class="threat-move">${numbered[0]}</span>
+            <span class="threat-score">(${score} from ${side === 'w' ? 'Black' : 'White'}'s view · depth ${info.depth})</span>
+            <br>
+            <span class="muted" style="font-family:var(--font-san);font-size:12px">${numbered.join('  ')}</span>`;
+        }
+      } catch {}
+    };
+    engine.addEventListener('info', threatInfoListener);
+
     // Kick engine onto the flipped FEN with INFINITE search — same as
-    // a normal analysis, just on the flipped position.
+    // a normal analysis, just on the flipped position. engine.stop()
+    // first in case a normal search was already running.
     engine.stop();
     explainer.setFen(flipped);
     engine.start(flipped, { infinite: true });
@@ -902,6 +968,11 @@ async function main() {
   function exitThreatMode({ silent = false } = {}) {
     if (!window.__threatMode) return;
     window.__threatMode = false;
+    if (threatInfoListener) {
+      engine.removeEventListener('info', threatInfoListener);
+      threatInfoListener = null;
+    }
+    threatFlippedFen = null;
     threatBtn.classList.remove('active');
     const label = threatBtn.querySelector('.threat-label');
     const sub   = threatBtn.querySelector('.threat-sub');
