@@ -18,6 +18,11 @@ async function main() {
   // If init later crashes, the 🔑 Key button still works.
   wireApiKeyModalEarly();
 
+  // In server-proxied deployments, wire the password gate and check the
+  // tier cookie. This may show a modal and block until the user enters the
+  // site password — by design (friend-only access).
+  await wireGateAndCheckTier();
+
   const ui = collectUI();
 
   // Modal close
@@ -897,7 +902,23 @@ async function main() {
         </div>`;
       window.dispatchEvent(new Event('ai-call-complete'));
     } catch (err) {
-      outputEl.innerHTML = `<p style="color:var(--c-bad)"><strong>Error:</strong> ${err.message}</p>`;
+      // Gate errors get a friendly handler that re-opens the password modal
+      // instead of a scary red error.
+      if (err.message === 'PREMIUM_REQUIRED' && window.__requestPremiumUnlock) {
+        outputEl.innerHTML = `<p class="muted">⭐ This model needs premium unlock. Opening the password modal…</p>`;
+        const res = await window.__requestPremiumUnlock();
+        if (res && res.tier === 'premium') {
+          // Retry the call automatically
+          outputEl.innerHTML = `<p class="muted">Retrying…</p>`;
+          btnEl.click();
+        } else {
+          outputEl.innerHTML = `<p class="muted">Cancelled. Pick a Haiku model to use without the premium password.</p>`;
+        }
+      } else if (err.message === 'SITE_LOCKED') {
+        outputEl.innerHTML = `<p style="color:var(--c-bad)">Site session expired. Reload the page to re-enter the password.</p>`;
+      } else {
+        outputEl.innerHTML = `<p style="color:var(--c-bad)"><strong>Error:</strong> ${err.message}</p>`;
+      }
     } finally {
       btnEl.disabled = false;
       if (!wasLocked && !wasPaused) fireAnalysis();
@@ -1228,8 +1249,16 @@ function setupTournament(board, fireAnalysis, pauseControl) {
   updateOpeningMoves();
 
   btnOpen.addEventListener('click',  () => modal.hidden = false);
-  btnClose.addEventListener('click', () => modal.hidden = true);
-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+  // Closing the modal must also abort any running tournament and resume the
+  // main analysis engine — otherwise `paused` stays true forever and the user
+  // sees "engine paused" with no obvious way to un-pause.
+  function closeTournamentModal() {
+    if (tournament && tournament.running) tournament.abort();
+    if (pauseControl) pauseControl.resume();
+    modal.hidden = true;
+  }
+  btnClose.addEventListener('click', closeTournamentModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeTournamentModal(); });
 
   limitM.addEventListener('change', () => {
     if (limitM.value === 'depth')    { limitV.value = 10;   limitV.min = 1;   }
@@ -1394,6 +1423,9 @@ function setupTournament(board, fireAnalysis, pauseControl) {
   btnAbort.addEventListener('click', () => {
     if (tournament) tournament.abort();
     live.textContent = 'Aborting after current game…';
+    // Safety net — if the tournament's cleanup events don't fire for some
+    // reason, make sure the main engine isn't stuck paused.
+    if (pauseControl) pauseControl.resume();
   });
 }
 
@@ -1605,6 +1637,108 @@ function gameOverMessage(chess) {
   if (chess.isInsufficientMaterial())return '<strong>Draw</strong> by insufficient material.';
   if (chess.isDraw())               return '<strong>Draw</strong>.';
   return 'Game over.';
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Password gate (server-proxied mode only)
+// ────────────────────────────────────────────────────────────────────────
+//
+// When the site is served by our Node server (server.js), Anthropic API
+// calls flow through /api/ai and are gated by cookies set via /api/gate.
+// This function checks the user's current tier on page load, shows the
+// password modal if they're locked out, and intercepts model picks that
+// require the premium unlock.
+async function wireGateAndCheckTier() {
+  const isProxied = location.protocol === 'http:' || location.protocol === 'https:';
+  if (!isProxied) return;   // file:// — use legacy key entry instead
+
+  const modal    = document.getElementById('gate-modal');
+  const title    = document.getElementById('gate-title');
+  const sub      = document.getElementById('gate-sub');
+  const input    = document.getElementById('gate-input');
+  const status   = document.getElementById('gate-status');
+  const submit   = document.getElementById('gate-submit');
+  const cancelBtn= document.getElementById('gate-cancel');
+  if (!modal || !submit) { console.warn('[gate] modal not in DOM'); return; }
+
+  // Hide the legacy 🔑 Key button — no longer needed.
+  const keyBtn = document.getElementById('global-ai-key');
+  if (keyBtn) keyBtn.hidden = true;
+
+  let pendingResolve = null;
+
+  function openGate({ premium = false, cancellable = false } = {}) {
+    if (premium) {
+      title.textContent = '⭐ Premium unlock — Sonnet/Opus';
+      sub.textContent   = 'Enter the premium password to use Sonnet or Opus models. (Haiku stays available at the basic tier.)';
+      input.placeholder = 'e.g. Dooha18';
+    } else {
+      title.textContent = '🔒 Enter site password';
+      sub.textContent   = 'Ask the site owner for today\'s password. Passwords rotate daily at midnight Central Time.';
+      input.placeholder = 'e.g. 906918';
+    }
+    cancelBtn.hidden = !cancellable;
+    status.textContent = '';
+    input.value = '';
+    modal.hidden = false;
+    setTimeout(() => input.focus(), 50);
+    return new Promise((resolve) => { pendingResolve = resolve; });
+  }
+  function closeGate(result) {
+    modal.hidden = true;
+    if (pendingResolve) { const r = pendingResolve; pendingResolve = null; r(result); }
+  }
+
+  submit.addEventListener('click', async () => {
+    const pw = input.value.trim();
+    if (!pw) { status.textContent = '⚠ type the password'; return; }
+    submit.disabled = true;
+    status.textContent = 'Checking…';
+    try {
+      const res = await AICoach.submitGatePassword(pw);
+      if (res.ok) {
+        status.textContent = `✓ Unlocked: ${res.tier}`;
+        setTimeout(() => closeGate(res), 400);
+      } else {
+        status.textContent = '✗ Wrong password. Try again.';
+      }
+    } catch (err) {
+      status.textContent = `✗ ${err.message}`;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit.click(); });
+  cancelBtn.addEventListener('click', () => closeGate({ ok: false, tier: AICoach.getTier() }));
+
+  // Expose so other code (e.g. model picker) can request premium unlock
+  window.__requestPremiumUnlock = () => openGate({ premium: true, cancellable: true });
+
+  // Initial check — what tier does the user have right now?
+  const tier = await AICoach.refreshTier();
+  if (tier === 'none') {
+    // Block boot until they enter a valid password.
+    await openGate({ premium: false, cancellable: false });
+  }
+
+  // Intercept model-picker changes: if they switch to a non-Haiku model but
+  // only have basic tier, prompt for premium. If they cancel, revert the
+  // select to the cheapest available (Haiku) so subsequent /api/ai calls
+  // won't 402.
+  const modelSelect = document.getElementById('global-ai-model');
+  if (modelSelect) {
+    modelSelect.addEventListener('change', async () => {
+      const m = modelSelect.value;
+      if (!AICoach.isPremiumModel(m)) return;       // Haiku — always fine
+      if (AICoach.getTier() === 'premium') return;  // already unlocked
+      const res = await openGate({ premium: true, cancellable: true });
+      if (!res || res.tier !== 'premium') {
+        // Revert to Haiku 4.5
+        modelSelect.value = 'claude-haiku-4-5';
+        AICoach.setModel('claude-haiku-4-5');
+      }
+    });
+  }
 }
 
 main().catch(err => {

@@ -11,11 +11,19 @@
 
 import { Chess } from '../vendor/chess.js/chess.js';
 
-const KEY_STORAGE    = 'stockfish-explain.anthropic-key';
+const KEY_STORAGE    = 'stockfish-explain.anthropic-key';  // legacy — ignored when PROXY_MODE
 const MODEL_STORAGE  = 'stockfish-explain.anthropic-model';
-// Use an alias that resolves to whatever the current latest is — safer than
-// hardcoding a dated snapshot that may not exist.
-const DEFAULT_MODEL  = 'claude-sonnet-4-6';
+// Default to the cheapest tier. Premium (Sonnet/Opus) requires a second
+// password unlock in the server-proxied flow — see server.js /api/ai.
+const DEFAULT_MODEL  = 'claude-haiku-4-5';
+
+// When the page is served by our own server.js, we proxy every request to
+// Anthropic through /api/ai (so the key stays server-side). When it's opened
+// via file:// or a plain static host, we fall back to the old "paste your own
+// key" behaviour. Detection: absence of window.location.origin being file:
+// or the presence of /api/whoami.
+const PROXY_MODE = (typeof window !== 'undefined')
+  && (window.location.protocol === 'http:' || window.location.protocol === 'https:');
 
 // Known model strings. Users can type any string (including ones newer
 // than this list) in the model input; this list is just for the dropdown.
@@ -99,11 +107,50 @@ export function getSessionCost() {
   return { sessionTotal: sessionCost, callsThisSession: sessionCalls };
 }
 
-export function hasApiKey() { return !!localStorage.getItem(KEY_STORAGE); }
+// ─── legacy direct-API-key helpers (only used when not in PROXY_MODE) ───
+export function hasApiKey() {
+  if (PROXY_MODE) return true;  // server holds the key
+  return !!localStorage.getItem(KEY_STORAGE);
+}
 export function setApiKey(key) { localStorage.setItem(KEY_STORAGE, key); }
 export function clearApiKey() { localStorage.removeItem(KEY_STORAGE); }
 export function getModel() { return localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL; }
 export function setModel(m) { localStorage.setItem(MODEL_STORAGE, m); }
+
+// ─── proxy-mode tier tracking (server tells us on /api/whoami) ───
+// tier: 'none' (locked out), 'basic' (haiku only), 'premium' (all models)
+let currentTier = 'none';
+export function getTier() { return currentTier; }
+export function setTier(t) { currentTier = t; }
+export async function refreshTier() {
+  if (!PROXY_MODE) { currentTier = 'premium'; return currentTier; }
+  try {
+    const r = await fetch('/api/whoami', { credentials: 'include' });
+    const j = await r.json();
+    currentTier = j.tier || 'none';
+  } catch {
+    currentTier = 'none';
+  }
+  return currentTier;
+}
+export async function submitGatePassword(password) {
+  const r = await fetch('/api/gate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ password }),
+  });
+  const j = await r.json();
+  currentTier = j.tier || 'none';
+  return j;
+}
+export async function logout() {
+  await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+  currentTier = 'none';
+}
+export function isPremiumModel(model) {
+  return !String(model || '').toLowerCase().includes('haiku');
+}
 
 /**
  * Phase 1: collect ground truth from Stockfish.
@@ -213,9 +260,11 @@ export function getPromptModes() { return Object.keys(PROMPT_MODES); }
  * system prompt — 'general', 'position', or 'tactics'.
  */
 export async function askCoach({ fen, coachReport, engineLines, recentMoves = [], model = null, mode = 'general' } = {}) {
-  const apiKey = localStorage.getItem(KEY_STORAGE);
-  if (!apiKey) throw new Error('No Anthropic API key set. Click 🔑 Key to enter one.');
   const m = model || getModel();
+  // In proxy mode the server holds the API key. Otherwise fall back to the
+  // legacy browser-held key (file:// dev and old static deploys).
+  const apiKey = PROXY_MODE ? null : localStorage.getItem(KEY_STORAGE);
+  if (!PROXY_MODE && !apiKey) throw new Error('No Anthropic API key set. Click 🔑 Key to enter one.');
   const modeConfig = PROMPT_MODES[mode] || PROMPT_MODES.general;
   const systemPrompt = modeConfig.system;
 
@@ -242,14 +291,23 @@ HEURISTIC CONTEXT (geometry + pawn structure — already verified by static anal
 
 Write the explanation now. Remember: every move you mention must be one of the engine's 5 candidates, and your assessment of who-is-better must match the engine's eval.`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  // Two code paths:
+  //   - PROXY_MODE: POST /api/ai on our own server. Server adds the x-api-key
+  //     header from its env var, checks the cookie tier, forwards to Anthropic.
+  //   - direct:    POST to api.anthropic.com with user-supplied key.
+  const url = PROXY_MODE ? '/api/ai' : 'https://api.anthropic.com/v1/messages';
+  const headers = PROXY_MODE
+    ? { 'content-type': 'application/json' }
+    : {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      };
+  const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
+    headers,
+    credentials: PROXY_MODE ? 'include' : 'omit',
     body: JSON.stringify({
       model: m,
       max_tokens: 1200,
@@ -260,6 +318,13 @@ Write the explanation now. Remember: every move you mention must be one of the e
 
   if (!response.ok) {
     const errText = await response.text();
+    // Special case 402 → premium password required
+    if (response.status === 402) {
+      throw new Error('PREMIUM_REQUIRED');
+    }
+    if (response.status === 401) {
+      throw new Error('SITE_LOCKED');
+    }
     throw new Error(`Anthropic API ${response.status}: ${errText.slice(0, 300)}`);
   }
 

@@ -38,6 +38,7 @@ assets/stockfish/stockfish-avrukhplus.js
 
 # Node / build
 node_modules/
+# package-lock.json IS committed — reproducible builds on Render.
 
 # Private notes
 PRIVATE_*.md
