@@ -268,12 +268,15 @@ async function main() {
 
   // ────────── Engine control <-> UI ──────────
 
-  // Hardware concurrency — set max on thread slider
+  // Hardware concurrency — set max on thread slider. Default to HALF of
+  // available cores so the browser stays snappy and other apps aren't
+  // starved. User can crank it up to maxThreads - 1 if they want.
   const maxThreads = Math.max(1, navigator.hardwareConcurrency || 4);
   ui.rangeThreads.max = String(maxThreads);
-  ui.rangeThreads.value = String(Math.max(1, maxThreads - 1));
+  const defaultThreads = Math.max(1, Math.floor(maxThreads / 2));
+  ui.rangeThreads.value = String(defaultThreads);
   ui.threadsVal.textContent = ui.rangeThreads.value;
-  ui.threadsHw.textContent = `(${maxThreads} cores detected)`;
+  ui.threadsHw.textContent = `(${maxThreads} cores detected · default: half)`;
 
   ui.rangeSkill.addEventListener('input', () => {
     ui.skillVal.textContent = ui.rangeSkill.value;
@@ -308,6 +311,23 @@ async function main() {
   });
   // Initialise the note
   ui.valuesNote.textContent = Values.VALUE_SYSTEMS.default2026.note;
+
+  // Arrow overlay setting — persisted. Default: OFF. Read by explain.js via
+  // window.__arrowMode; changes take effect on next engine update.
+  const ARROW_STORAGE = 'stockfish-explain.arrow-mode';
+  const savedArrowMode = localStorage.getItem(ARROW_STORAGE) || 'off';
+  window.__arrowMode = savedArrowMode;
+  if (ui.selectArrowMode) {
+    ui.selectArrowMode.value = savedArrowMode;
+    ui.selectArrowMode.addEventListener('change', () => {
+      const v = ui.selectArrowMode.value;
+      window.__arrowMode = v;
+      localStorage.setItem(ARROW_STORAGE, v);
+      // Clear any currently-drawn arrows immediately if turned off
+      if (v === 'off' && board && board.drawArrows) board.drawArrows([]);
+      fireAnalysis();
+    });
+  }
 
   ui.selectFlavor.addEventListener('change', async () => {
     const f = ui.selectFlavor.value;
@@ -1128,6 +1148,7 @@ function collectUI() {
     evalGauge:       document.getElementById('eval-gauge'),
     selectValues:    document.getElementById('select-values'),
     valuesNote:      document.getElementById('values-note'),
+    selectArrowMode: document.getElementById('select-arrow-mode'),
 
     whyModal:       document.getElementById('why-modal'),
     whyMove:        document.getElementById('why-move'),

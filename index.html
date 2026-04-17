@@ -128,6 +128,17 @@
     </div>
 
     <div class="setting">
+      <label for="select-arrow-mode">Best-move arrows on board</label>
+      <select id="select-arrow-mode">
+        <option value="off" selected>Off (default) — no arrows on the board</option>
+        <option value="thin">On — thin</option>
+        <option value="normal">On — normal</option>
+        <option value="thick">On — thick</option>
+      </select>
+      <small class="muted">When ON, the engine overlays its top 3 candidate moves as coloured arrows (green = best, blue = 2nd, grey = 3rd).</small>
+    </div>
+
+    <div class="setting">
       <label for="select-values">Piece-value system</label>
       <select id="select-values">
         <option value="default2026" selected>Modern default (2026)</option>

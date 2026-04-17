@@ -70,22 +70,32 @@ export class Explainer {
 
     this._renderPVs(topMoves, stm);
 
-    // Engine-arrow overlay for top 2 lines.
-    // Best move: GREEN, extra-thick so it's obvious at a glance.
-    // Second-best: PALE BLUE, normal thickness.
-    if (best && best.pv && best.pv[0]) {
+    // Engine-arrow overlay for top 3 lines. Default is OFF — users turn it
+    // on in Settings. Size options scale all 3 arrows proportionally.
+    //   off    → no arrows drawn
+    //   thin   → [14, 8, 6]
+    //   normal → [18, 11, 7]
+    //   thick  → [22, 12, 8]  (original feel)
+    const mode = (typeof window !== 'undefined' && window.__arrowMode) || 'off';
+    if (mode === 'off') {
+      // Clear any arrows that were drawn earlier under a different setting
+      this.board.drawArrows([]);
+    } else if (best && best.pv && best.pv[0]) {
+      const widths = mode === 'thin'  ? [14,  8, 6]
+                   : mode === 'thick' ? [22, 12, 8]
+                   :                    [18, 11, 7];  // "normal"
       const shapes = [{
         orig: best.pv[0].slice(0, 2),
         dest: best.pv[0].slice(2, 4),
-        brush: 'green',          // fully opaque green, not pale
-        modifiers: { lineWidth: 22 }, // much thicker than default 10
+        brush: 'green',
+        modifiers: { lineWidth: widths[0] },
       }];
       if (topMoves[1] && topMoves[1].pv && topMoves[1].pv[0]) {
         shapes.push({
           orig: topMoves[1].pv[0].slice(0, 2),
           dest: topMoves[1].pv[0].slice(2, 4),
           brush: 'paleBlue',
-          modifiers: { lineWidth: 12 },
+          modifiers: { lineWidth: widths[1] },
         });
       }
       if (topMoves[2] && topMoves[2].pv && topMoves[2].pv[0]) {
@@ -93,7 +103,7 @@ export class Explainer {
           orig: topMoves[2].pv[0].slice(0, 2),
           dest: topMoves[2].pv[0].slice(2, 4),
           brush: 'paleGrey',
-          modifiers: { lineWidth: 8 },
+          modifiers: { lineWidth: widths[2] },
         });
       }
       this.board.drawArrows(shapes);
@@ -143,13 +153,27 @@ export class Explainer {
     // Wire clicks — each PV move plays every move from index 0 through the
     // clicked one onto the board.
     this.ui.pvLines.querySelectorAll('.pv-move').forEach(span => {
-      span.addEventListener('click', () => {
+      span.addEventListener('click', (e) => {
+        e.stopPropagation();   // don't also trigger the line-level handler
         const pvIdx = +span.dataset.pv;
         const mvIdx = +span.dataset.move;
         const pv = topMoves[pvIdx]?.pv;
         if (!pv) return;
         const slice = pv.slice(0, mvIdx + 1);
         this.board.playUciMoves(slice);
+      });
+    });
+
+    // Clicking anywhere ELSE in the line (rank, score, padding) plays the
+    // entire line up to the max shown. Makes "just play this whole line"
+    // a single tap instead of hunting for the last move span.
+    this.ui.pvLines.querySelectorAll('.pv-line').forEach((lineEl, lineIdx) => {
+      lineEl.style.cursor = 'pointer';
+      lineEl.title = 'Click to play this whole line · click a specific move to stop there';
+      lineEl.addEventListener('click', () => {
+        const pv = topMoves[lineIdx]?.pv;
+        if (!pv || !pv.length) return;
+        this.board.playUciMoves(pv.slice(0, 10));
       });
     });
   }
