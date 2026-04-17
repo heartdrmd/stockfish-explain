@@ -13,6 +13,7 @@ import { coachReport }            from './coach.js';
 import * as AICoach               from './ai-coach.js';
 import { MODEL_SUGGESTIONS }      from './ai-coach.js';
 import { setupEditor }            from './editor.js';
+import * as Dorfman                from './dorfman.js';
 
 async function main() {
   // Wire the API-key modal FIRST — before anything else that might fail.
@@ -135,7 +136,45 @@ async function main() {
           </div>`).join('')}</div>` : ''}
       `;
 
+      // Dorfman's Method — positional verdict + critical moment
+      let dorfmanHTML = '';
+      try {
+        const dr = Dorfman.dorfmanReport(fen);
+        const verdictSide =
+          dr.verdict.sign > 0 ? '<span class="dv-white">White</span>'
+          : dr.verdict.sign < 0 ? '<span class="dv-black">Black</span>'
+          : '<span class="dv-eq">neither side</span>';
+        const chip = (side, txt) => `<span class="dorfman-chip dorfman-chip-${side}">${txt}</span>`;
+        const factorLine = (label, f) => {
+          const s = f.sign > 0 ? chip('w', 'White') : f.sign < 0 ? chip('b', 'Black') : chip('eq', '=');
+          return `<li><strong>${label}:</strong> ${s} — ${f.note}</li>`;
+        };
+        dorfmanHTML = `
+          <div class="dissect-group dorfman-group">
+            <h4>Dorfman's Method — static verdict</h4>
+            <p class="dorfman-verdict"><strong>${verdictSide} is statically better.</strong> ${dr.verdict.dominant}</p>
+            <ul class="dorfman-factors">
+              ${factorLine('1. King safety',       dr.factors.kingSafety)}
+              ${factorLine('2. Material',          dr.factors.material)}
+              ${factorLine('3. Phantom queen trade', dr.factors.queensOff)}
+              ${factorLine('4. Pawn structure',    dr.factors.pawnStructure)}
+              ${dr.factors.pieceCombo.sign ? factorLine('Piece combination (2N+B)', dr.factors.pieceCombo) : ''}
+              ${dr.oppCastle.active ? `<li><strong>Opposite castling:</strong> ${dr.oppCastle.note}</li>` : ''}
+              <li><strong>Plan independence:</strong> ${dr.independence.note}</li>
+            </ul>
+            ${dr.criticalMoment.isCritical
+              ? `<p class="dorfman-critical">⚠ <strong>Critical moment.</strong> ${dr.criticalMoment.note}</p>`
+              : `<p class="muted" style="font-size:12px">${dr.criticalMoment.note}</p>`
+            }
+            <p class="muted" style="font-size:11px">Recommended mode: <strong>${dr.recommendedMode}</strong>${dr.counterMode ? ` · counter: ${dr.counterMode}` : ''}</p>
+          </div>
+        `;
+      } catch (err) {
+        dorfmanHTML = `<p class="muted">Dorfman panel unavailable: ${err.message}</p>`;
+      }
+
       ui.dissectStrategy.innerHTML = `
+        ${dorfmanHTML}
         <div class="dissect-group imb-group">
           <h4>Material & imbalance <span class="imb-system-mini">(${imb.system})</span></h4>
           ${valHTML}
@@ -272,6 +311,9 @@ async function main() {
       board.chess = tmp;
       board.startingFen = tmp.fen();
       board.viewPly = null;
+      // Reset the variation tree to the editor's FEN so scrolling back /
+      // undo / PGN save all start from here.
+      board.tree = new (board.tree.constructor)(tmp.fen());
       board.cg.set({
         fen: tmp.fen(),
         turnColor: tmp.turn() === 'w' ? 'white' : 'black',
@@ -531,27 +573,156 @@ async function main() {
     }
   });
 
+  // Render the variation tree as an inline, lichess-style move list.
+  // Mainline flows left-to-right in rows of two plies (white + black);
+  // sidelines are rendered inline as "(…)" blocks after the ply they
+  // branched from. Left-click a move navigates to it; right-click
+  // opens a context menu (Promote / Delete / Copy PGN).
   function renderMoveList() {
-    const hist = board.chess.history({ verbose: true });
-    const viewPly = board.viewPly ?? hist.length;
-    const rows = [];
-    let num = 1;
-    for (let i = 0; i < hist.length; i += 2) {
-      const white = hist[i];
-      const black = hist[i + 1];
-      rows.push(`<div class="move-num">${num}</div>`);
-      rows.push(`<div class="move ${i+1===viewPly?'current':''}" data-ply="${i+1}">${white ? white.san : ''}</div>`);
-      rows.push(`<div class="move ${i+2===viewPly?'current':''}" data-ply="${i+2}">${black ? black.san : ''}</div>`);
-      num++;
+    const tree = board.tree;
+    const currentPath = tree.currentPath;
+    const parts = [];
+
+    // Recursively render children at a node. Returns an HTML fragment.
+    function renderChildren(node, parentPath, depth, forceNumberOnNext) {
+      if (!node.children.length) return '';
+      const main = node.children[0];
+      const siblings = node.children.slice(1);
+      const mainPath = parentPath + main.id;
+      let out = '';
+
+      // Render mainline move: start a new row on every White move so that
+      // the move list wraps naturally. Black moves get appended to the
+      // current row via the flex container styling.
+      const white = node.ply % 2 === 0;
+      const full  = Math.floor(node.ply / 2) + 1;
+      const needsNum = white || forceNumberOnNext;
+      const numTxt = needsNum
+        ? (white ? `${full}. ` : `${full}... `)
+        : '';
+      const curClass = mainPath === currentPath ? ' current' : '';
+      out += `<span class="mv ${depth === 0 ? 'mv-main' : 'mv-side'}${curClass}" data-path="${mainPath}">`
+           + (numTxt ? `<span class="mv-num">${numTxt}</span>` : '')
+           + `<span class="mv-san">${main.san}</span>`
+           + `</span>`;
+
+      // Sidelines inline after the mainline move
+      for (const sib of siblings) {
+        const sibPath = parentPath + sib.id;
+        const sbWhite = node.ply % 2 === 0;
+        const sbFull  = Math.floor(node.ply / 2) + 1;
+        const sbNum   = sbWhite ? `${sbFull}. ` : `${sbFull}... `;
+        const sibCurrent = sibPath === currentPath ? ' current' : '';
+        out += `<span class="variation">(`
+             + `<span class="mv mv-side${sibCurrent}" data-path="${sibPath}">`
+             + `<span class="mv-num">${sbNum}</span>`
+             + `<span class="mv-san">${sib.san}</span>`
+             + `</span>`
+             + renderChildren(sib, sibPath, depth + 1, false)
+             + `)</span>`;
+      }
+
+      // Recurse into mainline — force a number restatement if siblings pulled
+      // the reader away for a moment.
+      out += renderChildren(main, mainPath, depth, siblings.length > 0);
+      return out;
     }
-    ui.moveList.innerHTML = rows.join('');
-    // Click a move to jump
-    ui.moveList.querySelectorAll('.move').forEach(el => {
-      el.addEventListener('click', () => {
-        const ply = +el.dataset.ply;
-        if (!Number.isNaN(ply)) board.goToPly(ply);
+
+    const body = renderChildren(tree.root, '', 0, false);
+    ui.moveList.innerHTML = body || '<span class="muted">No moves yet.</span>';
+
+    // Click → navigate to that node
+    ui.moveList.querySelectorAll('.mv').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const path = el.dataset.path;
+        if (path == null) return;
+        navigateToTreePath(path);
+      });
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openMoveContextMenu(e, el.dataset.path);
       });
     });
+  }
+
+  // Replay chess.js up to `path` and update UI. Treats the tree path's
+  // nodes as authoritative; chess.js is rebuilt from startingFen + path.
+  function navigateToTreePath(path) {
+    const tree = board.tree;
+    const nodes = tree.nodesAlong(path);
+    const replay = new Chess(board.startingFen);
+    for (const n of nodes) {
+      const uci = n.uci;
+      try {
+        replay.move({ from: uci.slice(0,2), to: uci.slice(2,4), promotion: uci.length>4 ? uci[4] : undefined });
+      } catch { break; }
+    }
+    board.chess = replay;
+    tree.currentPath = path;
+    // If we're on the mainline, keep viewPly behavior; otherwise just
+    // render the position directly.
+    board.viewPly = null;
+    board.cg.set({
+      fen: replay.fen(),
+      turnColor: replay.turn() === 'w' ? 'white' : 'black',
+      lastMove: nodes.length ? [nodes[nodes.length-1].uci.slice(0,2), nodes[nodes.length-1].uci.slice(2,4)] : undefined,
+      check: replay.inCheck() ? (replay.turn() === 'w' ? 'white' : 'black') : false,
+      movable: { color: 'both', dests: toDestsFrom(replay) },
+    });
+    board.dispatchEvent(new CustomEvent('nav', { detail: { path, live: true } }));
+  }
+
+  // Right-click context menu on a move node
+  function openMoveContextMenu(e, path) {
+    // Remove any existing menu
+    document.querySelectorAll('.move-context-menu').forEach(el => el.remove());
+    if (!path) return;
+    const tree = board.tree;
+    const parentPath = tree.parentPath(path);
+    const parent = parentPath == null ? null : tree.nodeAtPath(parentPath);
+    const id = path.slice(-2);
+    const isMainline = parent && parent.children.length > 0 && parent.children[0].id === id && tree.isMainlinePath(parentPath);
+
+    const menu = document.createElement('div');
+    menu.className = 'move-context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top  = e.clientY + 'px';
+    const items = [
+      { label: '⬆ Promote to mainline', disabled: isMainline, action: () => {
+        tree.promoteVariation(path);
+        renderMoveList();
+      }},
+      { label: '🗑 Delete from here', action: () => {
+        tree.deleteAt(path);
+        // If we deleted the current branch, navigate to the new current path
+        navigateToTreePath(tree.currentPath);
+        renderMoveList();
+      }},
+      { label: '📋 Copy PGN (with variations)', action: () => {
+        navigator.clipboard.writeText(tree.pgn()).catch(() => {});
+      }},
+    ];
+    for (const item of items) {
+      const btn = document.createElement('button');
+      btn.className = 'mc-item';
+      btn.textContent = item.label;
+      if (item.disabled) btn.disabled = true;
+      btn.addEventListener('click', () => {
+        item.action();
+        menu.remove();
+      });
+      menu.appendChild(btn);
+    }
+    document.body.appendChild(menu);
+    // Dismiss on outside click
+    setTimeout(() => {
+      const off = (ev) => {
+        if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', off); }
+      };
+      document.addEventListener('click', off);
+    }, 0);
   }
 
   // ────────── Navigation controls ──────────
@@ -768,6 +939,7 @@ async function main() {
     board.chess = tmp;
     board.startingFen = tmp.fen();
     board.viewPly = null;
+    board.tree = new (board.tree.constructor)(tmp.fen());
     board.cg.set({
       fen: board.chess.fen(),
       turnColor: board.chess.turn() === 'w' ? 'white' : 'black',
@@ -783,22 +955,23 @@ async function main() {
     ui.narrationText.textContent = `New starting position loaded. Side to move: ${board.chess.turn() === 'w' ? 'White' : 'Black'}. Undo now goes back to this position.`;
   });
 
-  // Save PGN — downloads the current main-board game as a .pgn file
+  // Save PGN — downloads the current variation tree as a standards-
+  // compliant PGN, with all sidelines preserved as parenthetical
+  // variations (lichess-compatible output).
   document.getElementById('btn-save-pgn').addEventListener('click', () => {
-    const hist = board.chess.history({ verbose: true });
-    if (!hist.length) { flashPill(ui.engineMode, 'No moves yet', 1200); return; }
-    let pgn = '';
-    pgn += `[Event "Stockfish.explain analysis"]\n`;
-    pgn += `[Date "${new Date().toISOString().slice(0,10).replace(/-/g,'.')}"]\n`;
-    pgn += `[White "User"]\n`;
-    pgn += `[Black "User"]\n`;
-    pgn += `[Result "*"]\n`;
-    pgn += `\n`;
-    for (let i = 0; i < hist.length; i++) {
-      if (i % 2 === 0) pgn += `${Math.floor(i/2) + 1}. `;
-      pgn += hist[i].san + ' ';
+    const tree = board.tree;
+    if (!tree.root.children.length) {
+      flashPill(ui.engineMode, 'No moves yet', 1200);
+      return;
     }
-    pgn += '*\n';
+    const pgn = tree.pgn({
+      tags: {
+        Event: 'Stockfish.explain analysis',
+        White: 'User',
+        Black: 'User',
+        Result: '*',
+      },
+    });
     downloadBlob(pgn, `game-${Date.now()}.pgn`, 'application/x-chess-pgn');
   });
 

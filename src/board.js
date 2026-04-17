@@ -3,6 +3,7 @@
 import { Chessground } from '../vendor/chessground/chessground.js';
 import { Chess }       from '../vendor/chess.js/chess.js';
 import { showPromotion } from './promotion.js';
+import { GameTree }     from './tree.js';
 
 export class BoardController extends EventTarget {
   constructor(rootEl, overlayEl) {
@@ -13,15 +14,16 @@ export class BoardController extends EventTarget {
     // ** Truth: `chess` holds the latest *live* position.
     // `viewPly` is which ply the user is looking at; null = live/end.
     this.chess = new Chess();
-    // The FEN we started the game from. Matters when the user pasted a
-    // custom FEN or used the position editor — scrolling back to ply 0
-    // must show THAT position, not the standard chess starting array.
     this.startingFen = this.chess.fen();
-    this.viewPly = null;   // int: show position AFTER this many plies; null = live
+    this.viewPly = null;
     this.cg = null;
     this.orientation = 'white';
-    // Analysis mode: both sides controlled by the user, engine just observes.
     this.playerColor = 'both';
+    // Variation tree — mirrors every move played into a branching
+    // structure so the user can explore sidelines without losing the
+    // mainline. `tree.currentPath` is the path of the currently-viewed
+    // node. Mainline = children[0] at every level.
+    this.tree = new GameTree(this.startingFen);
   }
 
   init() {
@@ -159,15 +161,33 @@ export class BoardController extends EventTarget {
   isAtLive()   { return this.viewPly === null || this.viewPly >= this.chess.history().length; }
   totalPlies() { return this.chess.history().length; }
 
+  /** Sync tree.currentPath to match the first `n` plies of chess.history
+   *  along the tree's mainline. Called during navigation. */
+  _syncTreePathToPly(n) {
+    // Walk down children[0] at each level to ply n (or as far as tree allows).
+    let path = '';
+    let node = this.tree.root;
+    const target = n == null ? this.chess.history().length : n;
+    for (let i = 0; i < target; i++) {
+      if (!node.children.length) break;
+      const child = node.children[0];
+      path += child.id;
+      node = child;
+    }
+    this.tree.currentPath = path;
+  }
+
   goToPly(n /* int or null for live */) {
     const total = this.totalPlies();
     if (n == null || n >= total) {
       this.viewPly = null;
+      this._syncTreePathToPly(total);
       this._renderPosition(this.chess.fen(), lastMoveFromHistory(this.chess));
       this._allowUserToMoveIfTheirTurn();
     } else {
       n = Math.max(0, n);
       this.viewPly = n;
+      this._syncTreePathToPly(n);
       // Replay from the GAME's starting FEN, not the standard chess array —
       // otherwise a pasted position flashes the default start when the user
       // scrolls back.
@@ -298,6 +318,17 @@ export class BoardController extends EventTarget {
       this.cg.setPieces(pieces);
     }
 
+    // Mirror the move into the variation tree. If the move matches an
+    // existing child of the current node, we navigate to it; otherwise a
+    // new branch is added (which will render as a sideline in the move
+    // list and be preserved in PGN export).
+    const uci = orig + dest + (promotion || '');
+    const addRes = this.tree.addNode(
+      { uci, san: move.san, fen: this.chess.fen() },
+      this.tree.currentPath,
+    );
+    if (addRes) this.tree.currentPath = addRes.path;
+
     this._syncToChessground([orig, dest]);
     this.dispatchEvent(new CustomEvent('move', { detail: { move, fen: this.chess.fen() } }));
   }
@@ -333,6 +364,13 @@ export class BoardController extends EventTarget {
       p.set(to, { role, color, promoted: true });
       this.cg.setPieces(p);
     }
+    // Mirror into variation tree
+    const fullUci = from + to + (promotion || '');
+    const addRes = this.tree.addNode(
+      { uci: fullUci, san: move.san, fen: this.chess.fen() },
+      this.tree.currentPath,
+    );
+    if (addRes) this.tree.currentPath = addRes.path;
     this._syncToChessground([from, to]);
     this.dispatchEvent(new CustomEvent('move', { detail: { move, fen: this.chess.fen(), byEngine: true } }));
   }
@@ -346,6 +384,7 @@ export class BoardController extends EventTarget {
     this.chess.reset();
     this.startingFen = this.chess.fen();   // back to standard start
     this.viewPly = null;
+    this.tree = new GameTree(this.startingFen);
     this.cg.set({
       fen: this.chess.fen(),
       turnColor: 'white',
@@ -362,6 +401,12 @@ export class BoardController extends EventTarget {
     const undone = this.chess.undo();
     if (!undone) return null;
     this.viewPly = null;
+    // Move tree cursor back one node on the current path. (Keeps the
+    // undone move in the tree — user can re-enter that branch later if
+    // they want.)
+    if (this.tree.currentPath) {
+      this.tree.currentPath = this.tree.parentPath(this.tree.currentPath) || '';
+    }
     this._syncToChessground(lastMoveFromHistory(this.chess));
     this.dispatchEvent(new CustomEvent('undo'));
     return true;
@@ -386,14 +431,15 @@ export class BoardController extends EventTarget {
     if (!uciList || !uciList.length) return false;
 
     if (!animate) {
-      // Fast path: no per-move animation. Apply to chess.js, render final.
       for (const uci of uciList) {
-        const from = uci.slice(0, 2);
-        const to   = uci.slice(2, 4);
+        const from = uci.slice(0, 2), to = uci.slice(2, 4);
         const promotion = uci.length > 4 ? uci[4] : undefined;
         let move;
         try { move = this.chess.move({ from, to, promotion }); } catch { return false; }
         if (!move) return false;
+        const full = from + to + (promotion || '');
+        const addRes = this.tree.addNode({ uci: full, san: move.san, fen: this.chess.fen() }, this.tree.currentPath);
+        if (addRes) this.tree.currentPath = addRes.path;
       }
       const last = uciList[uciList.length - 1];
       this._syncToChessground([last.slice(0,2), last.slice(2,4)]);
@@ -403,8 +449,7 @@ export class BoardController extends EventTarget {
 
     // Animated path (for PV extrapolations, etc.)
     for (const uci of uciList) {
-      const from = uci.slice(0, 2);
-      const to   = uci.slice(2, 4);
+      const from = uci.slice(0, 2), to = uci.slice(2, 4);
       const promotion = uci.length > 4 ? uci[4] : undefined;
       let move;
       try { move = this.chess.move({ from, to, promotion }); } catch { return false; }
@@ -417,6 +462,9 @@ export class BoardController extends EventTarget {
         p.set(to, { role, color, promoted: true });
         this.cg.setPieces(p);
       }
+      const full = from + to + (promotion || '');
+      const addRes = this.tree.addNode({ uci: full, san: move.san, fen: this.chess.fen() }, this.tree.currentPath);
+      if (addRes) this.tree.currentPath = addRes.path;
     }
     const last = uciList[uciList.length - 1];
     this._syncToChessground([last.slice(0,2), last.slice(2,4)]);
