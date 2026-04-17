@@ -129,6 +129,7 @@ export class Engine extends EventTarget {
     this.multipv    = 3;
     this.skill      = 20;
     this.threads    = 1;
+    this.hashMB     = 256;      // transposition-table size, MB
 
     // Capture the UCI banner (`id name …`) so callers can prove which engine is loaded.
     this.uciId      = null;
@@ -196,7 +197,7 @@ export class Engine extends EventTarget {
     if (timedOut) { this.terminate(); throw new Error(`Engine '${flavor}' failed to boot within ${bootTimeoutMs/1000}s`); }
     this._send(`setoption name MultiPV value ${this.multipv}`);
     this._send(`setoption name Threads value ${this.threads}`);
-    this._send('setoption name Hash value 256');           // 256 MB transposition table
+    this._send(`setoption name Hash value ${this.hashMB}`);  // transposition-table size
     this._send('setoption name UCI_AnalyseMode value true'); // cleaner analysis output
     this._send('setoption name Use NNUE value true');        // belt-and-braces
     this._send(`setoption name Skill Level value ${this.skill}`);
@@ -229,6 +230,21 @@ export class Engine extends EventTarget {
   setThreads(n) {
     this.threads = n;
     if (this.ready) this._send(`setoption name Threads value ${n}`);
+  }
+
+  /** Resize Stockfish's transposition table ("hash"). Unit = MB. */
+  setHash(mb) {
+    this.hashMB = Math.max(1, +mb | 0);
+    if (this.ready) this._send(`setoption name Hash value ${this.hashMB}`);
+  }
+
+  /** Clear the transposition table — forgets all previously-analysed
+   *  positions. Sent as UCI `ucinewgame` which Stockfish treats as
+   *  "new game, wipe cache". */
+  clearHash() {
+    if (!this.ready) return;
+    this._send('ucinewgame');
+    this._send('isready');
   }
 
   _send(cmd) {

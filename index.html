@@ -129,6 +129,19 @@
     </div>
 
     <div class="setting">
+      <label for="select-hash">Transposition cache (Hash)
+        <small class="muted" id="hash-hw"></small>
+      </label>
+      <div class="row-compact">
+        <select id="select-hash">
+          <!-- Populated by main.js based on detected RAM -->
+        </select>
+        <button id="btn-clear-hash" class="btn small" title="Forget all previously-analysed positions">🧹 Clear</button>
+      </div>
+      <small class="muted">Stockfish stores analysed positions here. Bigger = remembers more lines = faster on repeated positions, but uses more RAM.</small>
+    </div>
+
+    <div class="setting">
       <label for="select-arrow-mode">Best-move arrows on board</label>
       <select id="select-arrow-mode">
         <option value="off" selected>Off (default) — no arrows on the board</option>

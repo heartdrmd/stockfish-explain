@@ -319,6 +319,48 @@ async function main() {
   // Initialise the note
   ui.valuesNote.textContent = Values.VALUE_SYSTEMS.default2026.note;
 
+  // ─── Hash (transposition table) size picker + clear button ────────
+  // navigator.deviceMemory gives approximate RAM in GB (Chrome / Edge /
+  // Opera; Safari & Firefox return undefined). Defaults to 4 GB if
+  // unknown. Cap the offered sizes at 2/3 of detected RAM AND at 1024 MB
+  // (WASM heap in most browsers is ~1–2 GB).
+  const detectedRamGB = navigator.deviceMemory || 4;   // undefined → assume 4 GB
+  const maxHashMB = Math.min(1024, Math.floor(detectedRamGB * 1024 * 2 / 3));
+  const ALL_HASH_SIZES = [32, 64, 128, 256, 512, 1024];
+  const hashSel  = document.getElementById('select-hash');
+  const hashHw   = document.getElementById('hash-hw');
+  const hashClr  = document.getElementById('btn-clear-hash');
+  const HASH_STORAGE = 'stockfish-explain.hash-mb';
+  const savedHash = parseInt(localStorage.getItem(HASH_STORAGE) || '', 10);
+  // Descending list so max appears first — matches the user's request.
+  const validSizes = ALL_HASH_SIZES.filter(s => s <= maxHashMB).sort((a, b) => b - a);
+  if (hashSel) {
+    hashSel.innerHTML = '';
+    for (const mb of validSizes) {
+      const o = document.createElement('option');
+      o.value = String(mb);
+      o.textContent = mb >= 1024 ? `${mb/1024} GB` : `${mb} MB`;
+      hashSel.appendChild(o);
+    }
+    const initial = (savedHash && validSizes.includes(savedHash))
+      ? savedHash
+      : (validSizes.includes(256) ? 256 : validSizes[validSizes.length - 1]);
+    hashSel.value = String(initial);
+    engine.setHash(initial);
+    hashHw.textContent = `(~${detectedRamGB} GB RAM · max offered: ${maxHashMB} MB)`;
+    hashSel.addEventListener('change', () => {
+      const mb = +hashSel.value;
+      engine.setHash(mb);
+      localStorage.setItem(HASH_STORAGE, String(mb));
+    });
+  }
+  if (hashClr) {
+    hashClr.addEventListener('click', () => {
+      engine.clearHash();
+      flashPill(ui.engineMode, 'Cache cleared', 1000);
+    });
+  }
+
   // Arrow overlay setting — persisted. Default: OFF. Read by explain.js via
   // window.__arrowMode; changes take effect on next engine update.
   const ARROW_STORAGE = 'stockfish-explain.arrow-mode';
