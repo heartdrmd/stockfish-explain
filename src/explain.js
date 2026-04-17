@@ -253,8 +253,22 @@ function formatNodes(n) {
   return String(n);
 }
 
+// Read the fullmove counter + side-to-move from the chess.js position's
+// CURRENT FEN — not from ply count. This is what lets threat mode (with
+// fullmove bumped) and mid-game FEN loads show the correct move number.
+function fullmoveAndSide(chess) {
+  const parts = chess.fen().split(' ');
+  return {
+    side: parts[1] || 'w',                         // 'w' or 'b'
+    fullmove: parseInt(parts[5] || '1', 10) || 1,
+  };
+}
+
 function uciLineToSan(chess, uciMoves, max = 10) {
   const parts = [];
+  // Snapshot starting state BEFORE any moves are played — that's the
+  // move number the first PV move belongs to.
+  let { side, fullmove } = fullmoveAndSide(chess);
   for (let i = 0; i < Math.min(uciMoves.length, max); i++) {
     const uci = uciMoves[i];
     const from = uci.slice(0, 2), to = uci.slice(2, 4);
@@ -262,13 +276,11 @@ function uciLineToSan(chess, uciMoves, max = 10) {
     let mv;
     try { mv = chess.move({ from, to, promotion }); } catch { break; }
     if (!mv) break;
-    const ply = chess.history().length;
-    if (ply % 2 === 1) {
-      const moveNum = Math.ceil(ply / 2);
-      parts.push(`${moveNum}.${mv.san}`);
-    } else {
-      parts.push(mv.san);
-    }
+    if (side === 'w') parts.push(`${fullmove}. ${mv.san}`);
+    else              parts.push(`${fullmove}... ${mv.san}`);
+    // Advance turn / fullmove for next iteration
+    if (side === 'w') side = 'b';
+    else              { side = 'w'; fullmove++; }
   }
   return parts.join(' ');
 }
@@ -277,6 +289,7 @@ function uciLineToSan(chess, uciMoves, max = 10) {
  *  be clicked to play it on the real board. */
 function uciLineToClickableSan(chess, uciMoves, max, pvIdx) {
   const parts = [];
+  let { side, fullmove } = fullmoveAndSide(chess);
   for (let i = 0; i < Math.min(uciMoves.length, max); i++) {
     const uci = uciMoves[i];
     const from = uci.slice(0, 2), to = uci.slice(2, 4);
@@ -284,11 +297,12 @@ function uciLineToClickableSan(chess, uciMoves, max, pvIdx) {
     let mv;
     try { mv = chess.move({ from, to, promotion }); } catch { break; }
     if (!mv) break;
-    const ply = chess.history().length;
-    const prefix = (ply % 2 === 1) ? `${Math.ceil(ply / 2)}.` : '';
+    const prefix = side === 'w' ? `${fullmove}. ` : `${fullmove}... `;
     parts.push(
       `${prefix}<span class="pv-move" data-pv="${pvIdx}" data-move="${i}" title="Click to play up to here">${mv.san}</span>`
     );
+    if (side === 'w') side = 'b';
+    else              { side = 'w'; fullmove++; }
   }
   return parts.join(' ');
 }

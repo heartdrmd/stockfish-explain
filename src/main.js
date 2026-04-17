@@ -583,6 +583,12 @@ async function main() {
       case 'Home':       board.toStart();  e.preventDefault(); break;
       case 'End':        board.toEnd();    e.preventDefault(); break;
       case 'f': case 'F': board.flipBoard(); break;
+      case 'x': case 'X':
+        // Threat toggle — same as clicking the 🎯 THREAT button.
+        // (Matches lichess keyboard shortcut.)
+        document.getElementById('btn-threat')?.click();
+        e.preventDefault();
+        break;
     }
   });
 
