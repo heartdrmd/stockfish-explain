@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: stockfish-explain
+    runtime: static
+    # Pull the 12 full-NNUE 108 MB WASMs from the GitHub Release at build time.
+    # GitHub rejects >100 MB files in a repo, so they live as release assets.
+    # This build step populates assets/stockfish/ with everything (lite files
+    # are already in the repo).
+    buildCommand: "bash scripts/fetch-full-wasms.sh"
+    staticPublishPath: "."
+    # These two headers enable SharedArrayBuffer, which Stockfish needs for
+    # multi-threaded search. GitHub Pages can't set headers — that's why the
+    # Pages build disables the full-net options. Render has no such limit.
+    headers:
+      - path: "/*"
+        name: Cross-Origin-Opener-Policy
+        value: same-origin
+      - path: "/*"
+        name: Cross-Origin-Embedder-Policy
+        value: require-corp
+      # The two above enable cross-origin isolation. The next two let the
+      # WASM binaries be loaded as cross-origin resources while still being
+      # usable inside the isolated context.
+      - path: "/assets/stockfish/*"
+        name: Cross-Origin-Resource-Policy
+        value: cross-origin
+      - path: "/*.wasm"
+        name: Content-Type
+        value: application/wasm
+    # Tell Render to SPA-fall-back nothing — it's a plain static site.
+    routes:
+      - type: rewrite
+        source: /replay
+        destination: /replay.html
