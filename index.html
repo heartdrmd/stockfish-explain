@@ -30,6 +30,7 @@
       <button id="btn-restart" class="btn" title="Restart engine if stuck">♻ Restart</button>
       <button id="btn-copy-fen"  class="btn" title="Copy current position FEN to clipboard">📋 FEN</button>
       <button id="btn-paste-fen" class="btn" title="Paste a FEN to load a position">📥 Load FEN</button>
+      <button id="btn-editor"   class="btn" title="Set up any position on the board (new starting position)">🛠 Setup</button>
       <button id="btn-save-pgn"  class="btn" title="Download the current game as a PGN file">💾 PGN</button>
       <span id="engine-mode"  class="pill" title="Current engine + threads">loading…</span>
 
@@ -438,6 +439,34 @@
       <div id="tourn-live" class="tourn-live muted"></div>
 
       <div id="tourn-log" class="tourn-log"></div>
+    </div>
+  </div>
+
+  <!-- Board editor — set up any position, which then becomes the new
+       starting position (undo / scroll-back cannot go earlier). -->
+  <div id="editor-modal" class="modal" hidden>
+    <div class="modal-card modal-wide">
+      <button class="modal-close editor-close">×</button>
+      <h3>🛠 Setup position</h3>
+      <p class="muted">Pick a piece from the palette, click a board square to place it. Pick 🗑 trash to remove a piece. Apply makes this the new starting position.</p>
+
+      <div class="editor-palette"></div>
+
+      <div id="editor-board" class="editor-board"></div>
+
+      <div class="editor-opts">
+        <label><input type="radio" name="editor-turn" value="w" checked> White to move</label>
+        <label><input type="radio" name="editor-turn" value="b"> Black to move</label>
+      </div>
+
+      <p id="editor-status" class="muted" style="font-family:var(--font-mono);font-size:11px;word-break:break-all;min-height:14px"></p>
+
+      <div class="editor-actions">
+        <button id="editor-cancel"  class="btn">Cancel</button>
+        <button id="editor-clear"   class="btn">Clear board</button>
+        <button id="editor-standard" class="btn">Standard start</button>
+        <button id="editor-apply"   class="btn" style="background:var(--c-secondary);color:white">Apply</button>
+      </div>
     </div>
   </div>
 
