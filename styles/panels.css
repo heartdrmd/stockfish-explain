@@ -1460,3 +1460,32 @@ select.coach-model-input:focus { outline: none; border-color: var(--c-primary); 
   color: var(--c-text);
   cursor: pointer;
 }
+
+/* Castling-rights checkboxes inside the position editor */
+.editor-castle {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.editor-castle-label { color: var(--c-muted); font-weight: 600; }
+.editor-castle-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.editor-castle-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font-san);
+  font-weight: 600;
+}

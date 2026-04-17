@@ -501,7 +501,9 @@ async function main() {
       const fen = rebuildFenAtPly(board.chess, board.viewPly);
       explainer.setFen(fen);
       engine.stop();
-      if (engineReady) engine.start(fen, searchLimits());
+      // Respect the locked/paused state — scrolling through history
+      // must not revive a manually-stopped engine.
+      if (engineReady && !locked && !paused) engine.start(fen, searchLimits());
     }
   });
 

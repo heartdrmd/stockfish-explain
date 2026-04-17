@@ -141,7 +141,12 @@ export function setupEditor(onApply) {
   });
 
   // ─── action buttons ───
-  clearBtn.addEventListener('click', () => { pieces = {}; renderBoard(); validateAndSetStatus(); });
+  clearBtn.addEventListener('click', () => {
+    pieces = {};
+    syncCastleCheckboxes();   // all false
+    renderBoard();
+    validateAndSetStatus();
+  });
   standardBtn.addEventListener('click', () => {
     pieces = {};
     const back = ['R','N','B','Q','K','B','N','R'];
@@ -153,6 +158,7 @@ export function setupEditor(onApply) {
     }
     turnToMove = 'w';
     modal.querySelector('input[name="editor-turn"][value="w"]').checked = true;
+    syncCastleCheckboxes();   // all four auto-ticked
     renderBoard();
     validateAndSetStatus();
   });
@@ -180,13 +186,38 @@ export function setupEditor(onApply) {
       if (empty) row += empty;
       rows.push(row);
     }
+    // Castling: combine user checkbox overrides with piece-position legality.
+    // A right is granted only if BOTH the checkbox is ticked AND the king +
+    // rook are still on their home squares (otherwise it would be a blatantly
+    // illegal FEN that Stockfish would just strip anyway).
     let castling = '';
-    if (pieces.e1 === 'K' && pieces.h1 === 'R') castling += 'K';
-    if (pieces.e1 === 'K' && pieces.a1 === 'R') castling += 'Q';
-    if (pieces.e8 === 'k' && pieces.h8 === 'r') castling += 'k';
-    if (pieces.e8 === 'k' && pieces.a8 === 'r') castling += 'q';
+    const cb = (id) => {
+      const el = document.getElementById(id);
+      return el ? el.checked : true;
+    };
+    if (cb('castle-K') && pieces.e1 === 'K' && pieces.h1 === 'R') castling += 'K';
+    if (cb('castle-Q') && pieces.e1 === 'K' && pieces.a1 === 'R') castling += 'Q';
+    if (cb('castle-k') && pieces.e8 === 'k' && pieces.h8 === 'r') castling += 'k';
+    if (cb('castle-q') && pieces.e8 === 'k' && pieces.a8 === 'r') castling += 'q';
     if (!castling) castling = '-';
     return `${rows.join('/')} ${turnToMove} ${castling} - 0 1`;
+  }
+
+  // Re-validate whenever any castling checkbox flips
+  ['castle-K','castle-Q','castle-k','castle-q'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', validateAndSetStatus);
+  });
+
+  // Keep checkbox state in sync with current piece placement — auto-tick
+  // the rights that are STRUCTURALLY possible (K+R on home squares) so the
+  // user starts from a sensible default and only unticks "we already castled".
+  function syncCastleCheckboxes() {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.checked = v; };
+    set('castle-K', pieces.e1 === 'K' && pieces.h1 === 'R');
+    set('castle-Q', pieces.e1 === 'K' && pieces.a1 === 'R');
+    set('castle-k', pieces.e8 === 'k' && pieces.h8 === 'r');
+    set('castle-q', pieces.e8 === 'k' && pieces.a8 === 'r');
   }
   function buildAndValidateFen() {
     const wk = Object.values(pieces).filter(p => p === 'K').length;
@@ -216,6 +247,7 @@ export function setupEditor(onApply) {
   // ─── open controller ───
   function open(currentFen) {
     pieces = {};
+    let castleStr = '';
     try {
       const fen = new Chess(currentFen).fen();
       const boardPart = fen.split(' ')[0];
@@ -230,8 +262,19 @@ export function setupEditor(onApply) {
         }
       }
       turnToMove = fen.split(' ')[1] || 'w';
+      castleStr  = fen.split(' ')[2] || '';
     } catch {}
     modal.querySelector(`input[name="editor-turn"][value="${turnToMove}"]`).checked = true;
+
+    // Seed castling checkboxes from the CURRENT position's FEN — so if you
+    // open the editor after you've already castled kingside, the White O-O
+    // box comes pre-unchecked. Lichess behaves the same way.
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.checked = v; };
+    set('castle-K', castleStr.includes('K'));
+    set('castle-Q', castleStr.includes('Q'));
+    set('castle-k', castleStr.includes('k'));
+    set('castle-q', castleStr.includes('q'));
+
     renderBoard();
     validateAndSetStatus();
     modal.hidden = false;

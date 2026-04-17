@@ -474,6 +474,19 @@
         <label><input type="radio" name="editor-turn" value="b"> Black to move</label>
       </div>
 
+      <!-- Castling rights — auto-inferred from king/rook home squares on
+           open, but the user can override here (e.g. mark White as having
+           already castled kingside, etc.). -->
+      <div class="editor-castle">
+        <span class="editor-castle-label">Castling rights (uncheck if already castled):</span>
+        <div class="editor-castle-row">
+          <label><input type="checkbox" id="castle-K"> White O-O</label>
+          <label><input type="checkbox" id="castle-Q"> White O-O-O</label>
+          <label><input type="checkbox" id="castle-k"> Black O-O</label>
+          <label><input type="checkbox" id="castle-q"> Black O-O-O</label>
+        </div>
+      </div>
+
       <p id="editor-status" class="muted" style="font-family:var(--font-mono);font-size:11px;word-break:break-all;min-height:14px"></p>
 
       <div class="editor-actions">
