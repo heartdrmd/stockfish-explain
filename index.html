@@ -154,21 +154,6 @@
       <small class="muted">When ON, the engine overlays its top 3 candidate moves as coloured arrows (green = best, blue = 2nd, grey = 3rd).</small>
     </div>
 
-    <div class="setting">
-      <label for="select-values">Piece-value system</label>
-      <select id="select-values">
-        <option value="default2026" selected>Modern default (2026)</option>
-        <option value="classical">Classical (1/3/3/5/9)</option>
-        <option value="avrukh">Avrukh (GM practical)</option>
-        <option value="kaufman1999">Kaufman 1999</option>
-        <option value="kaufman2021">Kaufman 2021 (phase-aware)</option>
-        <option value="berliner">Berliner ("The System")</option>
-        <option value="alphazero">AlphaZero-derived</option>
-        <option value="stockfishClassical">Stockfish (pre-NNUE)</option>
-      </select>
-      <small class="muted" id="values-note">Used for the Imbalance analysis. Bishop pair bonus adjusts by openness (open/semi/closed) based on pawn count.</small>
-      <small class="muted" style="color: var(--c-accent); font-style: italic;">⚠ This only changes the Position tab's imbalance panel — it does NOT affect Stockfish's own NNUE evaluation or move choices.</small>
-    </div>
   </section>
 
   <main class="uniboard">

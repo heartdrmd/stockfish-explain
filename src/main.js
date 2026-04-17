@@ -337,16 +337,9 @@ async function main() {
   });
   ui.limitValue.addEventListener('change', () => fireAnalysis());
 
-  // Value-system selector: re-render the Position tab on change
-  ui.selectValues.addEventListener('change', () => {
-    valueSystem = ui.selectValues.value;
-    renderDissection(board.fen());
-    if (Values.VALUE_SYSTEMS[valueSystem]) {
-      ui.valuesNote.textContent = Values.VALUE_SYSTEMS[valueSystem].note;
-    }
-  });
-  // Initialise the note
-  ui.valuesNote.textContent = Values.VALUE_SYSTEMS.default2026.note;
+  // (Piece-value-system selector removed — it only influenced the Position
+  // tab's imbalance panel and was taking up header/drawer space.
+  // `valueSystem` remains pinned to the 2026 default for that panel.)
 
   // ─── Hash (transposition table) size picker + clear button ────────
   // navigator.deviceMemory gives approximate RAM in GB (Chrome / Edge /
@@ -1415,8 +1408,6 @@ function collectUI() {
     kbdMove:         document.getElementById('kbd-move'),
     boardArea:       document.querySelector('.board-area'),
     evalGauge:       document.getElementById('eval-gauge'),
-    selectValues:    document.getElementById('select-values'),
-    valuesNote:      document.getElementById('values-note'),
     selectArrowMode: document.getElementById('select-arrow-mode'),
 
     whyModal:       document.getElementById('why-modal'),
