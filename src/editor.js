@@ -105,13 +105,23 @@ export function setupEditor(onApply) {
   selectPiece('K');
 
   // ─── clicking board squares ───
+  //   • selected = trash → always erase
+  //   • selected = piece, square is EMPTY or has a DIFFERENT piece → place it
+  //   • selected = piece, square already has the SAME piece → toggle it off
+  //     (matches lichess behaviour; lets the user un-place mistakes in one click)
   boardEl.addEventListener('click', (e) => {
     const cell = e.target.closest('.editor-sq');
     if (!cell) return;
     const sq = cell.dataset.sq;
-    if (selectedPiece === '') delete pieces[sq];
-    else                      pieces[sq] = selectedPiece;
+    if (selectedPiece === '') {
+      delete pieces[sq];
+    } else if (pieces[sq] === selectedPiece) {
+      delete pieces[sq];        // same piece already there → erase (toggle)
+    } else {
+      pieces[sq] = selectedPiece;
+    }
     renderBoard();
+    syncCastleCheckboxes();     // king/rook might have moved off home squares
     validateAndSetStatus();
   });
   // Right-click a square to erase without needing to pick trash

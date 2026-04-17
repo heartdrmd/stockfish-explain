@@ -861,9 +861,18 @@ async function main() {
         return;
       }
 
+      // Visible ACTIVE state — pulsing, label changes, so the user can
+      // see the button is doing something. Clears when search finishes.
       threatBtn.disabled = true;
+      threatBtn.classList.add('active');
+      const label = threatBtn.querySelector('.threat-label');
+      const sub   = threatBtn.querySelector('.threat-sub');
+      const prevLabel = label ? label.textContent : '';
+      const prevSub   = sub   ? sub.textContent   : '';
+      if (label) label.textContent = '🎯 THINKING…';
+      if (sub)   sub.textContent   = `asking engine as ${parts[1] === 'w' ? 'White' : 'Black'}`;
       threatOut.hidden = false;
-      threatOut.innerHTML = `<em>Thinking about the opponent's best idea…</em>`;
+      threatOut.innerHTML = `<em>Computing opponent's best idea on the flipped FEN…</em>`;
 
       // Stop current search, run one-shot depth-14 on the flipped FEN.
       engine.stop();
@@ -873,6 +882,11 @@ async function main() {
       });
       engine.start(flipped, { depth: 14 });
       const result = await done;
+
+      // Restore button chrome as soon as the search lands.
+      threatBtn.classList.remove('active');
+      if (label) label.textContent = prevLabel;
+      if (sub)   sub.textContent   = prevSub;
 
       const top = result?.topMoves?.[0];
       if (!top || !top.pv?.length) {
