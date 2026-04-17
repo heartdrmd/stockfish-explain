@@ -1,0 +1,9 @@
+/* Use Google Fonts for Noto Sans — matches lichess's UI font.
+   If offline, browsers will fall back to the system font stack. */
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap");
+
+:root {
+  --font-body: "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "SF Mono", Monaco, Consolas, "Courier New", monospace;
+  --font-san:  "Noto Sans", system-ui, sans-serif;
+}

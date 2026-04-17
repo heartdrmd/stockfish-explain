@@ -1,0 +1,85 @@
+/* Board skin: brown theme + cburnett pieces + lichess highlights.
+   Sits on top of chessground.base.css. */
+
+#board, .cg-wrap {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  user-select: none;
+}
+
+/* Brown squares — 8×8 checkerboard painted via inline SVG.
+   Using a 2×2 SVG tile scaled to 25% gives us exactly 8 squares across. */
+cg-board {
+  background-color: var(--c-board-light);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2 2' preserveAspectRatio='none' shape-rendering='crispEdges'><rect width='1' height='1' x='0' y='0' fill='%23f0d9b5'/><rect width='1' height='1' x='1' y='0' fill='%23946f51'/><rect width='1' height='1' x='0' y='1' fill='%23946f51'/><rect width='1' height='1' x='1' y='1' fill='%23f0d9b5'/></svg>");
+  background-size: 25% 25%;
+  background-repeat: repeat;
+}
+
+/* Highlights — from lila _chessground.scss */
+cg-board square.last-move   { background-color: var(--c-last-move); }
+cg-board square.selected    { background-color: var(--c-selected); }
+cg-board square.move-dest {
+  background:
+    radial-gradient(rgba(20,85,30,0.5) 19%, rgba(0,0,0,0) 20%);
+  pointer-events: auto;
+}
+cg-board square.move-dest:hover {
+  background:
+    radial-gradient(rgba(20,85,30,0.3) 19%, rgba(0,0,0,0) 20%);
+}
+cg-board square.oc.move-dest {
+  /* capture target — outer ring */
+  background:
+    radial-gradient(transparent 79%, rgba(20,85,0,0.3) 80%);
+}
+cg-board square.premove-dest,
+cg-board square.current-premove {
+  background-color: var(--c-premove);
+}
+cg-board square.check {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255,0,0,1.0) 0%,
+    rgba(231,0,0,1.0) 25%,
+    rgba(169,0,0,0)   89%,
+    rgba(158,0,0,0)  100%
+  );
+}
+
+/* --- cburnett pieces ---
+   chessground emits <piece class="white king"> etc. We target by CSS. */
+piece {
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+piece.pawn.white   { background-image: url("../assets/pieces/cburnett/wP.svg"); }
+piece.knight.white { background-image: url("../assets/pieces/cburnett/wN.svg"); }
+piece.bishop.white { background-image: url("../assets/pieces/cburnett/wB.svg"); }
+piece.rook.white   { background-image: url("../assets/pieces/cburnett/wR.svg"); }
+piece.queen.white  { background-image: url("../assets/pieces/cburnett/wQ.svg"); }
+piece.king.white   { background-image: url("../assets/pieces/cburnett/wK.svg"); }
+
+piece.pawn.black   { background-image: url("../assets/pieces/cburnett/bP.svg"); }
+piece.knight.black { background-image: url("../assets/pieces/cburnett/bN.svg"); }
+piece.bishop.black { background-image: url("../assets/pieces/cburnett/bB.svg"); }
+piece.rook.black   { background-image: url("../assets/pieces/cburnett/bR.svg"); }
+piece.queen.black  { background-image: url("../assets/pieces/cburnett/bQ.svg"); }
+piece.king.black   { background-image: url("../assets/pieces/cburnett/bK.svg"); }
+
+/* Coordinate labels */
+coords {
+  color: var(--c-board-light);
+  mix-blend-mode: difference;
+}
+coords.ranks coord:nth-child(odd),
+coords.files coord:nth-child(even) {
+  color: var(--c-board-dark);
+}
+
+/* Engine auto-shapes (arrows): chessground wraps them in an svg layer
+   with opacity 0.6. Lichess default brush colors are already in config. */
+.cg-wrap svg.cg-shapes { opacity: 0.7; }

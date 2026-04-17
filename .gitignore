@@ -1,0 +1,34 @@
+# ═══════════════════════════════════════════════════════════════════
+#  Large WASM files — excluded because GitHub rejects files > 100 MB.
+#  These are the 108 MB full-net Stockfish variants. They're attached
+#  to GitHub Releases — see README for download instructions.
+# ═══════════════════════════════════════════════════════════════════
+assets/stockfish/stockfish-18.wasm
+assets/stockfish/stockfish-18.js
+assets/stockfish/stockfish-stock-single.wasm
+assets/stockfish/stockfish-stock-single.js
+assets/stockfish/stockfish-avrukh-single.wasm
+assets/stockfish/stockfish-avrukh-single.js
+assets/stockfish/stockfish-avrukhplus-single.wasm
+assets/stockfish/stockfish-avrukhplus-single.js
+assets/stockfish/stockfish-kaufman-single.wasm
+assets/stockfish/stockfish-kaufman-single.js
+assets/stockfish/stockfish-classical-single.wasm
+assets/stockfish/stockfish-classical-single.js
+assets/stockfish/stockfish-alphazero-single.wasm
+assets/stockfish/stockfish-alphazero-single.js
+
+# Local dev / IDE
+.claude/
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Node / build
+node_modules/
+
+# Private notes
+PRIVATE_*.md
+*.key
+*.pem

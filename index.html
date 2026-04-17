@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Stockfish.explain</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="styles/fonts.css">
+  <link rel="stylesheet" href="styles/theme.css">
+  <link rel="stylesheet" href="vendor/chessground/chessground.base.css">
+  <link rel="stylesheet" href="styles/board.css">
+  <link rel="stylesheet" href="styles/layout.css">
+  <link rel="stylesheet" href="styles/panels.css">
+</head>
+<body>
+  <header class="site-header">
+    <h1 class="site-title">Stockfish<span class="accent">.explain</span></h1>
+
+    <nav class="site-nav">
+      <button id="btn-new"    class="btn"       title="New game">New game</button>
+      <button id="btn-flip"   class="btn"       title="Flip board (F)">⇅ Flip</button>
+      <button id="btn-undo"   class="btn"       title="Take back last move">Undo</button>
+      <button id="btn-pause"  class="btn"       title="Pause/resume engine analysis">⏸ Pause</button>
+      <button id="btn-lock"   class="btn"       title="Lock engine OFF — no analysis until unlocked">🔓 Engine</button>
+      <button id="btn-settings" class="btn" title="Engine settings">⚙ Engine</button>
+      <button id="btn-practice" class="btn" title="Play against the engine from a chosen opening">🎯 Practice</button>
+      <button id="btn-tournament" class="btn" title="Engine vs engine self-play">🏆 Tournament</button>
+      <button id="btn-restart" class="btn" title="Restart engine if stuck">♻ Restart</button>
+      <button id="btn-copy-fen"  class="btn" title="Copy current position FEN to clipboard">📋 FEN</button>
+      <button id="btn-paste-fen" class="btn" title="Paste a FEN to load a position">📥 Load FEN</button>
+      <button id="btn-save-pgn"  class="btn" title="Download the current game as a PGN file">💾 PGN</button>
+      <span id="engine-mode"  class="pill" title="Current engine + threads">loading…</span>
+
+      <!-- Global AI bar — model + key + cost (no buttons; use per-tab CTAs) -->
+      <div class="ai-status">
+        <span class="ai-status-label">🧠 AI:</span>
+        <select id="global-ai-model" class="coach-model-input"
+                title="Model used by all AI analyses (click a tab's big button to run)">
+          <!-- Populated by main.js from MODEL_SUGGESTIONS -->
+        </select>
+        <button id="global-ai-custom" class="btn small" title="Enter a custom model name">✎</button>
+        <button id="global-ai-key" class="btn small" title="Set or change Anthropic API key">🔑 Key</button>
+        <span id="global-ai-cost" class="ai-cost" title="Session cost (all AI calls)">—</span>
+        <span class="muted" style="font-size:11px">← Click a tab (Coach / Position / Tactics) to run AI</span>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Collapsible engine settings drawer -->
+  <section id="settings-drawer" class="settings-drawer" hidden>
+    <div class="setting">
+      <label for="select-flavor">Engine build</label>
+      <select id="select-flavor">
+        <optgroup label="Stock Stockfish 17 (unmodified, recommended)">
+          <option value="lite" selected>Stock · Lite · multi-thread (7 MB)</option>
+          <option value="lite-single">Stock · Lite · single-thread (7 MB, file://-safe)</option>
+          <option value="full">Stock · Full NNUE · multi-thread (108 MB, strongest)</option>
+        </optgroup>
+        <optgroup label="★ Avrukh+ — real C++ patch (bishop-pair-aware SEE)">
+          <option value="avrukhplus-lite">Avrukh+ · Lite · multi-thread (7 MB)</option>
+          <option value="avrukhplus-lite-single">Avrukh+ · Lite · single-thread (7 MB)</option>
+          <option value="avrukhplus-single">Avrukh+ · Full NNUE · single-thread (108 MB)</option>
+        </optgroup>
+        <optgroup label="Piece-value experiments (lite, single-thread, 7 MB each)">
+          <option value="kaufman-lite-single">Kaufman SEE values</option>
+          <option value="classical-lite-single">Classical 1/3/3/5/9 SEE values</option>
+          <option value="alphazero-lite-single">AlphaZero-derived SEE values</option>
+        </optgroup>
+      </select>
+      <small id="flavor-note" class="muted"></small>
+    </div>
+
+    <div class="setting">
+      <label for="range-skill">Strength (Skill Level)</label>
+      <div class="range-wrap">
+        <input id="range-skill" type="range" min="0" max="20" step="1" value="20">
+        <span id="skill-val" class="badge">20</span>
+      </div>
+      <small class="muted">0 ≈ beginner, 20 = full strength</small>
+    </div>
+
+    <div class="setting">
+      <label for="range-multipv">MultiPV (top N candidate lines)</label>
+      <div class="range-wrap">
+        <input id="range-multipv" type="range" min="1" max="5" step="1" value="3">
+        <span id="multipv-val" class="badge">3</span>
+      </div>
+    </div>
+
+    <div class="setting">
+      <label for="range-threads">Threads
+        <small class="muted" id="threads-hw"></small>
+      </label>
+      <div class="range-wrap">
+        <input id="range-threads" type="range" min="1" max="16" step="1" value="1">
+        <span id="threads-val" class="badge">1</span>
+      </div>
+      <small class="muted">Max = cores on this machine. Requires multi-thread engine.</small>
+    </div>
+
+    <div class="setting">
+      <label for="limit-mode">Search limit</label>
+      <div class="row-compact">
+        <select id="limit-mode">
+          <option value="depth">By depth (stops at target)</option>
+          <option value="movetime">By time (ms)</option>
+          <option value="infinite" selected>Infinite — keep calculating (default)</option>
+        </select>
+        <input id="limit-value" type="number" min="1" value="18" class="limit-input" disabled>
+      </div>
+      <small class="muted">Infinite runs forever until you change position. At depth 18, Stockfish finishes in ~1 sec — that's why analysis "stops".</small>
+    </div>
+
+    <div class="setting">
+      <label for="select-values">Piece-value system</label>
+      <select id="select-values">
+        <option value="default2026" selected>Modern default (2026)</option>
+        <option value="classical">Classical (1/3/3/5/9)</option>
+        <option value="avrukh">Avrukh (GM practical)</option>
+        <option value="kaufman1999">Kaufman 1999</option>
+        <option value="kaufman2021">Kaufman 2021 (phase-aware)</option>
+        <option value="berliner">Berliner ("The System")</option>
+        <option value="alphazero">AlphaZero-derived</option>
+        <option value="stockfishClassical">Stockfish (pre-NNUE)</option>
+      </select>
+      <small class="muted" id="values-note">Used for the Imbalance analysis. Bishop pair bonus adjusts by openness (open/semi/closed) based on pawn count.</small>
+      <small class="muted" style="color: var(--c-accent); font-style: italic;">⚠ This only changes the Position tab's imbalance panel — it does NOT affect Stockfish's own NNUE evaluation or move choices.</small>
+    </div>
+  </section>
+
+  <main class="uniboard">
+    <aside class="side">
+      <div class="side-card">
+        <h3>Analysis board</h3>
+        <p>Either side's pieces — the engine just watches. <strong>Four input methods:</strong><br>
+          • <em>Drag</em> a piece to a square<br>
+          • <em>Click piece, click target</em><br>
+          • <em>Click target first</em> — if one piece can legally move there, it moves; otherwise candidates light up, click one<br>
+          • <em>Type</em> the move below (Nf3, e4, O-O, etc.) and press ⏎<br>
+          Right-click a move to ask "why not this?". Right-click-drag draws arrows. Arrow keys walk history, ⇅ flips.</p>
+      </div>
+      <div class="side-card">
+        <h3>Confidence</h3>
+        <div id="confidence-display" class="confidence">
+          <span class="confidence-badge" data-level="unknown">Waiting…</span>
+          <p class="confidence-reason muted">The engine hasn't thought yet.</p>
+        </div>
+      </div>
+    </aside>
+
+    <section class="board-area">
+      <div id="board" class="cg-wrap"></div>
+      <div id="promotion-overlay" class="promotion-overlay" hidden></div>
+      <div id="board-resize" class="board-resize" title="Drag to resize board"></div>
+      <div class="board-nav" role="group" aria-label="Navigate history">
+        <button id="board-nav-start" class="nav-btn" title="First (Home)">⏮</button>
+        <button id="board-nav-prev"  class="nav-btn" title="Previous (← / wheel up)">◀</button>
+        <button id="board-nav-next"  class="nav-btn" title="Next (→ / wheel down)">▶</button>
+        <button id="board-nav-end"   class="nav-btn" title="Live (End)">⏭</button>
+        <span id="board-nav-ply" class="nav-ply muted">—</span>
+      </div>
+    </section>
+
+    <section class="eval-gauge" id="eval-gauge" aria-label="Evaluation (white's view)">
+      <div class="gauge-black" id="gauge-black" style="height:50%"></div>
+      <div class="gauge-tick zero"></div>
+    </section>
+
+    <section class="tools">
+      <!-- Engine output -->
+      <div class="ceval">
+        <div class="ceval-top">
+          <span id="score-pearl" class="pearl">—</span>
+          <div class="ceval-meta">
+            <span id="depth-label" class="meta-big">depth 0/0</span>
+            <span id="nps-label"   class="meta-nps">0 kN/s · 0 nodes</span>
+          </div>
+        </div>
+        <div class="ceval-bar"><span id="ceval-bar-fill"></span></div>
+        <div id="pv-lines" class="pv-lines"></div>
+      </div>
+
+      <!-- Tabbed: Thinking / Coach / Position / Tactics -->
+      <div class="tabbed">
+        <nav class="tab-bar" role="tablist">
+          <button class="tab-btn active" data-tab="thinking" role="tab">Thinking</button>
+          <button class="tab-btn"        data-tab="coach"    role="tab">Coach</button>
+          <button class="tab-btn"        data-tab="position" role="tab">Position</button>
+          <button class="tab-btn"        data-tab="tactics"  role="tab">Tactics</button>
+        </nav>
+
+        <div class="tab-panel" data-tab-panel="thinking">
+          <p id="narration-text" class="muted">Make a move — I'll explain what I see.</p>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="coach" hidden>
+          <button id="coach-ai-btn" class="ai-big-cta">
+            <span class="cta-title">🧠 Ask AI Coach — General coaching</span>
+            <span class="cta-sub">Full position review: threats · weaknesses · best plan · what to avoid</span>
+          </button>
+          <div id="coach-ai-output" class="coach-ai-output" hidden></div>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="position" hidden>
+          <button id="position-ai-btn" class="ai-big-cta">
+            <span class="cta-title">🧠 AI Positional Analysis</span>
+            <span class="cta-sub">Strategy only: structure · piece quality · worst piece · long-term plan<br>(Silman/Watson style — no tactics)</span>
+          </button>
+          <div id="position-ai-output" class="coach-ai-output" hidden></div>
+          <details class="dissect-details">
+            <summary>Raw heuristic data (always available) ▾</summary>
+            <div id="dissect-strategy" class="dissect muted">Analysing position…</div>
+          </details>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="tactics" hidden>
+          <button id="tactics-ai-btn" class="ai-big-cta">
+            <span class="cta-title">🧠 AI Tactical Analysis</span>
+            <span class="cta-sub">Forced sequences · combinations · sacrifices<br>Names the pattern: fork/pin/skewer/discovered/overload/back-rank/etc.</span>
+          </button>
+          <div id="tactics-ai-output" class="coach-ai-output" hidden></div>
+          <details class="dissect-details">
+            <summary>Raw motif scan (always available) ▾</summary>
+            <div id="dissect-tactics" class="dissect muted">Scanning tactical motifs…</div>
+          </details>
+        </div>
+      </div>
+
+      <!-- Move list + nav -->
+      <div class="move-list-wrap">
+        <div class="move-list-header">
+          <h3>Moves</h3>
+          <div class="nav-buttons" role="group" aria-label="Navigate history">
+            <button id="nav-start" class="nav-btn" title="First (Home)">⏮</button>
+            <button id="nav-prev"  class="nav-btn" title="Previous (←)">◀</button>
+            <button id="nav-next"  class="nav-btn" title="Next (→)">▶</button>
+            <button id="nav-end"   class="nav-btn" title="Live (End)">⏭</button>
+          </div>
+        </div>
+        <div id="move-list" class="tview2-column"></div>
+        <input id="kbd-move" class="kbd-move" type="text"
+               placeholder="Type a move: e4, Nf3, O-O… then ⏎"
+               autocomplete="off" spellcheck="false">
+      </div>
+
+      <input id="depth-input" type="hidden" value="18">
+    </section>
+  </main>
+
+  <!-- API key modal (replaces prompt() which browsers may block) -->
+  <div id="apikey-modal" class="modal" hidden>
+    <div class="modal-card">
+      <button class="modal-close" id="apikey-close">×</button>
+      <h3>🔑 Anthropic API Key</h3>
+      <p class="muted">Paste your key below. Stored in this browser's localStorage only, sent only to Anthropic.</p>
+      <p class="muted" id="apikey-status" style="margin-top:4px;font-size:11px;font-family:var(--font-mono)"></p>
+      <input id="apikey-input" type="password" class="apikey-input"
+             placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false">
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button id="apikey-save"  class="btn" style="background:var(--c-secondary);color:white">Save</button>
+        <button id="apikey-clear" class="btn" style="background:var(--c-bad);color:white">Clear key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Practice modal -->
+  <div id="practice-modal" class="modal" hidden>
+    <div class="modal-card modal-wide">
+      <button class="modal-close" id="practice-close">×</button>
+      <h3>🎯 Practice from an opening</h3>
+      <p class="muted">Pick an opening, your color, and the engine's strength. Both sides play the opening moves automatically, then it's your turn.</p>
+
+      <div class="tournament-setup">
+        <div class="setting" style="grid-column: 1 / -1;">
+          <label for="practice-opening">Opening</label>
+          <select id="practice-opening" class="tourn-select"></select>
+          <small class="muted" id="practice-opening-moves" style="font-family: var(--font-mono); font-size: 11px;"></small>
+        </div>
+        <div class="setting">
+          <label for="practice-color">Play as</label>
+          <select id="practice-color" class="tourn-select">
+            <option value="white">White</option>
+            <option value="black">Black</option>
+          </select>
+        </div>
+        <div class="setting">
+          <label for="practice-strength">Engine strength (Skill 0-20)</label>
+          <div class="range-wrap">
+            <input id="practice-strength" type="range" min="0" max="20" step="1" value="12">
+            <span id="practice-strength-val" class="badge">12</span>
+          </div>
+          <small class="muted">0 ≈ beginner · 10 ≈ club · 15 ≈ strong · 20 = full</small>
+        </div>
+        <div class="setting">
+          <label for="practice-limit">Engine think time / move</label>
+          <div class="row-compact">
+            <select id="practice-limit-mode">
+              <option value="depth" selected>By depth</option>
+              <option value="movetime">By time (ms)</option>
+            </select>
+            <input id="practice-limit-value" type="number" min="1" value="14" class="limit-input">
+          </div>
+        </div>
+      </div>
+
+      <div class="tournament-actions">
+        <button id="practice-start" class="btn" style="background:var(--c-secondary);color:white">▶ Start practice</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tournament modal -->
+  <div id="tournament-modal" class="modal" hidden>
+    <div class="modal-card modal-wide">
+      <button class="modal-close" id="tournament-close">×</button>
+      <h3>🏆 Engine vs engine self-play</h3>
+      <p class="muted">Two variants play each other; colors alternate each game.</p>
+
+      <div class="tournament-setup">
+        <div class="setting">
+          <label for="tourn-a">Engine A</label>
+          <select id="tourn-a" class="tourn-select"></select>
+        </div>
+        <div class="setting">
+          <label for="tourn-b">Engine B</label>
+          <select id="tourn-b" class="tourn-select"></select>
+        </div>
+        <div class="setting">
+          <label for="tourn-games">Games</label>
+          <input id="tourn-games" type="number" min="2" max="200" step="2" value="10">
+        </div>
+        <div class="setting">
+          <label for="tourn-limit-mode">Time control</label>
+          <div class="row-compact">
+            <select id="tourn-limit-mode">
+              <option value="depth" selected>By depth</option>
+              <option value="movetime">By time (ms / move)</option>
+              <option value="nodes">By nodes / move</option>
+            </select>
+            <input id="tourn-limit-value" type="number" min="1" value="10" class="limit-input">
+          </div>
+        </div>
+        <div class="setting" style="grid-column: 1 / -1;">
+          <label for="tourn-opening">Forced opening (both engines play these moves first)</label>
+          <select id="tourn-opening" class="tourn-select"></select>
+          <small class="muted" id="tourn-opening-moves" style="font-family: var(--font-mono); font-size: 11px;"></small>
+        </div>
+        <div class="setting" style="grid-column: 1 / -1;">
+          <label>
+            <input type="checkbox" id="tourn-use-board-fen">
+            Use current main-board position as starting FEN (overrides forced opening)
+          </label>
+          <small class="muted" id="tourn-board-fen-preview" style="font-family: var(--font-mono); font-size: 10px;"></small>
+        </div>
+      </div>
+
+      <div class="tournament-actions">
+        <button id="tourn-start"  class="btn" style="background:var(--c-secondary);color:white">▶ Start</button>
+        <button id="tourn-abort"  class="btn" disabled>■ Stop</button>
+        <button id="tourn-export" class="btn" disabled title="Export all games as a PGN file">💾 Export PGN</button>
+      </div>
+
+      <div id="tourn-standings" class="tourn-standings">
+        <p class="muted">No games yet — press Start.</p>
+      </div>
+
+      <div id="tourn-live" class="tourn-live muted"></div>
+
+      <div id="tourn-log" class="tourn-log"></div>
+    </div>
+  </div>
+
+  <div id="why-modal" class="modal" hidden>
+    <div class="modal-card">
+      <button class="modal-close" id="modal-close">×</button>
+      <h3 id="why-title">Why not <span id="why-move">?</span></h3>
+      <p id="why-summary" class="muted"></p>
+      <div class="modal-narration" id="why-narration"></div>
+      <div class="modal-line muted"><strong>Line:</strong> <span id="why-line"></span></div>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

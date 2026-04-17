@@ -1,0 +1,130 @@
+/* lichess dark theme — tokens ported verbatim from lila/ui/lib/css/theme/_theme.default.scss */
+
+:root {
+  /* Backgrounds */
+  --c-bg-page:    #171612;
+  --c-body-top:   #2e2820;
+  --c-bg:         #242220;   /* panels */
+  --c-bg-low:     #3b3733;
+  --c-bg-zebra:   #322f2d;
+  --c-bg-zebra2:  #403d3a;
+  --c-bg-popup:   #3b3733;
+  --c-border:     #404040;
+
+  /* Text */
+  --c-font:       #bababa;
+  --c-font-dim:   #949494;
+  --c-font-clear: #ffffff;
+
+  /* Accent colors */
+  --c-primary:      #3692e7;   /* links, active move */
+  --c-secondary:    #629924;   /* good */
+  --c-accent:       #d64f00;   /* orange — promotion hover, zero-tick */
+  --c-bad:          #cc3333;
+  --c-brag:         #bf7f1d;
+
+  /* Annotation colors */
+  --c-inaccuracy:   #52b1ec;
+  --c-mistake:      #e69900;
+  --c-blunder:      #df5454;
+  --c-brilliant:    #21c443;
+  --c-interesting:  #ec7be7;
+
+  /* Board colors (brown theme) */
+  --c-board-light:  #f0d9b5;
+  --c-board-dark:   #946f51;
+
+  /* Board highlights */
+  --c-last-move:    rgba(155, 199,   0, 0.41);
+  --c-selected:     rgba( 20,  85,  30, 0.50);
+  --c-move-dest:    rgba( 20,  85,  30, 0.50);
+  --c-capture-ring: rgba( 20,  85,   0, 0.30);
+  --c-premove:      rgba( 20,  30,  85, 0.50);
+  --c-check-center: rgba(255,   0,   0, 1.00);
+
+  /* Eval gauge */
+  --c-gauge-white:  #c0c0c0;
+  --c-gauge-black:  #444444;
+  --c-gauge-tick:   rgba(136,136,136,0.4);
+
+  /* Shape / shadow */
+  --radius-panel:   7px;
+  --radius-small:   5px;
+  --transition:     150ms;
+  --anim-move:      200ms;
+
+  /* Engine arrow brushes (chessground palette) */
+  --brush-green:     #15781B;
+  --brush-pale-green:rgba(21,120,27,0.4);
+  --brush-red:       #882020;
+  --brush-blue:      #003088;
+  --brush-yellow:    #e68f00;
+
+  color-scheme: dark;
+}
+
+/* Global reset / base */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: var(--c-bg-page)
+              linear-gradient(to bottom, var(--c-body-top), var(--c-bg-page) 116px)
+              no-repeat;
+  color: var(--c-font);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 { font-weight: 600; letter-spacing: 0.01em; margin: 0 0 0.4em; }
+
+button, input, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.btn {
+  background: var(--c-bg-low);
+  color: var(--c-font);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-panel);
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+.btn:hover  { background: var(--c-bg-zebra2); border-color: var(--c-primary); }
+.btn:active { background: var(--c-primary); color: white; }
+.btn.paused { background: var(--c-accent); color: white; border-color: var(--c-accent); }
+.btn.paused:hover { background: var(--c-brag); border-color: var(--c-brag); }
+.btn.locked { background: var(--c-bad); color: white; border-color: var(--c-bad); }
+.btn.locked:hover { background: var(--c-blunder); border-color: var(--c-blunder); }
+
+.pill {
+  background: var(--c-secondary);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.pill.threaded { background: var(--c-brilliant); }
+
+.muted { color: var(--c-font-dim); }
+.accent { color: var(--c-accent); }
+
+.side-card h3, .ceval h3, .narration h3, .move-list-wrap h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-font-dim);
+  border-bottom: 1px solid var(--c-border);
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+}

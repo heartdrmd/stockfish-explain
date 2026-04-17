@@ -1,0 +1,119 @@
+/* Uniboard grid — mirrors lichess's responsive col1/col2/col3 layout. */
+
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border);
+  min-height: 60px;
+  flex-wrap: wrap;
+}
+
+.site-title {
+  font-size: 20px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.depth-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--c-font-dim);
+}
+.depth-ctrl input {
+  width: 50px;
+  background: var(--c-bg-low);
+  color: var(--c-font);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-small);
+  padding: 3px 6px;
+}
+
+/* --- col1 (mobile, default) --- */
+.uniboard {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "board"
+    "tools"
+    "side";
+}
+
+.uniboard .side        { grid-area: side; }
+.uniboard .board-area  {
+  grid-area: board;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-self: start;   /* hug the left edge so the gauge sticks to the board */
+  max-width: 560px;
+  width: 100%;
+}
+.uniboard .board-area > #board {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  height: auto;
+}
+/* When the JS resize handle sets explicit width+height on #board, those win */
+.uniboard .eval-gauge  { display: none; }
+.uniboard .tools       { grid-area: tools; }
+
+/* --- col2 (≥ 800px OR landscape) --- */
+@media (min-width: 800px), (orientation: landscape) and (min-width: 560px) {
+  .uniboard {
+    /* board column = auto (fits to its actual width), gauge 24px, tools fills the rest */
+    grid-template-columns: auto 24px minmax(280px, 1fr);
+    grid-template-areas:
+      "board gauge tools"
+      "side  gauge tools";
+    gap: 10px;
+    padding: 16px;
+  }
+  .uniboard .board-area { max-width: none; }
+  .uniboard .eval-gauge { display: flex; }
+}
+
+/* --- col3 (≥ 1260px) --- */
+@media (min-width: 1260px) {
+  .uniboard {
+    /* side fixed, board auto (fits its width), gauge 28px, tools fills the rest */
+    grid-template-columns: minmax(240px, 300px) auto 28px minmax(300px, 1fr);
+    grid-template-areas:
+      "side board gauge tools"
+      "side board gauge tools";
+    gap: 12px;
+    padding: 20px;
+  }
+}
+
+/* Side column cards */
+.side { display: flex; flex-direction: column; gap: 10px; }
+.side-card {
+  background: var(--c-bg);
+  border-radius: var(--radius-panel);
+  padding: 14px;
+  border: 1px solid var(--c-border);
+}
+.side-card p { font-size: 13px; line-height: 1.5; margin: 0; color: var(--c-font-dim); }
+
+/* Tools column */
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
