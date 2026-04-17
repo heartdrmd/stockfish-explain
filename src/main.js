@@ -488,10 +488,23 @@ async function main() {
     return mode === 'depth' ? { depth: v } : { movetime: v };
   }
 
-  board.addEventListener('move',     () => { renderMoveList(); fireAnalysis(); });
-  board.addEventListener('new-game', () => { renderMoveList(); fireAnalysis(); });
-  board.addEventListener('undo',     () => { renderMoveList(); fireAnalysis(); });
+  // Auto-exit threat mode whenever the user interacts with the board —
+  // threat was meant for "what would they do RIGHT NOW", so any move /
+  // undo / new-game invalidates it.
+  board.addEventListener('move',     () => {
+    if (window.__threatMode) window.__exitThreatMode({ silent: true });
+    renderMoveList(); fireAnalysis();
+  });
+  board.addEventListener('new-game', () => {
+    if (window.__threatMode) window.__exitThreatMode({ silent: true });
+    renderMoveList(); fireAnalysis();
+  });
+  board.addEventListener('undo',     () => {
+    if (window.__threatMode) window.__exitThreatMode({ silent: true });
+    renderMoveList(); fireAnalysis();
+  });
   board.addEventListener('nav',      () => {
+    if (window.__threatMode) window.__exitThreatMode({ silent: true });
     renderMoveList();
     // When returning to live, run the normal game loop (which lets the engine
     // auto-play if it's its turn). When reviewing history, just analyse.
@@ -839,99 +852,74 @@ async function main() {
   // "what's their biggest threat right now?" Very common analysis aid.
   const threatBtn = document.getElementById('btn-threat');
   const threatOut = document.getElementById('threat-output');
-  if (threatBtn && threatOut) {
-    threatBtn.addEventListener('click', async () => {
-      if (!engineReady) return;
-      const fen  = board.isAtLive() ? board.fen() : rebuildFenAtPly(board.chess, board.viewPly);
-      const parts = fen.split(' ');
-      if (parts.length < 4) return;
-      // Flip side-to-move; reset en-passant (would be illegal now anyway).
-      parts[1] = parts[1] === 'w' ? 'b' : 'w';
-      parts[3] = '-';
-      const flipped = parts.join(' ');
+  // Toggle mode: while ON, the engine runs INFINITELY on the flipped
+  // side-to-move FEN — normal depth/score/PV lines all show the
+  // opponent's best ideas continuously. Stays that way until user
+  // toggles off OR makes a move / navigates the board.
+  window.__threatMode = false;
 
-      // Quick legality check — if they have no legal moves (stalemate /
-      // checkmate on their side), bail with a clear message.
-      let flippedChess;
-      try { flippedChess = new Chess(flipped); }
-      catch { threatOut.innerHTML = `<em>Can't pass — illegal position.</em>`; threatOut.hidden = false; return; }
-      if (flippedChess.isGameOver()) {
-        threatOut.innerHTML = `<em>Nothing to threaten — opponent has no legal moves (checkmate / stalemate).</em>`;
-        threatOut.hidden = false;
-        return;
-      }
+  function enterThreatMode() {
+    if (!engineReady) return;
+    const fen  = board.isAtLive() ? board.fen() : rebuildFenAtPly(board.chess, board.viewPly);
+    const parts = fen.split(' ');
+    if (parts.length < 4) return;
+    parts[1] = parts[1] === 'w' ? 'b' : 'w';  // flip side-to-move
+    parts[3] = '-';                           // reset en-passant
+    const flipped = parts.join(' ');
 
-      // Visible ACTIVE state — pulsing, label changes, so the user can
-      // see the button is doing something. Clears when search finishes.
-      threatBtn.disabled = true;
-      threatBtn.classList.add('active');
-      const label = threatBtn.querySelector('.threat-label');
-      const sub   = threatBtn.querySelector('.threat-sub');
-      const prevLabel = label ? label.textContent : '';
-      const prevSub   = sub   ? sub.textContent   : '';
-      if (label) label.textContent = '🎯 THINKING…';
-      if (sub)   sub.textContent   = `asking engine as ${parts[1] === 'w' ? 'White' : 'Black'}`;
+    // Legality check
+    let flippedChess;
+    try { flippedChess = new Chess(flipped); }
+    catch { threatOut.hidden = false; threatOut.innerHTML = `<em>Can't pass — illegal position.</em>`; return; }
+    if (flippedChess.isGameOver()) {
       threatOut.hidden = false;
-      threatOut.innerHTML = `<em>Computing opponent's best idea on the flipped FEN…</em>`;
+      threatOut.innerHTML = `<em>Nothing to threaten — opponent has no legal moves.</em>`;
+      return;
+    }
 
-      // Stop current search, run one-shot depth-14 on the flipped FEN.
-      // IMPORTANT: point the Explainer at the flipped FEN too, so the
-      // normal live PV lines, depth counter, and score pearl all update
-      // as the engine thinks about the opponent's side. Otherwise the
-      // info events arrive but the Explainer ignores them (its FEN
-      // doesn't match what the engine is searching).
-      engine.stop();
-      const prevFen = explainer.currentFen;
-      explainer.setFen(flipped);
-      const done = new Promise(resolve => {
-        const onBest = (ev) => { engine.removeEventListener('bestmove', onBest); resolve(ev.detail); };
-        engine.addEventListener('bestmove', onBest);
-      });
-      engine.start(flipped, { depth: 14 });
-      const result = await done;
-      // Restore the Explainer to the real current FEN so subsequent
-      // analysis renders against the actual game position again.
-      explainer.setFen(prevFen);
+    window.__threatMode = true;
+    threatBtn.classList.add('active');
+    const label = threatBtn.querySelector('.threat-label');
+    const sub   = threatBtn.querySelector('.threat-sub');
+    if (label) label.textContent = '🎯 THREAT · ON';
+    if (sub)   sub.textContent   = `click to turn off · analyzing ${parts[1] === 'w' ? 'White' : 'Black'}`;
 
-      // Restore button chrome as soon as the search lands.
-      threatBtn.classList.remove('active');
-      if (label) label.textContent = prevLabel;
-      if (sub)   sub.textContent   = prevSub;
+    threatOut.hidden = false;
+    const side = parts[1] === 'w' ? 'White' : 'Black';
+    threatOut.innerHTML = `<strong>Threat mode ON — analyzing ${side}'s best move continuously.</strong><br>
+      <span class="muted">Main eval panel is showing ${side}'s lines. Click 🎯 THREAT again to return to normal analysis, or make a move.</span>`;
 
-      const top = result?.topMoves?.[0];
-      if (!top || !top.pv?.length) {
-        threatOut.innerHTML = `<em>No clear threat found.</em>`;
-      } else {
-        // Convert UCI PV to SAN from the flipped position
-        const chess = new Chess(flipped);
-        const sans = [];
-        for (const uci of top.pv.slice(0, 6)) {
-          try {
-            const mv = chess.move({ from: uci.slice(0,2), to: uci.slice(2,4), promotion: uci.length>4?uci[4]:undefined });
-            if (!mv) break;
-            sans.push(mv.san);
-          } catch { break; }
-        }
-        const scoreStr = top.scoreKind === 'mate'
-          ? `#${top.score}`
-          : `${top.score >= 0 ? '+' : ''}${(top.score / 100).toFixed(2)}`;
-        const side = parts[1] === 'w' ? 'White' : 'Black';
-        threatOut.innerHTML = `
-          <strong>Opponent's best plan (${side} to move):</strong>
-          <span class="threat-move">${sans[0] || top.pv[0]}</span>
-          <span class="threat-score">(${scoreStr} from their POV · depth ${result.history?.slice(-1)[0]?.depth || 14})</span>
-          <br>
-          <span class="muted">Line: ${sans.join(' ') || top.pv.slice(0,6).join(' ')}</span>`;
-      }
+    ui.narrationText.innerHTML =
+      `🎯 <strong>Threat mode</strong> — engine is calculating as if it were <strong>${side}'s turn</strong>. Toggle off or move to resume normal analysis.`;
 
-      threatBtn.disabled = false;
-      // Don't auto-resume main analysis — the user wants the threat PV
-      // lines to STAY on screen until they interact (make a move, click
-      // the ENGINE button, navigate history). Otherwise the threat view
-      // would flash for a second and vanish. A move / nav / engine click
-      // will fire a fresh analysis through the usual paths.
-      ui.narrationText.innerHTML =
-        `🎯 <strong>Threat shown</strong> — engine idle. Make a move or click the big ENGINE button to resume normal analysis.`;
+    // Kick engine onto the flipped FEN with INFINITE search — same as
+    // a normal analysis, just on the flipped position.
+    engine.stop();
+    explainer.setFen(flipped);
+    engine.start(flipped, { infinite: true });
+  }
+
+  function exitThreatMode({ silent = false } = {}) {
+    if (!window.__threatMode) return;
+    window.__threatMode = false;
+    threatBtn.classList.remove('active');
+    const label = threatBtn.querySelector('.threat-label');
+    const sub   = threatBtn.querySelector('.threat-sub');
+    if (label) label.textContent = '🎯 THREAT';
+    if (sub)   sub.textContent   = `what's their best move?`;
+    threatOut.hidden = true;
+    if (!silent) {
+      ui.narrationText.textContent = 'Threat mode off — back to normal analysis.';
+      fireAnalysis();  // restart on the real position
+    }
+  }
+  // Expose so other handlers (move, nav, new-game) can cancel threat mode.
+  window.__exitThreatMode = exitThreatMode;
+
+  if (threatBtn && threatOut) {
+    threatBtn.addEventListener('click', () => {
+      if (window.__threatMode) exitThreatMode();
+      else                     enterThreatMode();
     });
   }
   if (locked) ui.narrationText.textContent = '🔒 Engine stopped. Click the big ENGINE button (next to the eval) to start analysis.';
