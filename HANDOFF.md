@@ -15,16 +15,21 @@
 - `scripts/serve.py` (Python dev server with COOP/COEP headers)
 - `scripts/build-variants.sh` (recompile Stockfish variants with patched piece values)
 
-## What's in the release (770 MB)
+## What's in the release (~1.3 GB, 24 assets)
 
-All seven 108 MB full-net Stockfish WASMs + their 31 KB JS loaders, as release assets:
-- `stockfish-18.{js,wasm}` — stock, multi-threaded
+All 12 full-net Stockfish WASMs + their 31 KB JS loaders, as release assets:
+
+### Multi-threaded (strongest — requires COOP/COEP server)
+- `stockfish-18.{js,wasm}` — **stock Stockfish 17, multi-threaded, full NNUE**
+- `stockfish-kaufman.{js,wasm}` — Kaufman piece values, MT full
+- `stockfish-classical.{js,wasm}` — 1/3/3/5/9, MT full
+- `stockfish-alphazero.{js,wasm}` — AlphaZero-derived, MT full
+- `stockfish-avrukh.{js,wasm}` — Avrukh-style, MT full
+- `stockfish-avrukhplus.{js,wasm}` — Avrukh + bishop-pair SEE C++ patch, MT full
+
+### Single-threaded (works on any server, including file://)
 - `stockfish-stock-single.{js,wasm}` — stock, single-threaded
-- `stockfish-kaufman-single.{js,wasm}` — Kaufman piece values
-- `stockfish-classical-single.{js,wasm}` — 1/3/3/5/9
-- `stockfish-alphazero-single.{js,wasm}` — AlphaZero-derived
-- `stockfish-avrukh-single.{js,wasm}` — Avrukh-style bishop nudge
-- `stockfish-avrukhplus-single.{js,wasm}` — Avrukh + bishop-pair SEE C++ patch
+- `stockfish-kaufman-single.{js,wasm}`, `-classical-single`, `-alphazero-single`, `-avrukh-single`, `-avrukhplus-single`
 
 Direct download pattern:
 ```

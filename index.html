@@ -58,15 +58,29 @@
           <option value="lite-single">Stock · Lite · single-thread (7 MB, file://-safe)</option>
           <option value="full">Stock · Full NNUE · multi-thread (108 MB, strongest)</option>
         </optgroup>
-        <optgroup label="★ Avrukh+ — real C++ patch (bishop-pair-aware SEE)">
-          <option value="avrukhplus-lite">Avrukh+ · Lite · multi-thread (7 MB)</option>
-          <option value="avrukhplus-lite-single">Avrukh+ · Lite · single-thread (7 MB)</option>
-          <option value="avrukhplus-single">Avrukh+ · Full NNUE · single-thread (108 MB)</option>
+        <optgroup label="Piece-value variants — FULL NNUE · MULTI-THREAD (108 MB, strongest)">
+          <option value="kaufman">Kaufman</option>
+          <option value="classical">Classical 1/3/3/5/9</option>
+          <option value="alphazero">AlphaZero-derived</option>
+          <option value="avrukh">Avrukh (bishops nudged)</option>
+          <option value="avrukhplus">★ Avrukh+ — Avrukh values + C++ SEE pair patch</option>
         </optgroup>
-        <optgroup label="Piece-value experiments (lite, single-thread, 7 MB each)">
-          <option value="kaufman-lite-single">Kaufman SEE values</option>
-          <option value="classical-lite-single">Classical 1/3/3/5/9 SEE values</option>
-          <option value="alphazero-lite-single">AlphaZero-derived SEE values</option>
+        <optgroup label="Piece-value variants — Full NNUE · single-thread (108 MB)">
+          <option value="kaufman-single">Kaufman</option>
+          <option value="classical-single">Classical 1/3/3/5/9</option>
+          <option value="alphazero-single">AlphaZero-derived</option>
+          <option value="avrukh-single">Avrukh</option>
+          <option value="avrukhplus-single">★ Avrukh+</option>
+        </optgroup>
+        <optgroup label="Piece-value variants — Lite 7 MB, single-thread">
+          <option value="kaufman-lite-single">Kaufman</option>
+          <option value="classical-lite-single">Classical 1/3/3/5/9</option>
+          <option value="alphazero-lite-single">AlphaZero</option>
+          <option value="avrukh-lite-single">Avrukh</option>
+          <option value="avrukhplus-lite-single">Avrukh+</option>
+        </optgroup>
+        <optgroup label="Piece-value variants — Lite 7 MB, multi-thread">
+          <option value="avrukhplus-lite">★ Avrukh+</option>
         </optgroup>
       </select>
       <small id="flavor-note" class="muted"></small>

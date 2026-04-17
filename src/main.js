@@ -198,8 +198,13 @@ async function main() {
   // Disable full-net (108 MB) variants when running on GitHub Pages —
   // they're distributed via Releases, not committed to git.
   if (isPagesHost) {
-    const fullNetValues = ['full', 'stock-single', 'kaufman-single', 'classical-single',
-                           'alphazero-single', 'avrukh-single', 'avrukhplus-single'];
+    const fullNetValues = [
+      // Single-thread full-net
+      'full', 'stock-single', 'kaufman-single', 'classical-single',
+      'alphazero-single', 'avrukh-single', 'avrukhplus-single',
+      // Multi-thread full-net
+      'kaufman', 'classical', 'alphazero', 'avrukh', 'avrukhplus',
+    ];
     ui.selectFlavor.querySelectorAll('option').forEach(o => {
       if (fullNetValues.includes(o.value)) {
         o.disabled = true;

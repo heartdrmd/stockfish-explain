@@ -17,6 +17,17 @@ assets/stockfish/stockfish-classical-single.wasm
 assets/stockfish/stockfish-classical-single.js
 assets/stockfish/stockfish-alphazero-single.wasm
 assets/stockfish/stockfish-alphazero-single.js
+# Full-net MULTI-THREADED piece-value variants (also 108 MB each)
+assets/stockfish/stockfish-kaufman.wasm
+assets/stockfish/stockfish-kaufman.js
+assets/stockfish/stockfish-classical.wasm
+assets/stockfish/stockfish-classical.js
+assets/stockfish/stockfish-alphazero.wasm
+assets/stockfish/stockfish-alphazero.js
+assets/stockfish/stockfish-avrukh.wasm
+assets/stockfish/stockfish-avrukh.js
+assets/stockfish/stockfish-avrukhplus.wasm
+assets/stockfish/stockfish-avrukhplus.js
 
 # Local dev / IDE
 .claude/

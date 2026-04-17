@@ -86,8 +86,35 @@ export const ENGINE_FLAVORS = {
   },
   'avrukhplus-single': {
     js: 'assets/stockfish/stockfish-avrukhplus-single.js',
-    label: '★ Avrukh+ (full 108 MB) — Avrukh values + SEE pair patch',
+    label: '★ Avrukh+ (full 108 MB, single) — Avrukh values + SEE pair patch',
     size: '108 MB', threaded: false, custom: true, patched: true,
+  },
+
+  // ─── Full (108 MB) MULTI-THREADED variants — strongest possible ───
+  'kaufman': {
+    js: 'assets/stockfish/stockfish-kaufman.js',
+    label: 'Kaufman (full 108 MB, MULTI-THREAD)',
+    size: '108 MB', threaded: true, custom: true,
+  },
+  'classical': {
+    js: 'assets/stockfish/stockfish-classical.js',
+    label: 'Classical 1/3/3/5/9 (full 108 MB, MULTI-THREAD)',
+    size: '108 MB', threaded: true, custom: true,
+  },
+  'alphazero': {
+    js: 'assets/stockfish/stockfish-alphazero.js',
+    label: 'AlphaZero (full 108 MB, MULTI-THREAD)',
+    size: '108 MB', threaded: true, custom: true,
+  },
+  'avrukh': {
+    js: 'assets/stockfish/stockfish-avrukh.js',
+    label: 'Avrukh (full 108 MB, MULTI-THREAD) — bishops nudged',
+    size: '108 MB', threaded: true, custom: true,
+  },
+  'avrukhplus': {
+    js: 'assets/stockfish/stockfish-avrukhplus.js',
+    label: '★ Avrukh+ (full 108 MB, MULTI-THREAD) — values + SEE pair patch',
+    size: '108 MB', threaded: true, custom: true, patched: true,
   },
 };
 
