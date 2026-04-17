@@ -433,45 +433,61 @@ async function main() {
   //   When set, engine auto-plays the opposite color as soon as it's their turn.
   let practiceColor = null;
 
+  // Defer heavy work so the board paints the move IMMEDIATELY. Without
+  // this, every move blocks ~10-30 ms on strategic+tactical+imbalance
+  // analysis + HTML building before chessground can repaint → visible
+  // "snap to last placement" lag.
+  let dissectionRaf = 0;
+  function scheduleDissection(fen) {
+    if (dissectionRaf) cancelAnimationFrame(dissectionRaf);
+    dissectionRaf = requestAnimationFrame(() => {
+      dissectionRaf = 0;
+      renderDissection(fen);
+    });
+  }
+
   function fireAnalysis() {
     const fen = board.isAtLive()
       ? board.fen()
       : rebuildFenAtPly(board.chess, board.viewPly);
 
-    renderDissection(fen);
-
-    if (!engineReady) return;
-    explainer.setFen(fen);
-
-    const chessNow = new Chess(fen);
-    if (chessNow.isGameOver()) {
-      ui.narrationText.innerHTML = gameOverMessage(chessNow);
-      engine.stop();
-      return;
-    }
-
-    engine.stop();
-    if (paused || locked) return;
-
-    // In practice mode: if it's the ENGINE's turn, search and auto-play.
-    // Otherwise (user's turn, or analysis mode), just analyze.
-    if (practiceColor && board.isAtLive()) {
-      const playerChar = practiceColor[0];                 // 'w' or 'b'
-      const engineTurn = chessNow.turn() !== playerChar;
-      if (engineTurn) {
-        engine.start(fen, searchLimits());
-        const onBest = (ev) => {
-          engine.removeEventListener('bestmove', onBest);
-          if (ev.detail.best && ev.detail.best !== '(none)') {
-            board.playEngineMove(ev.detail.best);
+    // Kick the engine FIRST — the worker starts computing in parallel
+    // while the rest of this function does its synchronous UI work.
+    if (engineReady) {
+      explainer.setFen(fen);
+      const chessNow = new Chess(fen);
+      if (chessNow.isGameOver()) {
+        ui.narrationText.innerHTML = gameOverMessage(chessNow);
+        engine.stop();
+      } else {
+        engine.stop();
+        if (!paused && !locked) {
+          // Practice mode: if it's the ENGINE's turn, search + auto-play.
+          if (practiceColor && board.isAtLive()) {
+            const playerChar = practiceColor[0];
+            const engineTurn = chessNow.turn() !== playerChar;
+            if (engineTurn) {
+              engine.start(fen, searchLimits());
+              const onBest = (ev) => {
+                engine.removeEventListener('bestmove', onBest);
+                if (ev.detail.best && ev.detail.best !== '(none)') {
+                  board.playEngineMove(ev.detail.best);
+                }
+              };
+              engine.addEventListener('bestmove', onBest);
+            } else {
+              engine.start(fen, searchLimits());
+            }
+          } else {
+            engine.start(fen, searchLimits());
           }
-        };
-        engine.addEventListener('bestmove', onBest);
-        return;
+        }
       }
     }
 
-    engine.start(fen, searchLimits());
+    // Heavy dissection work runs on the NEXT animation frame so the
+    // browser paints the moved piece before doing heuristic analysis.
+    scheduleDissection(fen);
   }
 
   function searchLimits() {
