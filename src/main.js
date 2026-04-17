@@ -875,13 +875,23 @@ async function main() {
       threatOut.innerHTML = `<em>Computing opponent's best idea on the flipped FEN…</em>`;
 
       // Stop current search, run one-shot depth-14 on the flipped FEN.
+      // IMPORTANT: point the Explainer at the flipped FEN too, so the
+      // normal live PV lines, depth counter, and score pearl all update
+      // as the engine thinks about the opponent's side. Otherwise the
+      // info events arrive but the Explainer ignores them (its FEN
+      // doesn't match what the engine is searching).
       engine.stop();
+      const prevFen = explainer.currentFen;
+      explainer.setFen(flipped);
       const done = new Promise(resolve => {
         const onBest = (ev) => { engine.removeEventListener('bestmove', onBest); resolve(ev.detail); };
         engine.addEventListener('bestmove', onBest);
       });
       engine.start(flipped, { depth: 14 });
       const result = await done;
+      // Restore the Explainer to the real current FEN so subsequent
+      // analysis renders against the actual game position again.
+      explainer.setFen(prevFen);
 
       // Restore button chrome as soon as the search lands.
       threatBtn.classList.remove('active');
