@@ -2149,11 +2149,11 @@ async function wireGateAndCheckTier() {
     if (premium) {
       title.textContent = '⭐ Premium unlock — Sonnet/Opus';
       sub.textContent   = 'Enter the premium password to use Sonnet or Opus models. (Haiku stays available at the basic tier.)';
-      input.placeholder = 'e.g. Dooha18';
+      input.placeholder = 'password';
     } else {
       title.textContent = '🔒 Enter site password';
-      sub.textContent   = 'Ask the site owner for today\'s password. Passwords rotate daily at midnight Central Time.';
-      input.placeholder = 'e.g. 906918';
+      sub.textContent   = 'Ask the site owner for today\'s password.';
+      input.placeholder = 'password';
     }
     cancelBtn.hidden = !cancellable;
     status.textContent = '';
