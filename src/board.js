@@ -64,6 +64,19 @@ export class BoardController extends EventTarget {
       if (e.button !== 0) return;
       const target = this._coordsToKey(e.clientX, e.clientY);
       if (!target) return;
+
+      // FIRST: if the user previously clicked a target and we highlighted
+      // candidates, this click might be them picking the source. Check
+      // BEFORE any early-return — otherwise clicking their own piece (the
+      // source) would fall through to chessground's drag handler instead
+      // of resolving the pending target-first move.
+      if (this._pendingTargetSources && this._pendingTargetSources.includes(target)) {
+        const prevTarget = this._pendingTarget;
+        this._clearTargetFirst();
+        self._onUserMove(target, prevTarget, {});
+        return;
+      }
+
       const p = this.chess.get(target);
       // If our piece is on this square, chessground handles its own drag.
       if (p && p.color === this.chess.turn()) return;
@@ -76,14 +89,6 @@ export class BoardController extends EventTarget {
                                  .map(m => m.from);
       } catch { return; }
       if (!legalSources.length) return;
-
-      // If user had previously armed candidates, this click might be a source pick.
-      if (this._pendingTargetSources && this._pendingTargetSources.includes(target)) {
-        const prevTarget = this._pendingTarget;
-        this._clearTargetFirst();
-        self._onUserMove(target, prevTarget, {});
-        return;
-      }
 
       // Light up the candidate sources (same chessground auto-shapes).
       this._highlightCandidates(legalSources);
