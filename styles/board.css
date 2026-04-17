@@ -54,14 +54,6 @@ piece {
   background-size: cover;
   background-repeat: no-repeat;
   background-position: center;
-  /* Promote every piece to its own GPU layer so chessground's slide
-     transform doesn't trigger layout/paint every frame. `translateZ(0)`
-     is the classic trick; `will-change: transform` tells the browser
-     to pre-compose. Dramatically smoother slide animation on all
-     input modes (drag, click-click, typed). */
-  transform: translateZ(0);
-  will-change: transform;
-  backface-visibility: hidden;
 }
 
 piece.pawn.white   { background-image: url("../assets/pieces/cburnett/wP.svg"); }
