@@ -384,38 +384,78 @@ async function main() {
   // `valueSystem` remains pinned to the 2026 default for that panel.)
 
   // ─── Hash (transposition table) size picker + clear button ────────
-  // navigator.deviceMemory gives approximate RAM in GB (Chrome / Edge /
-  // Opera; Safari & Firefox return undefined). Defaults to 4 GB if
-  // unknown. Cap the offered sizes at 2/3 of detected RAM AND at 1024 MB
-  // (WASM heap in most browsers is ~1–2 GB).
-  const detectedRamGB = navigator.deviceMemory || 4;   // undefined → assume 4 GB
-  const maxHashMB = Math.min(1024, Math.floor(detectedRamGB * 1024 * 2 / 3));
-  const ALL_HASH_SIZES = [32, 64, 128, 256, 512, 1024];
+  // navigator.deviceMemory is a PRIVACY-QUANTIZED API:
+  //   - Capped at 8 GB — a 32 GB machine reports 8.
+  //   - Only discrete buckets: 0.25 / 0.5 / 1 / 2 / 4 / 8.
+  //   - Firefox and Safari return undefined.
+  // So trusting it as an accurate RAM gauge is wrong in both directions.
+  // Treat it as a FLOOR, not a ceiling: if the browser reports 8 GB, the
+  // real machine probably has 8+ GB. If undefined, assume a modern
+  // machine (16 GB) rather than being overly conservative.
+  const reportedRamGB = navigator.deviceMemory || 16;
+  // WASM heap ceiling: Stockfish WASM multi-thread is built with 4 GB
+  // maximum memory; the hash table, search stack, and NNUE weights all
+  // share that budget. 3 GB hash leaves ~1 GB for the rest — that's the
+  // real cap regardless of how much system RAM you have.
+  const WASM_HASH_CEILING = 3072;
+  const ALL_HASH_SIZES = [32, 64, 128, 256, 512, 1024, 2048, 3072];
+  // Offer sizes up to min(WASM ceiling, 2/3 of the FLOOR reported).
+  // If reported >= 8 we just offer everything up to the ceiling since the
+  // reporting is capped and the machine is almost certainly ample.
+  const maxHashMB = reportedRamGB >= 8
+    ? WASM_HASH_CEILING
+    : Math.min(WASM_HASH_CEILING, Math.floor(reportedRamGB * 1024 * 2 / 3));
   const hashSel  = document.getElementById('select-hash');
   const hashHw   = document.getElementById('hash-hw');
   const hashClr  = document.getElementById('btn-clear-hash');
   const HASH_STORAGE = 'stockfish-explain.hash-mb';
   const savedHash = parseInt(localStorage.getItem(HASH_STORAGE) || '', 10);
-  // Descending list so max appears first — matches the user's request.
   const validSizes = ALL_HASH_SIZES.filter(s => s <= maxHashMB).sort((a, b) => b - a);
   if (hashSel) {
     hashSel.innerHTML = '';
     for (const mb of validSizes) {
       const o = document.createElement('option');
       o.value = String(mb);
-      o.textContent = mb >= 1024 ? `${mb/1024} GB` : `${mb} MB`;
+      o.textContent = mb >= 1024 ? `${(mb/1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB` : `${mb} MB`;
       hashSel.appendChild(o);
     }
+    // Add a "Custom…" option so power users with 32+ GB can punch in a
+    // specific number up to the WASM ceiling.
+    const customOpt = document.createElement('option');
+    customOpt.value = 'custom';
+    customOpt.textContent = 'Custom…';
+    hashSel.appendChild(customOpt);
+
     const initial = (savedHash && validSizes.includes(savedHash))
       ? savedHash
-      : (validSizes.includes(256) ? 256 : validSizes[validSizes.length - 1]);
+      : (validSizes.includes(512) ? 512 : validSizes[0]);  // 512 MB as default
     hashSel.value = String(initial);
     engine.setHash(initial);
-    hashHw.textContent = `(~${detectedRamGB} GB RAM · max offered: ${maxHashMB} MB)`;
+    hashHw.textContent = navigator.deviceMemory
+      ? `(browser reports ≥${reportedRamGB} GB RAM · WASM cap ${WASM_HASH_CEILING} MB)`
+      : `(RAM unknown · WASM cap ${WASM_HASH_CEILING} MB)`;
     hashSel.addEventListener('change', () => {
-      const mb = +hashSel.value;
-      engine.setHash(mb);
-      localStorage.setItem(HASH_STORAGE, String(mb));
+      if (hashSel.value === 'custom') {
+        const raw = prompt(`Enter hash size in MB (1 – ${WASM_HASH_CEILING}). Bigger = remembers more lines but uses more RAM.`, String(initial));
+        if (!raw) { hashSel.value = String(initial); return; }
+        let mb = Math.floor(+raw);
+        if (!Number.isFinite(mb) || mb < 1) { hashSel.value = String(initial); return; }
+        if (mb > WASM_HASH_CEILING) mb = WASM_HASH_CEILING;
+        // Add option if not present
+        if (![...hashSel.querySelectorAll('option')].some(o => o.value === String(mb))) {
+          const o = document.createElement('option');
+          o.value = String(mb);
+          o.textContent = mb >= 1024 ? `${(mb/1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB (custom)` : `${mb} MB (custom)`;
+          hashSel.insertBefore(o, customOpt);
+        }
+        hashSel.value = String(mb);
+        engine.setHash(mb);
+        localStorage.setItem(HASH_STORAGE, String(mb));
+      } else {
+        const mb = +hashSel.value;
+        engine.setHash(mb);
+        localStorage.setItem(HASH_STORAGE, String(mb));
+      }
     });
   }
   if (hashClr) {
