@@ -175,13 +175,39 @@ async function main() {
   // Engine — choose flavor based on environment; default to "lite" when threaded,
   // else "lite-single". User can override via settings drawer.
   const threadable = typeof SharedArrayBuffer !== 'undefined' && typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
-  // Default to the STRONGEST engine available.
-  let currentFlavor = threadable ? 'full' : 'lite-single';
+  // Detect GitHub Pages (or any static host without full-net WASMs committed).
+  // When we're there, full-net 108 MB variants aren't present in the repo and
+  // would 404 — so disable them in the dropdown and show the user where to
+  // download them.
+  const isPagesHost = /\.github\.io$/i.test(location.hostname);
+
+  // Default to the STRONGEST engine available in the current environment.
+  let currentFlavor = threadable
+    ? (isPagesHost ? 'lite' : 'full')
+    : 'lite-single';
   ui.selectFlavor.value = currentFlavor;
+
+  // Disable multi-thread flavors if the page isn't cross-origin-isolated
   if (!threadable) {
-    ui.selectFlavor.querySelector('option[value="lite"]').disabled = true;
-    ui.selectFlavor.querySelector('option[value="full"]').disabled = true;
-    ui.flavorNote.textContent = 'Multi-thread + Full require the Python dev server (COOP/COEP). Opened via file:// → locked to Lite single-thread.';
+    ui.selectFlavor.querySelectorAll('option').forEach(o => {
+      if (o.value === 'lite' || o.value === 'full' || o.value === 'avrukhplus-lite') o.disabled = true;
+    });
+    ui.flavorNote.textContent = 'Multi-thread engines need COOP/COEP headers (Python dev server) — disabled here.';
+  }
+
+  // Disable full-net (108 MB) variants when running on GitHub Pages —
+  // they're distributed via Releases, not committed to git.
+  if (isPagesHost) {
+    const fullNetValues = ['full', 'stock-single', 'kaufman-single', 'classical-single',
+                           'alphazero-single', 'avrukh-single', 'avrukhplus-single'];
+    ui.selectFlavor.querySelectorAll('option').forEach(o => {
+      if (fullNetValues.includes(o.value)) {
+        o.disabled = true;
+        o.textContent += ' — download from Releases';
+      }
+    });
+    const n = ui.flavorNote;
+    n.innerHTML = `Running on GitHub Pages. <strong>Full-net (108 MB) variants are disabled here</strong> — download them from the <a href="https://github.com/heartdrmd/stockfish-explain/releases/latest" target="_blank" style="color:var(--c-primary)">release page</a> and run locally to enable them. Multi-thread also requires the Python dev server for COOP/COEP headers.`;
   }
 
   let engine = new Engine();
