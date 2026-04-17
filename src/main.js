@@ -925,8 +925,13 @@ async function main() {
       }
 
       threatBtn.disabled = false;
-      // Resume normal analysis of the real position
-      fireAnalysis();
+      // Don't auto-resume main analysis — the user wants the threat PV
+      // lines to STAY on screen until they interact (make a move, click
+      // the ENGINE button, navigate history). Otherwise the threat view
+      // would flash for a second and vanish. A move / nav / engine click
+      // will fire a fresh analysis through the usual paths.
+      ui.narrationText.innerHTML =
+        `🎯 <strong>Threat shown</strong> — engine idle. Make a move or click the big ENGINE button to resume normal analysis.`;
     });
   }
   if (locked) ui.narrationText.textContent = '🔒 Engine stopped. Click the big ENGINE button (next to the eval) to start analysis.';
