@@ -433,17 +433,19 @@ async function main() {
   //   When set, engine auto-plays the opposite color as soon as it's their turn.
   let practiceColor = null;
 
-  // Defer heavy work so the board paints the move IMMEDIATELY. Without
-  // this, every move blocks ~10-30 ms on strategic+tactical+imbalance
-  // analysis + HTML building before chessground can repaint → visible
-  // "snap to last placement" lag.
-  let dissectionRaf = 0;
+  // Defer heavy work until AFTER chessground's slide animation
+  // completes. The slide is 120 ms; we delay dissection by 160 ms so
+  // the main thread is clear during those 12-ish animation frames.
+  // (requestAnimationFrame alone lands on the first frame of the
+  // animation, which still causes mid-slide stutter when the
+  // heuristic HTML build chews 15-30 ms.)
+  let dissectionTimer = 0;
   function scheduleDissection(fen) {
-    if (dissectionRaf) cancelAnimationFrame(dissectionRaf);
-    dissectionRaf = requestAnimationFrame(() => {
-      dissectionRaf = 0;
+    if (dissectionTimer) clearTimeout(dissectionTimer);
+    dissectionTimer = setTimeout(() => {
+      dissectionTimer = 0;
       renderDissection(fen);
-    });
+    }, 160);
   }
 
   function fireAnalysis() {

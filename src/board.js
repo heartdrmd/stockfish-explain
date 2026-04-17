@@ -31,7 +31,9 @@ export class BoardController extends EventTarget {
       orientation: this.orientation,
       turnColor: 'white',
       highlight: { lastMove: true, check: true },
-      animation: { enabled: true, duration: 200 },
+      // Shorter slide — 120 ms feels snappy while still visible. Long
+      // animations exaggerate main-thread hiccups during the slide.
+      animation: { enabled: true, duration: 120 },
       movable: {
         free: false,
         color: 'both',                       // either side can move
