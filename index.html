@@ -24,7 +24,41 @@
       <button id="btn-undo"   class="btn"       title="Take back last move">Undo</button>
       <button id="btn-pause"  class="btn"       title="Pause/resume engine analysis">⏸ Pause</button>
       <button id="btn-lock"   class="btn"       title="Lock engine OFF — no analysis until unlocked">🔓 Engine</button>
-      <button id="btn-settings" class="btn" title="Engine settings">⚙ Engine</button>
+      <!-- Engine flavor selector — top-level, no submenu. Same <select> the
+           drawer used to own; moved here for one-click access. -->
+      <select id="select-flavor" class="header-flavor"
+              title="Switch engine variant (Stockfish build + piece-value tweaks)">
+        <optgroup label="Stock Stockfish 17 (unmodified, recommended)">
+          <option value="lite" selected>Stock · Lite · MT (7 MB)</option>
+          <option value="lite-single">Stock · Lite · ST (7 MB)</option>
+          <option value="full">Stock · Full NNUE · MT (108 MB)</option>
+        </optgroup>
+        <optgroup label="Piece-value variants — FULL NNUE · MULTI-THREAD (108 MB)">
+          <option value="kaufman">Kaufman</option>
+          <option value="classical">Classical 1/3/3/5/9</option>
+          <option value="alphazero">AlphaZero-derived</option>
+          <option value="avrukh">Avrukh</option>
+          <option value="avrukhplus">★ Avrukh+ (values + SEE pair patch)</option>
+        </optgroup>
+        <optgroup label="Piece-value variants — Full NNUE · single-thread (108 MB)">
+          <option value="kaufman-single">Kaufman</option>
+          <option value="classical-single">Classical 1/3/3/5/9</option>
+          <option value="alphazero-single">AlphaZero-derived</option>
+          <option value="avrukh-single">Avrukh</option>
+          <option value="avrukhplus-single">★ Avrukh+</option>
+        </optgroup>
+        <optgroup label="Piece-value variants — Lite 7 MB, single-thread">
+          <option value="kaufman-lite-single">Kaufman · Lite</option>
+          <option value="classical-lite-single">Classical · Lite</option>
+          <option value="alphazero-lite-single">AlphaZero · Lite</option>
+          <option value="avrukh-lite-single">Avrukh · Lite</option>
+          <option value="avrukhplus-lite-single">Avrukh+ · Lite</option>
+        </optgroup>
+        <optgroup label="Piece-value variants — Lite 7 MB, multi-thread">
+          <option value="avrukhplus-lite">★ Avrukh+ · Lite MT</option>
+        </optgroup>
+      </select>
+      <button id="btn-settings" class="btn" title="Engine settings (skill, threads, hash, arrows, piece values)">⚙ More</button>
       <button id="btn-practice" class="btn" title="Play against the engine from a chosen opening">🎯 Practice</button>
       <button id="btn-tournament" class="btn" title="Engine vs engine self-play">🏆 Tournament</button>
       <button id="btn-restart" class="btn" title="Restart engine if stuck">♻ Restart</button>
@@ -52,39 +86,7 @@
   <!-- Collapsible engine settings drawer -->
   <section id="settings-drawer" class="settings-drawer" hidden>
     <div class="setting">
-      <label for="select-flavor">Engine build</label>
-      <select id="select-flavor">
-        <optgroup label="Stock Stockfish 17 (unmodified, recommended)">
-          <option value="lite" selected>Stock · Lite · multi-thread (7 MB)</option>
-          <option value="lite-single">Stock · Lite · single-thread (7 MB, file://-safe)</option>
-          <option value="full">Stock · Full NNUE · multi-thread (108 MB, strongest)</option>
-        </optgroup>
-        <optgroup label="Piece-value variants — FULL NNUE · MULTI-THREAD (108 MB, strongest)">
-          <option value="kaufman">Kaufman</option>
-          <option value="classical">Classical 1/3/3/5/9</option>
-          <option value="alphazero">AlphaZero-derived</option>
-          <option value="avrukh">Avrukh (bishops nudged)</option>
-          <option value="avrukhplus">★ Avrukh+ — Avrukh values + C++ SEE pair patch</option>
-        </optgroup>
-        <optgroup label="Piece-value variants — Full NNUE · single-thread (108 MB)">
-          <option value="kaufman-single">Kaufman</option>
-          <option value="classical-single">Classical 1/3/3/5/9</option>
-          <option value="alphazero-single">AlphaZero-derived</option>
-          <option value="avrukh-single">Avrukh</option>
-          <option value="avrukhplus-single">★ Avrukh+</option>
-        </optgroup>
-        <optgroup label="Piece-value variants — Lite 7 MB, single-thread">
-          <option value="kaufman-lite-single">Kaufman</option>
-          <option value="classical-lite-single">Classical 1/3/3/5/9</option>
-          <option value="alphazero-lite-single">AlphaZero</option>
-          <option value="avrukh-lite-single">Avrukh</option>
-          <option value="avrukhplus-lite-single">Avrukh+</option>
-        </optgroup>
-        <optgroup label="Piece-value variants — Lite 7 MB, multi-thread">
-          <option value="avrukhplus-lite">★ Avrukh+</option>
-        </optgroup>
-      </select>
-      <small id="flavor-note" class="muted"></small>
+      <small class="muted" id="flavor-note">Engine build: pick from the <strong>dropdown in the top bar</strong>.</small>
     </div>
 
     <div class="setting">

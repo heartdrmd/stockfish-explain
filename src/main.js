@@ -263,6 +263,35 @@ async function main() {
     }
   }
 
+  // Wire the Setup-position editor EARLY — before the (slow) engine boot —
+  // so the 🛠 Setup button responds on the very first click rather than
+  // silently failing until engine is ready.
+  const editor = setupEditor((fen) => {
+    try {
+      const tmp = new Chess(fen);
+      board.chess = tmp;
+      board.startingFen = tmp.fen();
+      board.viewPly = null;
+      board.cg.set({
+        fen: tmp.fen(),
+        turnColor: tmp.turn() === 'w' ? 'white' : 'black',
+        lastMove: undefined,
+        check: tmp.inCheck() ? (tmp.turn() === 'w' ? 'white' : 'black') : false,
+        movable: { color: 'both', dests: toDestsFrom(tmp) },
+      });
+      board.cg.setAutoShapes([]);
+      board.dispatchEvent(new CustomEvent('new-game'));
+      flashPill(ui.engineMode, 'Position set · new start', 1500);
+      ui.narrationText.textContent =
+        `🛠 New starting position loaded. ${tmp.turn() === 'w' ? 'White' : 'Black'} to move. Undo / scroll-back stop here.`;
+    } catch (e) {
+      alert('Could not load editor position: ' + e.message);
+    }
+  });
+  document.getElementById('btn-editor').addEventListener('click', () => {
+    editor.open(board.fen());
+  });
+
   await bootEngine(currentFlavor);
 
   // Explainer
@@ -685,33 +714,7 @@ async function main() {
 
   // Paste FEN → load position as a FRESH game starting point.
   // History is reset so undo/back can't go past this new position.
-  // Board editor — "🛠 Setup". Opens a modal with piece palette + 8x8
-  // board; on Apply the built FEN becomes the new starting position.
-  const editor = setupEditor((fen) => {
-    try {
-      const tmp = new Chess(fen);
-      board.chess = tmp;
-      board.startingFen = tmp.fen();
-      board.viewPly = null;
-      board.cg.set({
-        fen: tmp.fen(),
-        turnColor: tmp.turn() === 'w' ? 'white' : 'black',
-        lastMove: undefined,
-        check: tmp.inCheck() ? (tmp.turn() === 'w' ? 'white' : 'black') : false,
-        movable: { color: 'both', dests: toDestsFrom(tmp) },
-      });
-      board.cg.setAutoShapes([]);
-      board.dispatchEvent(new CustomEvent('new-game'));
-      flashPill(ui.engineMode, 'Position set · new start', 1500);
-      ui.narrationText.textContent =
-        `🛠 New starting position loaded. ${tmp.turn() === 'w' ? 'White' : 'Black'} to move. Undo / scroll-back stop here.`;
-    } catch (e) {
-      alert('Could not load editor position: ' + e.message);
-    }
-  });
-  document.getElementById('btn-editor').addEventListener('click', () => {
-    editor.open(board.fen());
-  });
+  // (Board editor is wired EARLY, before bootEngine, above.)
 
   document.getElementById('btn-paste-fen').addEventListener('click', async () => {
     let fen;

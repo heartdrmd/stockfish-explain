@@ -1,22 +1,26 @@
-// editor.js — lichess-style board editor.
+// editor.js — lichess-style board editor using the same cburnett SVG
+// piece set as the main board (assets/pieces/cburnett/). No ugly unicode
+// glyphs.
 //
 // Opens a modal with:
-//   • piece palette (K Q R B N P for each color + trash)
-//   • 8x8 clickable board
+//   • piece palette (K Q R B N P for each color + trash) — real SVGs
+//   • clickable 8x8 board with lichess-ish brown squares
 //   • side-to-move toggle
 //   • buttons: Clear / Standard start / Cancel / Apply
 //
 // On Apply: builds a FEN from the editor state and calls a callback.
-// The caller can then load that FEN onto the main board as a fresh
-// starting position (BoardController knows to reset startingFen so
-// scrolling back / undo won't leak the prior position).
+// The caller loads that FEN onto the main board as a fresh starting
+// position.
 
 import { Chess } from '../vendor/chess.js/chess.js';
 
-const PIECE_GLYPHS = {
-  K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙',
-  k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟',
+// Maps FEN letter → piece asset filename stem
+const PIECE_ASSET = {
+  K: 'wK', Q: 'wQ', R: 'wR', B: 'wB', N: 'wN', P: 'wP',
+  k: 'bK', q: 'bQ', r: 'bR', b: 'bB', n: 'bN', p: 'bP',
 };
+const ASSET_BASE = 'assets/pieces/cburnett/';
+const pieceUrl = (letter) => `${ASSET_BASE}${PIECE_ASSET[letter]}.svg`;
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
@@ -25,7 +29,6 @@ const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
  * @param {(fen: string) => void} onApply  Called with the new FEN
  */
 export function setupEditor(onApply) {
-  // ─── DOM ───
   const modal = document.getElementById('editor-modal');
   if (!modal) { console.warn('[editor] #editor-modal not found'); return { open() {} }; }
   const boardEl    = modal.querySelector('#editor-board');
@@ -38,12 +41,11 @@ export function setupEditor(onApply) {
   const statusEl   = modal.querySelector('#editor-status');
 
   // ─── state ───
-  // pieces: map 'e1' → 'K' (uppercase = white, lowercase = black)
-  let pieces = {};
-  let selectedPiece = 'K';   // current palette pick; empty string = trash
+  let pieces = {};              // 'e1' → 'K'
+  let selectedPiece = 'K';      // '' = trash mode
   let turnToMove = 'w';
 
-  // ─── build board squares ───
+  // ─── build the 8×8 board ───
   boardEl.innerHTML = '';
   for (let r = 8; r >= 1; r--) {
     for (let f = 0; f < 8; f++) {
@@ -52,23 +54,28 @@ export function setupEditor(onApply) {
       const cell = document.createElement('div');
       cell.className = 'editor-sq ' + (isDark ? 'dark' : 'light');
       cell.dataset.sq = sq;
-      cell.innerHTML = `<span class="editor-glyph" data-sq="${sq}"></span>`;
+      // Piece image rendered as <div> with background-image.
+      const pieceDiv = document.createElement('div');
+      pieceDiv.className = 'editor-piece-img';
+      pieceDiv.dataset.sq = sq;
+      cell.appendChild(pieceDiv);
       boardEl.appendChild(cell);
     }
   }
 
-  // ─── palette build ───
+  // ─── piece palette ───
   function buildPalette() {
     paletteEl.innerHTML = '';
     const rowW = document.createElement('div'); rowW.className = 'editor-palette-row';
     const rowB = document.createElement('div'); rowB.className = 'editor-palette-row';
-    for (const p of ['K', 'Q', 'R', 'B', 'N', 'P']) rowW.appendChild(paletteBtn(p));
-    for (const p of ['k', 'q', 'r', 'b', 'n', 'p']) rowB.appendChild(paletteBtn(p));
+    for (const p of ['K','Q','R','B','N','P']) rowW.appendChild(paletteBtn(p));
+    for (const p of ['k','q','r','b','n','p']) rowB.appendChild(paletteBtn(p));
     const trash = document.createElement('button');
-    trash.className = 'editor-piece editor-trash';
+    trash.type = 'button';
+    trash.className = 'editor-piece-btn editor-trash';
     trash.dataset.piece = '';
-    trash.textContent = '🗑 trash';
-    trash.title = 'Pick, then click a square to remove its piece';
+    trash.innerHTML = '<span class="trash-glyph">🗑</span><span class="trash-label">Erase</span>';
+    trash.title = 'Click a square to remove its piece';
     trash.addEventListener('click', () => selectPiece(''));
     rowB.appendChild(trash);
     paletteEl.appendChild(rowW);
@@ -76,47 +83,56 @@ export function setupEditor(onApply) {
   }
   function paletteBtn(letter) {
     const b = document.createElement('button');
-    b.className = 'editor-piece';
+    b.type = 'button';
+    b.className = 'editor-piece-btn';
     b.dataset.piece = letter;
-    b.title = letter + ' — click then click the board to place';
-    b.textContent = PIECE_GLYPHS[letter];
-    if (letter === letter.toLowerCase()) b.classList.add('black');
+    b.title = letter.toUpperCase() + (letter === letter.toUpperCase() ? ' (white)' : ' (black)') +
+              ' — click then click the board to place';
+    const img = document.createElement('div');
+    img.className = 'editor-piece-img palette';
+    img.style.backgroundImage = `url("${pieceUrl(letter)}")`;
+    b.appendChild(img);
     b.addEventListener('click', () => selectPiece(letter));
     return b;
   }
   function selectPiece(p) {
     selectedPiece = p;
-    paletteEl.querySelectorAll('.editor-piece').forEach(btn => {
+    paletteEl.querySelectorAll('.editor-piece-btn').forEach(btn => {
       btn.classList.toggle('selected', btn.dataset.piece === p);
     });
   }
   buildPalette();
   selectPiece('K');
 
-  // ─── board click → place / remove ───
+  // ─── clicking board squares ───
   boardEl.addEventListener('click', (e) => {
     const cell = e.target.closest('.editor-sq');
     if (!cell) return;
     const sq = cell.dataset.sq;
-    if (selectedPiece === '') {
-      delete pieces[sq];
-    } else {
-      pieces[sq] = selectedPiece;
-    }
+    if (selectedPiece === '') delete pieces[sq];
+    else                      pieces[sq] = selectedPiece;
+    renderBoard();
+    validateAndSetStatus();
+  });
+  // Right-click a square to erase without needing to pick trash
+  boardEl.addEventListener('contextmenu', (e) => {
+    const cell = e.target.closest('.editor-sq');
+    if (!cell) return;
+    e.preventDefault();
+    delete pieces[cell.dataset.sq];
     renderBoard();
     validateAndSetStatus();
   });
 
   function renderBoard() {
-    boardEl.querySelectorAll('.editor-glyph').forEach(g => {
+    boardEl.querySelectorAll('.editor-piece-img').forEach(g => {
       const sq = g.dataset.sq;
       const p = pieces[sq];
-      g.textContent = p ? PIECE_GLYPHS[p] : '';
-      g.classList.toggle('black', !!p && p === p.toLowerCase());
+      g.style.backgroundImage = p ? `url("${pieceUrl(p)}")` : '';
     });
   }
 
-  // ─── turn toggle ───
+  // ─── turn radios ───
   modal.querySelectorAll('input[name="editor-turn"]').forEach(inp => {
     inp.addEventListener('change', () => {
       turnToMove = modal.querySelector('input[name="editor-turn"]:checked').value;
@@ -124,11 +140,10 @@ export function setupEditor(onApply) {
     });
   });
 
-  // ─── buttons ───
+  // ─── action buttons ───
   clearBtn.addEventListener('click', () => { pieces = {}; renderBoard(); validateAndSetStatus(); });
   standardBtn.addEventListener('click', () => {
     pieces = {};
-    // Standard starting array
     const back = ['R','N','B','Q','K','B','N','R'];
     for (let f = 0; f < 8; f++) {
       pieces[FILES[f] + 1] = back[f];
@@ -136,20 +151,18 @@ export function setupEditor(onApply) {
       pieces[FILES[f] + 2] = 'P';
       pieces[FILES[f] + 7] = 'p';
     }
-    renderBoard();
     turnToMove = 'w';
     modal.querySelector('input[name="editor-turn"][value="w"]').checked = true;
+    renderBoard();
     validateAndSetStatus();
   });
-
   function close() { modal.hidden = true; }
   closeBtn.addEventListener('click', close);
   cancelBtn.addEventListener('click', close);
   modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
-
   applyBtn.addEventListener('click', () => {
     const res = buildAndValidateFen();
-    if (!res.ok) return;   // status msg already set
+    if (!res.ok) return;
     close();
     onApply(res.fen);
   });
@@ -158,22 +171,15 @@ export function setupEditor(onApply) {
   function buildFen() {
     const rows = [];
     for (let r = 8; r >= 1; r--) {
-      let row = '';
-      let empty = 0;
+      let row = '', empty = 0;
       for (let f = 0; f < 8; f++) {
-        const sq = FILES[f] + r;
-        const p = pieces[sq];
-        if (p) {
-          if (empty) { row += empty; empty = 0; }
-          row += p;
-        } else {
-          empty++;
-        }
+        const p = pieces[FILES[f] + r];
+        if (p) { if (empty) { row += empty; empty = 0; } row += p; }
+        else   { empty++; }
       }
       if (empty) row += empty;
       rows.push(row);
     }
-    // castling — infer from king/rook positions on home squares
     let castling = '';
     if (pieces.e1 === 'K' && pieces.h1 === 'R') castling += 'K';
     if (pieces.e1 === 'K' && pieces.a1 === 'R') castling += 'Q';
@@ -183,24 +189,22 @@ export function setupEditor(onApply) {
     return `${rows.join('/')} ${turnToMove} ${castling} - 0 1`;
   }
   function buildAndValidateFen() {
-    const wk = Object.entries(pieces).filter(([_, p]) => p === 'K');
-    const bk = Object.entries(pieces).filter(([_, p]) => p === 'k');
-    if (wk.length !== 1) { statusEl.textContent = '⚠ Need exactly 1 white king.'; return { ok: false }; }
-    if (bk.length !== 1) { statusEl.textContent = '⚠ Need exactly 1 black king.'; return { ok: false }; }
+    const wk = Object.values(pieces).filter(p => p === 'K').length;
+    const bk = Object.values(pieces).filter(p => p === 'k').length;
+    if (wk !== 1) { statusEl.textContent = '⚠ Need exactly 1 white king.'; return { ok: false }; }
+    if (bk !== 1) { statusEl.textContent = '⚠ Need exactly 1 black king.'; return { ok: false }; }
     const fen = buildFen();
     try {
-      const c = new Chess(fen);
-      // Reject positions where the side NOT to move is in check (they'd be
-      // the side that just moved — checking own king is illegal).
+      new Chess(fen);
       const otherColor = turnToMove === 'w' ? 'b' : 'w';
       const tester = new Chess(fen.replace(' ' + turnToMove + ' ', ' ' + otherColor + ' '));
       if (tester.inCheck()) {
-        statusEl.textContent = '⚠ Position is illegal: the side that just moved is left in check. Flip whose turn it is, or fix the position.';
+        statusEl.textContent = '⚠ Illegal: the side that would have just moved is in check. Flip turn or fix.';
         return { ok: false };
       }
       return { ok: true, fen };
     } catch (e) {
-      statusEl.textContent = '⚠ chess.js rejected the FEN: ' + e.message;
+      statusEl.textContent = '⚠ chess.js rejected FEN: ' + e.message;
       return { ok: false };
     }
   }
@@ -209,13 +213,11 @@ export function setupEditor(onApply) {
     if (r.ok) statusEl.textContent = `✓ Legal. FEN: ${r.fen}`;
   }
 
-  // ─── controller ───
+  // ─── open controller ───
   function open(currentFen) {
-    // Seed from current board FEN
     pieces = {};
     try {
-      const c = new Chess(currentFen);
-      const fen = c.fen();
+      const fen = new Chess(currentFen).fen();
       const boardPart = fen.split(' ')[0];
       const ranks = boardPart.split('/');
       for (let i = 0; i < 8; i++) {
