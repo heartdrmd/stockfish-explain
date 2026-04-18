@@ -259,7 +259,12 @@ export function getPromptModes() { return Object.keys(PROMPT_MODES); }
  * Phase 2: ask Claude, seeded with engine ground truth. Mode selects the
  * system prompt — 'general', 'position', or 'tactics'.
  */
-export async function askCoach({ fen, coachReport, engineLines, recentMoves = [], model = null, mode = 'general' } = {}) {
+export async function askCoach({
+  fen, coachReport, engineLines, recentMoves = [], model = null, mode = 'general',
+  coachV2Report = null,     // NEW — rich CoachV2 output (Dorfman + archetype + imbalance + strategy)
+  openingExplorer = null,   // NEW — Lichess master-games stats for current FEN
+  tablebase = null,         // NEW — Syzygy tablebase result if ≤7 pieces
+} = {}) {
   const m = model || getModel();
   // In proxy mode the server holds the API key. Otherwise fall back to the
   // legacy browser-held key (file:// dev and old static deploys).
@@ -272,6 +277,14 @@ export async function askCoach({ fen, coachReport, engineLines, recentMoves = []
     `#${i+1}  ${l.san || l.uci}   eval ${l.scoreKind === 'mate' ? ('mate in ' + l.score) : ((l.score/100).toFixed(2))} (side-to-move view)   PV: ${l.pvSan || '?'}`
   ).join('\n') || '(engine data unavailable)';
 
+  // ─── Enriched context blocks from CoachV2, tablebase, and opening DB ───
+  // The AI gets ALL the research output, not just the minimal old heuristics.
+  // It's instructed later to SYNTHESIZE these with the engine lines rather
+  // than treat them as isolated hints.
+  const coachV2Block = coachV2Report ? buildCoachV2Block(coachV2Report) : '';
+  const tablebaseBlock = tablebase ? buildTablebaseBlock(tablebase) : '';
+  const openingBlock = openingExplorer ? buildOpeningBlock(openingExplorer) : '';
+
   const userPrompt = `
 POSITION
 FEN: ${fen}
@@ -280,7 +293,7 @@ ${recentMoves.length ? `Last ${recentMoves.length} moves: ${recentMoves.join(' '
 
 STOCKFISH TOP CANDIDATES (search depth ${engineLines[0]?.depth || '?'}, from side-to-move's view)
 ${linesText}
-
+${tablebaseBlock}${openingBlock}${coachV2Block}
 HEURISTIC CONTEXT (geometry + pawn structure — already verified by static analysis):
 • Threats: ${coachReport.threats.map(t => stripHtml(t.text)).join(' | ') || 'none significant'}
 • ${coachReport.sideName}'s weaknesses: ${coachReport.weaknesses.map(t => stripHtml(t.text)).join(' | ') || 'none'}
@@ -289,7 +302,28 @@ HEURISTIC CONTEXT (geometry + pawn structure — already verified by static anal
 • Pawn story: ${coachReport.structureStory.map(stripHtml).join(' | ')}
 • Initiative: ${stripHtml(coachReport.initiative.text)}
 
-Write the explanation now. Remember: every move you mention must be one of the engine's 5 candidates, and your assessment of who-is-better must match the engine's eval.`;
+SYNTHESIS INSTRUCTIONS
+You have FOUR sources of ground truth above: (1) Stockfish's top candidate lines,
+(2) the Positional Coach synthesis (Dorfman factors + pawn-structure archetype
++ imbalance analysis + worst-piece detection + strategy narrative), (3) any
+Syzygy tablebase verdict for ≤7-piece endgames, and (4) empirical master-game
+statistics for the opening phase. Your job is to WEAVE these together, not
+recite them separately.
+
+Rules:
+1. Every move you recommend MUST appear in the engine's top-5 candidates.
+2. Your overall assessment MUST match the engine's eval direction; if the
+   Positional Coach disagrees with Stockfish, trust Stockfish and flag the
+   disagreement in one sentence.
+3. When an archetype was detected (IQP / Carlsbad / Hanging pawns / Maroczy),
+   use its specific plan language; don't give generic advice.
+4. When master-game statistics are provided, quote the most common move and
+   its win-rate. Call out if the side-to-move's intended direction is
+   unusual vs the database.
+5. When a tablebase verdict is provided, it is mathematically authoritative
+   — do not second-guess it.
+
+Write the explanation now.`;
 
   // Two code paths:
   //   - PROXY_MODE: POST /api/ai on our own server. Server adds the x-api-key
@@ -370,3 +404,109 @@ function formatScore(kind, score) {
   return `${score >= 0 ? '+' : ''}${(score/100).toFixed(2)}`;
 }
 function stripHtml(s) { return String(s).replace(/<[^>]+>/g, ''); }
+
+// ─── enriched-context formatters for the AI prompt ─────────────────
+//
+// These take the structured output of coach_v2 / tablebase /
+// opening_explorer and produce plain-text blocks that slot into the
+// AI prompt. Keeping each block under ~25 lines so the prompt stays
+// within a reasonable token budget.
+
+function buildCoachV2Block(rep) {
+  if (!rep) return '';
+  const sign = rep.verdict?.sign;
+  const verdictSide = sign > 0 ? 'White' : sign < 0 ? 'Black' : 'neither side';
+  const fmt = (f) => {
+    if (!f) return '';
+    const s = f.sign > 0 ? '[W]' : f.sign < 0 ? '[B]' : '[=]';
+    return `${s} ${f.note || ''}`;
+  };
+
+  const factors = rep.factors || {};
+  const factorLines = [
+    `  • King safety:      ${fmt(factors.kingSafety)}`,
+    `  • Material:         ${fmt(factors.material)}`,
+    `  • Phantom Q-trade:  ${fmt(factors.queensOff)}`,
+    `  • Piece activity:   ${fmt(factors.activity)}`,
+    `  • Pawn structure:   ${fmt(factors.pawns)}`,
+    `  • Space:            ${fmt(factors.space)}`,
+    `  • Files/diagonals:  ${fmt(factors.files)}`,
+    `  • Initiative/tempo: ${fmt(factors.dynamics)}`,
+  ].filter(l => l.includes('[')).join('\n');
+
+  const archBlock = rep.archetype
+    ? `\n• Pawn-structure archetype: ${rep.archetype.label}` +
+      (rep.archetype.signals?.length ? `\n  Signals: ${rep.archetype.signals.join(' · ')}` : '') +
+      (rep.archetype.minorityViability
+        ? `\n  Minority-attack viability: ${rep.archetype.minorityViability.verdict} (${rep.archetype.minorityViability.notes?.join('; ') || 'no notes'})`
+        : '')
+    : '';
+
+  const imbBlock = rep.imbalance?.length
+    ? `\n• Imbalances (Kaufman/Avrukh):\n${rep.imbalance.map(i => `  - ${i.text}`).join('\n')}`
+    : '';
+
+  const planBlock = (side, label) => {
+    const ps = rep.plans?.[side] || [];
+    if (!ps.length) return '';
+    return `\n• ${label} plans (top ${Math.min(ps.length, 4)}):\n` +
+      ps.slice(0, 4).map((p, i) => `  ${i + 1}. ${p.text}`).join('\n');
+  };
+
+  const strategyBlock = rep.strategy
+    ? `\n• Strategy narrative (White): ${rep.strategy.white}\n• Strategy narrative (Black): ${rep.strategy.black}`
+    : '';
+
+  const prophyBlock = rep.prophylaxis?.opponentIdea
+    ? `\n• Prophylaxis — opponent's sharpest idea: ${rep.prophylaxis.opponentIdea}`
+    : '';
+
+  const trapBlock = rep.trapWarnings?.length
+    ? `\n• Trap / tactical warnings (static detection):\n${rep.trapWarnings.map(w => `  - [${w.severity}] ${w.message}`).join('\n')}`
+    : '';
+
+  return `
+POSITIONAL COACH (synthesised from Dorfman method + Silman imbalances + Nimzowitsch/Aagaard/Capablanca/Dvoretsky/Watson concepts + AlphaZero observations):
+  Verdict: ${verdictSide} is statically better.
+  Dominant factor: ${rep.verdict?.dominant || 'mixed'}.
+  Reason: ${rep.verdict?.reason || ''}
+  Phase: ${rep.phase}
+  Mode (White): ${rep.mode?.white || 'n/a'}
+  Mode (Black): ${rep.mode?.black || 'n/a'}
+${factorLines}${archBlock}${imbBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${trapBlock}
+`;
+}
+
+function buildTablebaseBlock(tb) {
+  if (!tb) return '';
+  const parts = [`TABLEBASE (authoritative for ≤7 pieces):`];
+  if (tb.checkmate) parts.push(`  Checkmate on the board.`);
+  else if (tb.stalemate) parts.push(`  Stalemate — draw.`);
+  else if (tb.category) parts.push(`  Category: ${tb.category}${tb.dtz != null ? `, DTZ ${Math.abs(tb.dtz)}` : ''}${tb.dtm != null ? `, mate in ${Math.abs(tb.dtm)}` : ''}`);
+  if (tb.moves?.length) {
+    parts.push(`  Top moves:`);
+    tb.moves.slice(0, 3).forEach(m => {
+      parts.push(`    • ${m.san} — ${m.category}${m.dtz != null ? ` (DTZ ${Math.abs(m.dtz)})` : ''}`);
+    });
+  }
+  return '\n' + parts.join('\n') + '\n';
+}
+
+function buildOpeningBlock(data) {
+  if (!data || !data.total) return '';
+  const parts = [`MASTER-GAME STATISTICS (Lichess masters database):`];
+  if (data.opening?.name) parts.push(`  Named opening: ${data.opening.name} (${data.opening.eco || '?'})`);
+  parts.push(`  Sample size: ${data.total.toLocaleString()} master games`);
+  parts.push(`  Results: White ${data.pctWhite}% · Draws ${data.pctDraw}% · Black ${data.pctBlack}%`);
+  if (data.moves?.length) {
+    parts.push(`  Most common moves:`);
+    data.moves.slice(0, 5).forEach(m => {
+      const pct = data.total ? ((m.total / data.total) * 100).toFixed(1) : '0';
+      const wRate = m.total ? ((m.white / m.total) * 100).toFixed(0) : '0';
+      const dRate = m.total ? ((m.draws / m.total) * 100).toFixed(0) : '0';
+      const bRate = m.total ? ((m.black / m.total) * 100).toFixed(0) : '0';
+      parts.push(`    • ${m.san} — ${m.total.toLocaleString()} games (${pct}%), scored W/D/B = ${wRate}/${dRate}/${bRate}%${m.rating ? ', avg rating ' + m.rating : ''}`);
+    });
+  }
+  return '\n' + parts.join('\n') + '\n';
+}

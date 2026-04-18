@@ -1913,3 +1913,29 @@ body.practice-mode.practice-thinking .ceval::after {
 }
 .oe-moves .oe-san { font-family: var(--font-san); font-weight: 600; }
 .oe-moves .oe-wdl { font-family: var(--font-mono); color: var(--c-font-dim); }
+
+/* ─── Trap / tactical-pattern warning banners in the Coach panel ── */
+.coach-trap {
+  padding: 7px 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin: 6px 0;
+}
+.coach-trap-crit {
+  background: rgba(239, 68, 68, 0.15);
+  border-left: 4px solid #ef4444;
+  color: #fca5a5;
+}
+.coach-trap-warn {
+  background: rgba(234, 179, 8, 0.15);
+  border-left: 4px solid #eab308;
+  color: #fde68a;
+}
+.coach-trap-info {
+  background: rgba(120, 120, 120, 0.15);
+  border-left: 4px solid #888;
+  color: #ccc;
+  font-weight: 500;
+}

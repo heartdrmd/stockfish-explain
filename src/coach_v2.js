@@ -20,6 +20,7 @@
 
 import { Chess } from '../vendor/chess.js/chess.js';
 import { detectArchetype } from './archetype.js';
+import { detectTraps } from './traps.js';
 
 // ─── constants ──────────────────────────────────────────────────────
 const PIECE_CP = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
@@ -65,6 +66,11 @@ export function coachReport(fen, engineData = null) {
 
   // Pawn-structure archetype (IQP / Carlsbad / Hanging / Maroczy)
   const archetype = detectArchetype(fen);
+
+  // Tactical traps + common tactical-pattern warnings
+  const trapWarnings = detectTraps(fen, [], engineData ? {
+    score: engineData.topMoves?.[0]?.scoreKind === 'cp' ? engineData.topMoves[0].score : 0,
+  } : null);
   if (archetype && archetype.plans) {
     // Merge archetype-specific plans at top priority
     if (archetype.plans.w) plansW = [...archetype.plans.w.map(p => ({ ...p, source: archetype.archetype })), ...plansW];
@@ -109,6 +115,7 @@ export function coachReport(fen, engineData = null) {
     strategy,
     imbalance,
     archetype,
+    trapWarnings,
     contextNotes,
     mode:       { white: modeW, black: modeB },
     engineOverrides,

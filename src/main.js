@@ -252,9 +252,22 @@ async function main() {
               ? `<div class="coach-engine-ok"><strong>✓ Engine agrees.</strong> ${rep.engineOverrides.summary}${rep.engineOverrides.bestMove ? ` (best move: ${rep.engineOverrides.bestMove})` : ''}</div>`
               : `<div class="coach-engine-missing"><em>Engine data not yet available — advice below is theoretical only. Wait a moment for analysis.</em></div>`);
 
+        const trapBanner = (rep.trapWarnings && rep.trapWarnings.length)
+          ? rep.trapWarnings.map(w => {
+              const cls = w.severity === 'critical' ? 'coach-trap-crit'
+                        : w.severity === 'warn'     ? 'coach-trap-warn'
+                        :                              'coach-trap-info';
+              const icon = w.severity === 'critical' ? '🚨'
+                        : w.severity === 'warn'     ? '⚠'
+                        :                              'ℹ';
+              return `<div class="coach-trap ${cls}">${icon} ${w.message}</div>`;
+            }).join('')
+          : '';
+
         coachHTML = `
           <div class="dissect-group dorfman-group coach-group">
             <h4>Positional Coach — ${rep.phase} · ${rep.sideToMove} to move</h4>
+            ${trapBanner}
             ${engineBanner}
             <p class="dorfman-verdict"><strong>${verdictSide} is statically better.</strong>
                ${rep.verdict.dominant ? 'Dominant factor: ' + rep.verdict.dominant + '. ' : ''}
@@ -1855,7 +1868,38 @@ async function main() {
       const engineTop = { scoreKind: lines[0].scoreKind, score: lines[0].score, pv: lines[0].pvSan?.split(' ') || [] };
       const rpt = coachReport(fen, { engineTop });
       const recent = board.chess.history().slice(-8);
-      const result = await AICoach.askCoach({ fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode });
+
+      // Gather the ENRICHED coaching context from every research module so
+      // the AI gets the full Dorfman/Silman/archetype/imbalance synthesis,
+      // tablebase ground truth for endgames, and master-game statistics
+      // for the opening phase — not just the old minimal coachReport.
+      let coachV2Report = null;
+      try {
+        const engineSnap = {
+          topMoves: lines.map(l => ({
+            san: l.san, uci: l.uci, score: l.score, scoreKind: l.scoreKind,
+            pv: l.pvSan?.split(' ') || [],
+          })).filter(m => m.uci),
+        };
+        coachV2Report = CoachV2.coachReport(fen, engineSnap);
+      } catch (err) { console.warn('[ai-coach] CoachV2 unavailable', err.message); }
+
+      let tablebase = null;
+      try {
+        if (Tablebase.isTablebasePosition(fen)) tablebase = await Tablebase.queryTablebase(fen);
+      } catch {}
+
+      let openingExplorer = null;
+      try {
+        if (coachV2Report && coachV2Report.phase === 'opening') {
+          openingExplorer = await OpeningExplorer.queryOpeningExplorer(fen);
+        }
+      } catch {}
+
+      const result = await AICoach.askCoach({
+        fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
+        coachV2Report, tablebase, openingExplorer,
+      });
       const checks = AICoach.verifyCoachSuggestions(result.text, lines);
 
       const enginePanel = `
@@ -2005,7 +2049,31 @@ async function main() {
         const engineTop = { scoreKind: lines[0].scoreKind, score: lines[0].score, pv: lines[0].pvSan?.split(' ') || [] };
         const rpt = coachReport(fen, { engineTop });
         const recent = board.chess.history().slice(-8);
-        const result = await AICoach.askCoach({ fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode });
+
+        // Enrich with full research context — same as the setupCoach path.
+        let coachV2Report = null;
+        try {
+          const engineSnap = {
+            topMoves: lines.map(l => ({
+              san: l.san, uci: l.uci, score: l.score, scoreKind: l.scoreKind,
+              pv: l.pvSan?.split(' ') || [],
+            })).filter(m => m.uci),
+          };
+          coachV2Report = CoachV2.coachReport(fen, engineSnap);
+        } catch {}
+        let tablebase = null;
+        try { if (Tablebase.isTablebasePosition(fen)) tablebase = await Tablebase.queryTablebase(fen); } catch {}
+        let openingExplorer = null;
+        try {
+          if (coachV2Report && coachV2Report.phase === 'opening') {
+            openingExplorer = await OpeningExplorer.queryOpeningExplorer(fen);
+          }
+        } catch {}
+
+        const result = await AICoach.askCoach({
+          fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
+          coachV2Report, tablebase, openingExplorer,
+        });
         const checks = AICoach.verifyCoachSuggestions(result.text, lines);
 
         const enginePanel = `
