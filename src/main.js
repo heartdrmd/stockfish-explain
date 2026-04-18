@@ -2044,7 +2044,9 @@ async function main() {
           thinkingTier,
         });
         cycleHistory.push({
-          cycle, depth, text: result.text,
+          cycle,
+          depth: cycle === 1 ? canonicalDepth : lookaheadDepth,
+          text: result.text,
           thisCallCost: result.cost?.thisCall || 0,
           tokensIn: result.usage?.input_tokens || 0,
           tokensOut: result.usage?.output_tokens || 0,
