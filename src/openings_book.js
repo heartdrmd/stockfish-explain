@@ -1671,7 +1671,66 @@ function boardToPlacement(chess) {
       }
     }
   }
-  return { pawns, pieces, material, wk, bk, stm: chess.turn(), roles: computePawnRoles(b) };
+  return {
+    pawns, pieces, material, wk, bk,
+    stm: chess.turn(),
+    roles: computePawnRoles(b),
+    activity: computeActivity(chess),
+  };
+}
+
+// Piece-activity footprint per side. Counts legal-move targets landing
+// on strategic zones: the central 2×2 block, the enemy kingside pawn
+// cover, and the enemy queenside pawn cover. Also tracks total non-
+// pawn mobility. Two positions with identical pawn structure but
+// different piece coordination will diverge in this vector — captures
+// coordination that square-by-square hamming misses.
+const CENTRAL_ZONE = new Set(['d4','d5','e4','e5']);
+const KINGSIDE_B   = new Set(['f6','g6','h6','f7','g7','h7']);
+const KINGSIDE_W   = new Set(['f3','g3','h3','f2','g2','h2']);
+const QSIDE_B      = new Set(['a6','b6','c6','a7','b7','c7']);
+const QSIDE_W      = new Set(['a3','b3','c3','a2','b2','c2']);
+
+function countInZone(moves, zone) {
+  let n = 0;
+  for (const m of moves) if (zone.has(m.to)) n++;
+  return n;
+}
+
+function computeActivity(chess) {
+  const out = { w: { mobility: 0, central: 0, ksAttack: 0, qsAttack: 0 },
+                b: { mobility: 0, central: 0, ksAttack: 0, qsAttack: 0 } };
+  for (const side of ['w', 'b']) {
+    const probe = new Chess(chess.fen());
+    if (probe.turn() !== side) {
+      const fp = probe.fen().split(' ');
+      fp[1] = side; fp[3] = '-'; fp[5] = '1';
+      try { probe.load(fp.join(' ')); } catch (_) { continue; }
+    }
+    const moves = probe.moves({ verbose: true });
+    // Only non-pawn piece moves for the mobility + zone counters; pawn
+    // advances already drove the pawn metric.
+    const pieceMoves = moves.filter(m => m.piece && m.piece !== 'p');
+    out[side].mobility = pieceMoves.length;
+    out[side].central  = countInZone(pieceMoves, CENTRAL_ZONE);
+    out[side].ksAttack = countInZone(pieceMoves, side === 'w' ? KINGSIDE_B : KINGSIDE_W);
+    out[side].qsAttack = countInZone(pieceMoves, side === 'w' ? QSIDE_B    : QSIDE_W);
+  }
+  return out;
+}
+
+const ACTIVITY_KEYS = ['central','ksAttack','qsAttack','mobility'];
+function activityDistance(a, b) {
+  if (!a || !b || !a.w || !b.w) return 0;
+  let d = 0;
+  for (const k of ACTIVITY_KEYS) {
+    // Mobility has much larger magnitude than zone counts, so dampen
+    // it with /4 to keep the vector balanced.
+    const divisor = k === 'mobility' ? 4 : 1;
+    d += Math.abs(((a.w[k] || 0) - (b.w[k] || 0))) / divisor;
+    d += Math.abs(((a.b[k] || 0) - (b.b[k] || 0))) / divisor;
+  }
+  return d;
 }
 
 // Classify each pawn by strategic role so two positions with the same
@@ -1806,12 +1865,18 @@ function signatureDistance(sigA, sigB) {
   // Captures strategic similarity that raw-square hamming misses (an
   // IQP is still an IQP whether the isolated pawn is on d5 or e5).
   const roleDist = roleDistance(sigA.roles, sigB.roles);
+  // Piece-activity distance — central control, enemy-wing pressure,
+  // total non-pawn mobility per side. Two positions with the same pawn
+  // skeleton but very different piece coordination diverge here.
+  const actDist = activityDistance(sigA.activity, sigB.activity);
   // Weights: pawn structure DOMINATES (×4 via the file-weighting above
   // peaks at 2×16=32), piece placement moderate (×1), material-shape
   // dampened (×1 after the /2 above), king placement light (×0.5),
-  // pawn-role structural similarity (×1.5).
+  // pawn-role structural similarity (×1.5), piece activity light
+  // (×0.6 — a hint, not a dominant signal since piece placement is
+  // already counted via pieceDist).
   return pawnDist * 3 + pieceDist * 1 + matDiff * 1 + kingDist * 0.5
-       + stmPenalty + roleDist * 1.5;
+       + stmPenalty + roleDist * 1.5 + actDist * 0.6;
 }
 
 // Looser threshold — ~32 instead of ~22 catches genuine transpositions
@@ -1871,6 +1936,9 @@ function mirrorSignature(sig) {
     stm: sig.stm === 'w' ? 'b' : 'w',
     // Pawn roles flip: what was Black's role-vector becomes White's.
     roles: sig.roles ? { w: sig.roles.b, b: sig.roles.w } : null,
+    // Piece activity flips too: Black's attacking zones swap with
+    // White's (mobility numbers invert sides).
+    activity: sig.activity ? { w: sig.activity.b, b: sig.activity.w } : null,
   };
 }
 
