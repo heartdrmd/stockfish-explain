@@ -152,9 +152,12 @@ export class Engine extends EventTarget {
 
     this.flavor = flavor;
     this.scriptPath = spec.js;
-    // Use every available core (minus one for the UI thread) — no artificial cap.
+    // Default: 75% of available cores, rounded up, capped at N-1 so one
+    // core stays free for the browser UI / OS. Shared with main.js —
+    // keep the two formulas in sync (main.js pickDefaultThreads()).
+    const hw = navigator.hardwareConcurrency || 4;
     this.threads = spec.threaded
-      ? Math.max(1, (navigator.hardwareConcurrency || 4) - 1)
+      ? Math.max(1, Math.min(hw - 1, Math.ceil(hw * 0.75)))
       : 1;
 
     try {

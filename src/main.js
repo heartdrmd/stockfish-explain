@@ -661,15 +661,19 @@ async function main() {
 
   // ────────── Engine control <-> UI ──────────
 
-  // Hardware concurrency — set max on thread slider. Default to HALF of
-  // available cores so the browser stays snappy and other apps aren't
-  // starved. User can crank it up to maxThreads - 1 if they want.
+  // Hardware concurrency — set max on thread slider. Default: 75% of
+  // available cores rounded up, capped at N-1 (matches engine.js
+  // default so UI and engine agree out of the box). User can slide up
+  // to maxThreads or down for more browser headroom.
   const maxThreads = Math.max(1, navigator.hardwareConcurrency || 4);
   ui.rangeThreads.max = String(maxThreads);
-  const defaultThreads = Math.max(1, Math.floor(maxThreads / 2));
+  const defaultThreads = Math.max(1, Math.min(maxThreads - 1, Math.ceil(maxThreads * 0.75)));
   ui.rangeThreads.value = String(defaultThreads);
   ui.threadsVal.textContent = ui.rangeThreads.value;
-  ui.threadsHw.textContent = `(${maxThreads} cores detected · default: half)`;
+  ui.threadsHw.textContent = `(${maxThreads} cores detected · default: ${defaultThreads})`;
+  // Sync engine to UI default so the two always agree, even if engine
+  // was loaded with a different initial thread count before UI init.
+  try { engine.setThreads(defaultThreads); } catch (_) { /* engine may still be booting */ }
 
   ui.rangeSkill.addEventListener('input', () => {
     ui.skillVal.textContent = ui.rangeSkill.value;
