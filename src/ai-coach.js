@@ -520,6 +520,17 @@ function buildCoachV2Block(rep) {
     ? `\n• Opening identified: ${rep.opening.name} (${rep.opening.eco || '?'})\n  Structure: ${rep.opening.structure || ''}\n  White plans: ${(rep.opening.whitePlans || []).join(' / ')}\n  Black plans: ${(rep.opening.blackPlans || []).join(' / ')}${rep.opening.pitfalls?.length ? '\n  Pitfalls: ' + rep.opening.pitfalls.join(' / ') : ''}${rep.opening.motifs?.length ? '\n  Motifs: ' + rep.opening.motifs.join(' / ') : ''}`
     : '';
 
+  const leversBlock = (rep.levers && rep.levers.length)
+    ? `\n• Pawn levers available (the breaks this position is structurally about):\n${
+        rep.levers.slice(0, 4).map(L => {
+          const side = L.side === 'w' ? 'White' : 'Black';
+          const status = L.live ? 'LIVE (legal now)' : 'available';
+          const atk = L.attacks.length ? ` · attacks ${L.attacks.join(',')}` : '';
+          return `  - ${side} ...${L.lever} (from ${L.from}) — ${status}, sup ${L.supporters}/blk ${L.blockers}${atk}\n      ${L.strategic}`;
+        }).join('\n')
+      }`
+    : '';
+
   return `
 POSITIONAL COACH (synthesised from Dorfman method + Silman imbalances + Nimzowitsch/Aagaard/Capablanca/Dvoretsky/Watson concepts + AlphaZero observations):
   Verdict: ${verdictSide} is statically better.
@@ -530,7 +541,7 @@ POSITIONAL COACH (synthesised from Dorfman method + Silman imbalances + Nimzowit
   Mode (Black): ${rep.mode?.black || 'n/a'}${topFactorsBlock}
 
   Full factor scan (for reference only — the TOP 3 above are the load-bearing ones):
-${factorLines}${openingBlock}${archBlock}${imbBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${trapBlock}
+${factorLines}${openingBlock}${leversBlock}${archBlock}${imbBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${trapBlock}
 `;
 }
 

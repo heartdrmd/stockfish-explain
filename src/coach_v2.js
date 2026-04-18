@@ -22,6 +22,7 @@ import { Chess } from '../vendor/chess.js/chess.js';
 import { detectArchetype } from './archetype.js';
 import { detectTraps } from './traps.js';
 import { detectOpening } from './openings_book.js';
+import { detectLevers } from './pawn_levers.js';
 
 // ─── constants ──────────────────────────────────────────────────────
 const PIECE_CP = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
@@ -73,6 +74,10 @@ export function coachReport(fen, engineData = null) {
   const sanHistory = (engineData && engineData.sanHistory) || [];
   const opening = detectOpening(sanHistory, fen);
 
+  // Pawn-lever detector — which breaks is this position structurally
+  // about? Ranked by readiness (live + supporters − blockers).
+  const levers = detectLevers(fen);
+
   // Tactical traps + common tactical-pattern warnings
   const trapWarnings = detectTraps(fen, [], engineData ? {
     score: engineData.topMoves?.[0]?.scoreKind === 'cp' ? engineData.topMoves[0].score : 0,
@@ -122,6 +127,7 @@ export function coachReport(fen, engineData = null) {
     imbalance,
     archetype,
     opening,
+    levers,
     trapWarnings,
     contextNotes,
     mode:       { white: modeW, black: modeB },
