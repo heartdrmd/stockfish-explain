@@ -68,9 +68,10 @@ export function coachReport(fen, engineData = null) {
   // Pawn-structure archetype (IQP / Carlsbad / Hanging / Maroczy)
   const archetype = detectArchetype(fen);
 
-  // Opening book lookup — caller may pass sanHistory via engineData
+  // Opening book lookup — exact SAN-prefix first, then FEN-based
+  // structural fallback so transpositions still trigger coaching plans.
   const sanHistory = (engineData && engineData.sanHistory) || [];
-  const opening = detectOpening(sanHistory);
+  const opening = detectOpening(sanHistory, fen);
 
   // Tactical traps + common tactical-pattern warnings
   const trapWarnings = detectTraps(fen, [], engineData ? {

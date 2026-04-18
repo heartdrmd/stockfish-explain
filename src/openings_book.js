@@ -1,23 +1,28 @@
 // openings_book.js — synthesised opening coaching database.
 //
-// ~100 curated opening entries with plan templates, motifs, and common
-// pitfalls. Each entry is matched to a game by longest SAN-prefix
-// matching against the move history. When a match is found, the coach
-// panel shows:
-//   - the opening name + ECO code
-//   - a 1-sentence pawn-structure summary
-//   - 3-4 plans per side
-//   - 1-2 common pitfalls
-//   - 2-3 characteristic motifs
+// ~200 curated opening entries with plan templates, motifs, and common
+// pitfalls. Detection runs two matchers in sequence:
+//
+//   1) Exact SAN-prefix match against the played move history (longest
+//      first). When a prefix matches, the entry is returned with
+//      `_matched = 'exact'`.
+//   2) FEN-based structural fallback. If no prefix matches but a FEN is
+//      supplied, we compare the current position's pawn skeleton +
+//      piece placement + material + side-to-move against each entry's
+//      canonical FEN (pre-computed at module load by replaying its
+//      moves once). The nearest-neighbour entry is returned with
+//      `_matched = 'structural'` provided the distance is under a
+//      similarity threshold — this lets a transposed Maroczy / IQP /
+//      Carlsbad still trigger the right coaching plans even when the
+//      move order doesn't match any book line.
 //
 // Data synthesised from publicly-documented opening theory (ECO
 // classification, Wikipedia, public chess-press summaries). Plan and
 // motif descriptions are paraphrased in original words — no
 // copyrighted prose is reproduced. Move sequences and ECO codes are
 // factual reference data.
-//
-// Structure: a flat array of entries sorted long-prefix-first so the
-// matcher finds the most specific variation that applies.
+
+import { Chess } from '../vendor/chess.js/chess.js';
 
 const BOOK_RAW = [
   // ═════════════════════ SICILIAN ═════════════════════
@@ -1487,24 +1492,146 @@ for (const e of BOOK_RAW) e._len = (e.moves || []).length;
 // Sort longest-first so detectOpening returns the most-specific match
 BOOK_RAW.sort((a, b) => b._len - a._len);
 
+// ─── FEN signatures (pre-computed once at module load) ────────────────
+// Replay each entry's moves[] on a chess.js instance, capture the
+// resulting FEN, and derive a compact signature used for structural
+// matching. Any entry whose moves can't be replayed legally is skipped
+// for structural matching but still works for SAN-prefix.
+
+function boardToPlacement(chess) {
+  const b = chess.board();
+  let pawns = '';
+  let pieces = '';
+  const material = [0,0,0,0,0, 0,0,0,0,0]; // P N B R Q p n b r q
+  let wk = -1, bk = -1;
+  const idxOf = { p:0, n:1, b:2, r:3, q:4 };
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const sq = b[r][c];
+      if (!sq) { pawns += '.'; pieces += '.'; continue; }
+      const pc = sq.color === 'w' ? sq.type.toUpperCase() : sq.type;
+      pieces += pc;
+      if (sq.type === 'p') { pawns += pc; }
+      else { pawns += '.'; }
+      if (sq.type === 'k') {
+        if (sq.color === 'w') wk = r * 8 + c; else bk = r * 8 + c;
+      } else {
+        const off = sq.color === 'w' ? 0 : 5;
+        material[idxOf[sq.type] + off]++;
+      }
+    }
+  }
+  return { pawns, pieces, material, wk, bk, stm: chess.turn() };
+}
+
+for (const entry of BOOK_RAW) {
+  try {
+    const c = new Chess();
+    let ok = true;
+    for (const san of entry.moves) {
+      const res = c.move(san, { sloppy: true });
+      if (!res) { ok = false; break; }
+    }
+    if (ok) {
+      entry._sig = boardToPlacement(c);
+      entry._fen = c.fen();
+    }
+  } catch (_) { /* skip entries whose moves fail to replay */ }
+}
+
 export const OPENINGS_BOOK = BOOK_RAW;
+
+// ─── Similarity distance ─────────────────────────────────────────────
+// Lower = more similar. Exact identity = 0. Totally unrelated ~80+.
+
+function hamming(a, b) {
+  if (!a || !b || a.length !== b.length) return 64;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d++;
+  return d;
+}
+function chebyshev(a, b) {
+  if (a < 0 || b < 0) return 0;
+  const dr = Math.abs((a >> 3) - (b >> 3));
+  const dc = Math.abs((a & 7) - (b & 7));
+  return Math.max(dr, dc);
+}
+function signatureDistance(sigA, sigB) {
+  if (!sigA || !sigB) return Infinity;
+  const pawnDist = hamming(sigA.pawns, sigB.pawns);            // 0..64
+  const pieceDist = hamming(sigA.pieces, sigB.pieces);          // 0..64
+  let matDiff = 0;
+  for (let i = 0; i < sigA.material.length; i++) {
+    matDiff += Math.abs(sigA.material[i] - sigB.material[i]);
+  }
+  const kingDist = chebyshev(sigA.wk, sigB.wk) + chebyshev(sigA.bk, sigB.bk);
+  const stmPenalty = sigA.stm !== sigB.stm ? 4 : 0;
+  // Weights: pawn structure dominates (×3), piece placement (×1),
+  // material (×2), king placement (×0.5). Hard-floor 0.
+  return pawnDist * 3 + pieceDist * 1 + matDiff * 2 + kingDist * 0.5 + stmPenalty;
+}
+
+// Tuned threshold: empirically ~25 separates "same strategic family"
+// from "unrelated". Returning null rather than a spurious match is
+// preferable when nothing is actually close.
+const STRUCTURAL_THRESHOLD = 22;
+// Minimum ply count before structural fallback is allowed. Before this,
+// positions are too close to the starting array for similarity to be
+// meaningful — let the SAN-prefix matcher (and its null result) handle
+// the opening phase.
+const STRUCTURAL_MIN_PLIES = 6;
+
+/**
+ * Compute a signature from an arbitrary FEN. Used by the structural
+ * matcher to look up the nearest book entry.
+ */
+export function fenSignature(fen) {
+  try {
+    const c = new Chess(fen);
+    return boardToPlacement(c);
+  } catch (_) {
+    return null;
+  }
+}
 
 /**
  * Find the most-specific opening entry whose moves are a prefix of the
- * played SAN history. Returns null if nothing matches.
+ * played SAN history. If no prefix matches and a FEN is supplied, fall
+ * back to nearest-neighbour structural matching. Returns null if
+ * neither matcher finds a sufficiently close entry.
  *
  * @param {string[]} sanHistory - array of SAN moves played so far
- * @returns {object|null} the matching entry
+ * @param {string} [fen] - current FEN for structural fallback
+ * @returns {object|null} the matching entry (with `_matched` field)
  */
-export function detectOpening(sanHistory) {
-  if (!sanHistory || !sanHistory.length) return null;
-  for (const entry of OPENINGS_BOOK) {
-    if (entry._len > sanHistory.length) continue;
-    let ok = true;
-    for (let i = 0; i < entry._len; i++) {
-      if (entry.moves[i] !== sanHistory[i]) { ok = false; break; }
+export function detectOpening(sanHistory, fen) {
+  // 1) Exact SAN-prefix match
+  if (sanHistory && sanHistory.length) {
+    for (const entry of OPENINGS_BOOK) {
+      if (entry._len > sanHistory.length) continue;
+      let ok = true;
+      for (let i = 0; i < entry._len; i++) {
+        if (entry.moves[i] !== sanHistory[i]) { ok = false; break; }
+      }
+      if (ok) return { ...entry, _matched: 'exact', _distance: 0 };
     }
-    if (ok) return entry;
+  }
+  // 2) FEN-based structural fallback (only after the opening is past
+  //    its earliest phase — before that every position is too close to
+  //    the starting array to produce meaningful matches).
+  if (fen && sanHistory && sanHistory.length >= STRUCTURAL_MIN_PLIES) {
+    const sig = fenSignature(fen);
+    if (sig) {
+      let best = null, bestDist = Infinity;
+      for (const entry of OPENINGS_BOOK) {
+        if (!entry._sig || entry._len < STRUCTURAL_MIN_PLIES) continue;
+        const d = signatureDistance(sig, entry._sig);
+        if (d < bestDist) { bestDist = d; best = entry; }
+      }
+      if (best && bestDist <= STRUCTURAL_THRESHOLD) {
+        return { ...best, _matched: 'structural', _distance: Math.round(bestDist) };
+      }
+    }
   }
   return null;
 }
@@ -1516,10 +1643,15 @@ export function detectOpening(sanHistory) {
 export function renderOpeningBlock(entry) {
   if (!entry) return '';
   const plans = (side, items) => (items || []).map(i => `<li>${escapeHtml(i)}</li>`).join('');
+  const structural = entry._matched === 'structural';
+  const label = structural ? '📖 Similar to' : '📖 Opening —';
+  const suffix = structural
+    ? ` <span class="muted" style="font-weight: normal; font-size: 10px;">(structural match, d=${entry._distance})</span>`
+    : '';
   return `
     <div class="coach-opening">
-      <h5 class="coach-section-h">📖 Opening — ${escapeHtml(entry.name)}
-        <span class="muted" style="font-weight: normal; margin-left: 6px; font-size: 10px;">${escapeHtml(entry.eco || '')}</span>
+      <h5 class="coach-section-h">${label} ${escapeHtml(entry.name)}
+        <span class="muted" style="font-weight: normal; margin-left: 6px; font-size: 10px;">${escapeHtml(entry.eco || '')}</span>${suffix}
       </h5>
       <p class="muted" style="font-size: 12px; margin: 4px 0 8px;">${escapeHtml(entry.structure || '')}</p>
       <div class="coach-opening-grid">
@@ -1546,9 +1678,11 @@ export function renderOpeningBlock(entry) {
 export function renderOpeningForAI(entry) {
   if (!entry) return '';
   const bullets = (items) => (items || []).map(i => `  - ${i}`).join('\n');
+  const header = entry._matched === 'structural'
+    ? `DETECTED OPENING (structural similarity, distance ${entry._distance})\nReached by transposition — treat as: ${entry.name} (${entry.eco || '?'})`
+    : `DETECTED OPENING\nName: ${entry.name} (${entry.eco || '?'})`;
   return `
-DETECTED OPENING
-Name: ${entry.name} (${entry.eco || '?'})
+${header}
 Structure: ${entry.structure || ''}
 White plans:
 ${bullets(entry.whitePlans)}
