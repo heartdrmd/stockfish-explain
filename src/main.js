@@ -1972,14 +1972,24 @@ async function main() {
 
       const enginePanel = `
         <div class="engine-ground-truth">
-          <h4>🎯 Stockfish · depth ${depth} · top ${lines.length}</h4>
+          <h4>🎯 Stockfish · depth ${depth} · top ${lines.length} <span class="muted" style="font-weight:normal;font-size:10px;">(White's POV)</span></h4>
           <table class="sf-lines">
-            ${lines.map((l, i) => `<tr>
-              <td class="sf-rank">#${i+1}</td>
-              <td class="sf-san">${l.san || l.uci}</td>
-              <td class="sf-score">${l.scoreKind === 'mate' ? '#'+l.score : ((l.score>=0?'+':'')+(l.score/100).toFixed(2))}</td>
-              <td class="sf-pv muted">${l.pvSan}</td>
-            </tr>`).join('')}
+            ${lines.map((l, i) => {
+              // Engine returns score from side-to-move POV — flip to
+              // White POV so the sign matches the main eval gauge and
+              // the AI prompt.
+              const stm = fen.split(' ')[1] || 'w';
+              const sWhite = stm === 'w' ? l.score : -l.score;
+              const disp = l.scoreKind === 'mate'
+                ? (sWhite > 0 ? '#' + sWhite : '#-' + Math.abs(sWhite))
+                : (sWhite >= 0 ? '+' : '') + (sWhite / 100).toFixed(2);
+              return `<tr>
+                <td class="sf-rank">#${i+1}</td>
+                <td class="sf-san">${l.san || l.uci}</td>
+                <td class="sf-score">${disp}</td>
+                <td class="sf-pv muted">${l.pvSan}</td>
+              </tr>`;
+            }).join('')}
           </table>
         </div>`;
       const cycleHistoryPanel = cycleHistory.length > 1 ? `

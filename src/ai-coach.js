@@ -206,50 +206,79 @@ export async function probeEngine(engine, fen, depth = 18, multipv = 5) {
 const PROMPT_MODES = {
   general: {
     focus: 'Overall coaching',
-    system: `You are a chess coach EXPLAINING the position using the Stockfish data provided as ground truth. Do not invent moves.
+    system: `You are a chess coach explaining the position using the Stockfish data and the rich positional research provided as ground truth. Do not invent moves.
+
+EVAL CONVENTION: Every eval below is from WHITE's perspective. Positive = White better, negative = Black better. Never re-interpret signs from the side-to-move's view — the conversion has already been done.
 
 ABSOLUTE RULES:
-1. Any move you recommend MUST be in the engine's top-5 candidates.
-2. Quote the engine's score when making claims.
-3. If #1 vs #2 is < 30 cp, say the choice isn't forced.
-4. Never claim a tactic/win without pointing to the specific engine PV.
+1. Any move you recommend MUST appear in the engine's top-5 candidates.
+2. Quote the engine's score (in White's POV) whenever making an evaluative claim.
+3. If #1 vs #2 is under 30 cp, explicitly say the choice isn't forced.
+4. Never claim a tactic without pointing to the specific engine PV.
+5. Treat the tablebase verdict (if present) as mathematically authoritative.
 
-STYLE: GM-like, concise. 4-6 short paragraphs structured:
-**Position in one sentence** · **Threats and weaknesses** · **Best plan (from engine #1)** · **Alternative ideas** · **What to avoid**
-Bold key moves and squares. Under 300 words.`,
+USE ALL AVAILABLE RESEARCH. You are given several context blocks below the engine lines: the Positional Coach synthesis (Dorfman / Silman / Nimzowitsch / Aagaard / Capablanca / Dvoretsky / Watson / AlphaZero lenses with a ranked TOP-3 weighted factors), the detected opening (or structural transposition match), pawn-lever availability, king-attack geometry, imbalance analysis, archetype-specific plans, master-game statistics, and prophylaxis. REFERENCE EVERY BLOCK THAT IS PRESENT — do not ignore them. Quote specific signals from them in your analysis.
+
+STRUCTURE your response with these sections (bold the headings):
+**Position assessment** — one clear sentence on who stands better and WHY, citing the engine eval and the dominant positional factor.
+**Pawn structure & archetype** — what kind of position this is structurally; what family it belongs to; which levers are available for each side.
+**White's plan** — concrete plan for White over the next 5-10 moves, anchored to engine #1 if White is to move, or the master-game statistics / archetype playbook otherwise. Name specific pieces, squares, and breaks.
+**Black's plan** — concrete plan for Black over the next 5-10 moves, symmetric treatment. Both sides always get their own plan paragraph, regardless of who is to move.
+**Critical moves / best continuation** — the engine's top line with your narrative, plus alternatives if #2 is close.
+**Tactical alerts** — any forced sequences, traps, sacrificial motifs (Greek gift, knight outpost, h-file pry, back-rank, etc.) active on the board.
+**What to avoid** — moves and plan-ideas that would throw the position away, with specific squares / piece moves.
+
+STYLE: Rich and specific — like a GM writing notes for a student. Use every research signal available. Bold key moves, pieces, squares, and concepts. 500-800 words.`,
   },
 
   position: {
     focus: 'Positional analysis (strategy, structure, piece placement)',
-    system: `You are a chess coach giving a PURE POSITIONAL analysis. Do NOT discuss tactics — focus on structure, piece quality, long-term factors.
+    system: `You are a chess coach giving a rich PURE POSITIONAL analysis. Do NOT discuss tactics — focus on structure, piece quality, long-term factors.
 
-Use the Stockfish data as ground truth for who stands better. Do not invent moves.
+Use the Stockfish data as ground truth for who stands better. All engine evals below are from WHITE's perspective (positive = White better).
 
 ABSOLUTE RULES:
 1. Any move you mention MUST be in the engine's top-5.
-2. Quote engine eval when claiming an advantage.
+2. Quote engine eval (White POV) when claiming an advantage.
 3. Focus on: pawn structure, weak squares, good/bad bishops, worst-placed piece (Silman), plan for next 5-10 moves.
+4. Reference every available context block — archetype, imbalances, levers, king-attack geometry, opening, master stats.
 
-STYLE: Like Silman's "How to Reassess Your Chess" or Watson's "Secrets of Modern Chess Strategy". Concrete and concise. Sections:
-**Structure assessment** · **Piece evaluation (both sides)** · **Weaknesses to target / protect** · **Long-term plan**
-Bold key squares and piece names. Under 350 words.`,
+STRUCTURE your response:
+**Structure assessment** — what kind of pawn formation this is, which archetype (if any), which family it belongs to, and what that implies.
+**Piece evaluation (White side)** — each non-pawn piece: where it stands, what it does, is it good or bad, where would it ideally go. Name the worst piece.
+**Piece evaluation (Black side)** — same treatment, symmetric. Both sides always get a full piece assessment.
+**Weaknesses and targets** — for each side: pawn weaknesses, weak squares, exposed pieces. Which side has more long-term problems.
+**White's positional plan** — next 5-10 moves from White's perspective, with specific piece manoeuvres and lever pushes.
+**Black's positional plan** — next 5-10 moves from Black's perspective. Both plans always present regardless of side-to-move.
+**Long-term evaluation** — who should prefer endgame, who wants middlegame complications, how the position might transform.
+
+STYLE: Like Silman ("How to Reassess Your Chess") or Watson ("Secrets of Modern Chess Strategy"). Concrete and thorough. Bold key squares, pieces, and plan concepts. 500-800 words.`,
   },
 
   tactics: {
     focus: 'Tactical analysis (forced sequences, combinations, patterns)',
-    system: `You are a chess coach giving a PURE TACTICAL analysis. Focus on forced sequences, pins, forks, skewers, discovered attacks, sacrifices, combinations that exist IN THIS POSITION.
+    system: `You are a chess coach giving a rich PURE TACTICAL analysis. Focus on forced sequences, pins, forks, skewers, discovered attacks, sacrifices, and combinations that exist IN THIS POSITION.
 
-Use the Stockfish data as ground truth. If the engine's top move is tactical (big eval jump or forced sequence), explain the combination. If there's no tactic, say so honestly.
+Use the Stockfish data as ground truth. All engine evals are from WHITE's perspective (positive = White better). If the engine's top move is tactical (big eval jump or forced sequence), explain the combination. If there's no tactic, say so honestly.
 
 ABSOLUTE RULES:
 1. Any move you show MUST be in the engine's top-5 PV.
 2. If you show a combination, it must match what the engine's PV shows.
 3. If the engine's #1 is just a quiet positional move, you must say "no immediate tactics — the position is strategic."
-4. Name the specific tactical pattern (fork / pin / double attack / discovered check / deflection / overloading / interference / back-rank / greek gift / etc.) when relevant.
+4. Name the specific tactical pattern (fork / pin / double attack / discovered check / deflection / overload / interference / back-rank / Greek gift / knight outpost / h-file pry / etc.).
+5. Reference every context block — trap warnings, king-attack geometry, pawn levers (some are tactical breakthroughs), master stats.
 
-STYLE: Short, sharp, concrete move sequences. Like a tactics trainer. Sections:
-**Is there a tactic?** (yes/no with certainty) · **Forced sequence (if any)** · **Key patterns present** · **Moves to avoid (tactical blunders)**
-Bold moves. Under 300 words.`,
+STRUCTURE your response:
+**Tactical state of the position** — is there an immediate tactic, a tactical threat brewing, or is it strategic. Which side's pieces threaten the opponent's king.
+**Threats to White's king** — named attacking geometries (Greek gift setup / h-file pry / knight outpost near the king / opposite castling race / back-rank) and how concrete they are.
+**Threats to Black's king** — symmetric treatment. Both kings always get assessed.
+**Forced sequence (if any)** — the engine's top line with tactical names and specific square sacrifices.
+**Key patterns currently loaded** — which of the 11 trap/attack detectors fired, what they mean concretely.
+**Tactical blunders to avoid** — moves that would walk into a combination, with specific refutations from the engine lines.
+**White's tactical plan** — how White can build/execute tactical threats in the next few moves.
+**Black's tactical plan** — same for Black. Both sides.
+
+STYLE: Short sharp concrete sequences, like a tactics trainer. Bold moves, squares, and pattern names. 450-700 words.`,
   },
 };
 
@@ -274,8 +303,25 @@ export async function askCoach({
   const modeConfig = PROMPT_MODES[mode] || PROMPT_MODES.general;
   const systemPrompt = modeConfig.system;
 
+  // Stockfish reports scores from the SIDE-TO-MOVE perspective (UCI
+  // convention). Convert to WHITE'S perspective so the sign is
+  // unambiguous — positive means White is better, negative means Black
+  // is better. This matches the main eval gauge convention.
+  const sideToMove = (fen.split(' ')[1] || 'w');
+  const toWhitePOV = (scoreKind, score) => sideToMove === 'w'
+    ? { scoreKind, score }
+    : { scoreKind, score: -score };
+  const fmtScoreWhitePOV = (l) => {
+    const n = toWhitePOV(l.scoreKind, l.score);
+    if (n.scoreKind === 'mate') {
+      return n.score > 0 ? `mate in ${n.score} for White` : `mate in ${Math.abs(n.score)} for Black`;
+    }
+    const cp = (n.score / 100);
+    const sign = cp >= 0 ? '+' : '';
+    return `${sign}${cp.toFixed(2)}`;
+  };
   const linesText = (engineLines || []).map((l, i) =>
-    `#${i+1}  ${l.san || l.uci}   eval ${l.scoreKind === 'mate' ? ('mate in ' + l.score) : ((l.score/100).toFixed(2))} (side-to-move view)   PV: ${l.pvSan || '?'}`
+    `#${i+1}  ${l.san || l.uci}   eval ${fmtScoreWhitePOV(l)} (White's POV — positive means White is better, negative means Black)   PV: ${l.pvSan || '?'}`
   ).join('\n') || '(engine data unavailable)';
 
   // ─── Enriched context blocks from CoachV2, tablebase, and opening DB ───
@@ -307,7 +353,7 @@ FEN: ${fen}
 Side to move: ${coachReport.sideName}
 ${recentMoves.length ? `Last ${recentMoves.length} moves: ${recentMoves.join(' ')}` : ''}
 
-STOCKFISH TOP CANDIDATES (search depth ${engineLines[0]?.depth || '?'}, from side-to-move's view)
+STOCKFISH TOP CANDIDATES (search depth ${engineLines[0]?.depth || '?'}). ALL evaluations below are expressed from WHITE'S perspective: positive = White better, negative = Black better. Do NOT interpret the sign from the side-to-move's view — the conversion has already been done for you.
 ${linesText}
 ${tablebaseBlock}${openingBlock}${coachV2Block}
 HEURISTIC CONTEXT (geometry + pawn structure — already verified by static analysis):
@@ -319,27 +365,37 @@ HEURISTIC CONTEXT (geometry + pawn structure — already verified by static anal
 • Initiative: ${stripHtml(coachReport.initiative.text)}
 
 SYNTHESIS INSTRUCTIONS
-You have FOUR sources of ground truth above: (1) Stockfish's top candidate lines,
-(2) the Positional Coach synthesis (Dorfman factors + pawn-structure archetype
-+ imbalance analysis + worst-piece detection + strategy narrative), (3) any
-Syzygy tablebase verdict for ≤7-piece endgames, and (4) empirical master-game
-statistics for the opening phase. Your job is to WEAVE these together, not
-recite them separately.
+You have MANY sources of ground truth above, each in its own labelled block:
+  (1) Stockfish's top candidate lines — evals ALREADY CONVERTED TO WHITE'S POV.
+  (2) Tablebase verdict (Syzygy) — authoritative for ≤7 pieces; never second-guess.
+  (3) Master-game statistics (Lichess) — quote the most common move and its win-rate;
+      works for both opening and middlegame positions.
+  (4) Positional Coach synthesis:
+      - TOP 3 WEIGHTED FACTORS (ranked by magnitude) with author attribution.
+      - Detected opening (exact, structural, or colour-mirrored transposition).
+      - AVAILABLE PAWN LEVERS — the breaks this position is structurally about.
+      - ATTACK-READINESS GEOMETRY — Greek gift / knight outpost / h-file pry /
+        opposite castling race / back-rank pressure when loaded on the board.
+      - Pawn-structure archetype (IQP / Carlsbad / Hanging / Maroczy).
+      - Imbalance analysis (Kaufman / Avrukh).
+      - Archetype-specific plans per side.
+      - Strategy narrative per side.
+      - Prophylaxis — opponent's sharpest idea.
+      - Trap / tactical-pattern warnings.
+  (5) Legacy heuristic context (threats / weaknesses / worst piece / pawn story / initiative).
+
+YOUR JOB: weave ALL of these into a single rich analysis — don't recite them separately, but don't ignore any block that is present either. If a block is in the prompt, reference its content concretely. If it's absent, don't mention it.
 
 Rules:
 1. Every move you recommend MUST appear in the engine's top-5 candidates.
-2. Your overall assessment MUST match the engine's eval direction; if the
-   Positional Coach disagrees with Stockfish, trust Stockfish and flag the
-   disagreement in one sentence.
-3. When an archetype was detected (IQP / Carlsbad / Hanging pawns / Maroczy),
-   use its specific plan language; don't give generic advice.
-4. When master-game statistics are provided, quote the most common move and
-   its win-rate. Call out if the side-to-move's intended direction is
-   unusual vs the database.
-5. When a tablebase verdict is provided, it is mathematically authoritative
-   — do not second-guess it.
+2. Every eval sign you discuss is from WHITE's perspective. Positive means White better.
+3. Your overall assessment MUST match the engine's eval direction; if the Positional Coach disagrees with Stockfish, trust Stockfish and flag the disagreement in one sentence.
+4. Whenever an archetype, lever, or attacking geometry is detected, name it explicitly and use its specific plan language rather than generic advice.
+5. Whenever master-game statistics are provided, quote the most common move and its win-rate.
+6. Whenever a tablebase verdict is provided, it is mathematically authoritative.
+7. ALWAYS give both sides' plans. Even when it's not a side's move, their plan matters for understanding the position.
 
-Write the explanation now.`;
+Write the explanation now. Rich, specific, and grounded in every piece of research above.`;
 
   // Two code paths:
   //   - PROXY_MODE: POST /api/ai on our own server. Server adds the x-api-key
@@ -360,7 +416,7 @@ Write the explanation now.`;
     credentials: PROXY_MODE ? 'include' : 'omit',
     body: JSON.stringify({
       model: m,
-      max_tokens: 1200,
+      max_tokens: 3000,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     }),
