@@ -310,6 +310,40 @@
   font-weight: 600;
   color: var(--c-font-dim);
 }
+.cost-badge {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: linear-gradient(180deg, rgba(82, 196, 26, 0.08), rgba(82, 196, 26, 0.02));
+  border: 1px solid rgba(82, 196, 26, 0.35);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.cost-badge-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.cost-icon { font-size: 18px; }
+.cost-amount {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-font-clear);
+  font-variant-numeric: tabular-nums;
+}
+.cost-label {
+  color: var(--c-font-dim);
+  font-weight: 500;
+}
+.cost-badge-detail {
+  font-size: 11px;
+  color: var(--c-font-dim);
+  text-align: right;
+  line-height: 1.5;
+}
 
 /* ==================== Dissect content ==================== */
 .dissect-group {

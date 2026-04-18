@@ -1957,7 +1957,12 @@ async function main() {
           fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
           coachV2Report, tablebase, openingExplorer, refinementContext,
         });
-        cycleHistory.push({ cycle, depth, text: result.text });
+        cycleHistory.push({
+          cycle, depth, text: result.text,
+          thisCallCost: result.cost?.thisCall || 0,
+          tokensIn: result.usage?.input_tokens || 0,
+          tokensOut: result.usage?.output_tokens || 0,
+        });
 
         const thisTopMove = extractFirstBoldMove(result.text);
         const saidNoChange = /no change|deeper search confirms|unchanged/i.test(result.text || '');
@@ -1996,21 +2001,38 @@ async function main() {
         <details class="cycle-history">
           <summary>🔁 Cycle history (${cycleHistory.length} cycle${cycleHistory.length !== 1 ? 's' : ''} · showing final above) ▾</summary>
           ${cycleHistory.map(c => `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--c-border);">
-            <strong>Cycle ${c.cycle}</strong> <span class="muted">(SF depth ${c.depth})</span>
+            <strong>Cycle ${c.cycle}</strong> <span class="muted">(SF depth ${c.depth} · ${c.tokensIn}→${c.tokensOut} tokens · $${c.thisCallCost.toFixed(4)})</span>
             <div style="margin-top:4px;font-size:11px;">${renderMarkdown(c.text)}</div>
           </div>`).join('')}
         </details>` : '';
 
+      // Prominent cost badge — total for THIS analysis (sum of all cycles)
+      // plus session running total. Shown at the top of the response so
+      // the user sees spend before reading the output.
+      const totalThisAnalysis = cycleHistory.reduce((a, c) => a + (c.thisCallCost || 0), 0);
+      const totalTokensIn = cycleHistory.reduce((a, c) => a + (c.tokensIn || 0), 0);
+      const totalTokensOut = cycleHistory.reduce((a, c) => a + (c.tokensOut || 0), 0);
+      const sessionTotal = result.cost?.sessionTotal || 0;
+      const sessionCalls = result.cost?.callsThisSession || 0;
+      const costBadge = `
+        <div class="cost-badge">
+          <div class="cost-badge-main">
+            <span class="cost-icon">💰</span>
+            <span class="cost-amount">$${totalThisAnalysis.toFixed(4)}</span>
+            <span class="cost-label">this analysis</span>
+          </div>
+          <div class="cost-badge-detail">
+            ${cycleHistory.length} cycle${cycleHistory.length !== 1 ? 's' : ''} · ${totalTokensIn.toLocaleString()}→${totalTokensOut.toLocaleString()} tokens · ${result.model || ''}
+            <br>
+            Session total: <strong>$${sessionTotal.toFixed(4)}</strong> across ${sessionCalls} call${sessionCalls !== 1 ? 's' : ''}
+          </div>
+        </div>`;
+
       outputEl.innerHTML = `
+        ${costBadge}
         ${enginePanel}
         <div class="ai-response">${renderMarkdown(result.text)}</div>
-        ${cycleHistoryPanel}
-        <div class="ai-meta muted">
-          ${result.model || ''} · ${result.usage ? `${result.usage.input_tokens||0}→${result.usage.output_tokens||0} tokens` : ''}
-          · this call: $${(result.cost?.thisCall||0).toFixed(4)}
-          · session: $${(result.cost?.sessionTotal||0).toFixed(4)} (${result.cost?.callsThisSession||0} calls)
-          · cycles run: ${cycleHistory.length}/${maxCycles}
-        </div>`;
+        ${cycleHistoryPanel}`;
       window.dispatchEvent(new Event('ai-call-complete'));
     } catch (err) {
       // Gate errors get a friendly handler that re-opens the password modal

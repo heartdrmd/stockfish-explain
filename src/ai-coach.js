@@ -572,6 +572,24 @@ function buildCoachV2Block(rep) {
     ? `\n• Trap / tactical warnings (static detection):\n${rep.trapWarnings.map(w => `  - [${w.severity}] ${w.message}`).join('\n')}`
     : '';
 
+  // Worst-piece identification per side. coach_v2 computes this for BOTH
+  // colours (the legacy coachReport only did side-to-move). Very useful
+  // as Silman's "most important imbalance" anchor.
+  const worstPieceBlock = rep.worstPiece
+    ? `\n• Worst-placed piece (Silman method — the first thing to improve):${
+        rep.worstPiece.white ? `\n  - White: ${typeof rep.worstPiece.white === 'string' ? rep.worstPiece.white : (rep.worstPiece.white.text || JSON.stringify(rep.worstPiece.white))}` : ''
+      }${
+        rep.worstPiece.black ? `\n  - Black: ${typeof rep.worstPiece.black === 'string' ? rep.worstPiece.black : (rep.worstPiece.black.text || JSON.stringify(rep.worstPiece.black))}` : ''
+      }`
+    : '';
+
+  // Watson-style context cancellations — rules that normally matter but
+  // don't in this specific position, or vice versa. Helps the AI not
+  // give textbook advice that doesn't apply.
+  const contextBlock = (rep.contextNotes && rep.contextNotes.length)
+    ? `\n• Rule-independence notes (Watson — cases where general rules don't apply here):\n${rep.contextNotes.map(n => `  - ${typeof n === 'string' ? n : (n.text || JSON.stringify(n))}`).join('\n')}`
+    : '';
+
   const openingBlock = rep.opening
     ? `\n• Opening identified: ${rep.opening.name} (${rep.opening.eco || '?'})\n  Structure: ${rep.opening.structure || ''}\n  White plans: ${(rep.opening.whitePlans || []).join(' / ')}\n  Black plans: ${(rep.opening.blackPlans || []).join(' / ')}${rep.opening.pitfalls?.length ? '\n  Pitfalls: ' + rep.opening.pitfalls.join(' / ') : ''}${rep.opening.motifs?.length ? '\n  Motifs: ' + rep.opening.motifs.join(' / ') : ''}`
     : '';
@@ -606,7 +624,7 @@ POSITIONAL COACH (synthesised from Dorfman method + Silman imbalances + Nimzowit
   Mode (Black): ${rep.mode?.black || 'n/a'}${topFactorsBlock}
 
   Full factor scan (for reference only — the TOP 3 above are the load-bearing ones):
-${factorLines}${openingBlock}${leversBlock}${kingAttackBlock}${archBlock}${imbBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${trapBlock}
+${factorLines}${openingBlock}${leversBlock}${kingAttackBlock}${archBlock}${imbBlock}${worstPieceBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${contextBlock}${trapBlock}
 `;
 }
 
