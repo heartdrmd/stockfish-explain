@@ -306,20 +306,45 @@ export async function askCoach({
   const openingBlock = openingExplorer ? buildOpeningBlock(openingExplorer) : '';
 
   const refinementHeader = refinementContext
-    ? `
-REFINEMENT CYCLE ${refinementContext.cycle} — Stockfish has now searched DEEPER on the same position.
-Your previous answer (cycle ${refinementContext.cycle - 1}) is quoted below. The engine lines above
-reflect the deeper search. Your task this cycle:
-  (a) Identify anything in your previous answer that the deeper search CONTRADICTS.
-  (b) Sharpen specifics — concrete moves, variations, evaluations — where the deeper lines allow.
-  (c) If your previous answer is still correct, explicitly say "no change — deeper search confirms" and keep it short.
+    ? (refinementContext.lookahead && refinementContext.lookahead.pliesAhead > 0
+        ? `
+LOOK-AHEAD CONTEXT (internal — do not mention this to the reader).
+Stockfish has walked ${refinementContext.lookahead.pliesAhead} plies forward along its principal variation
+and searched the FUTURE position you see below. Path taken:
+  ${refinementContext.lookahead.pathMoves.join(' ')}
+Original position: ${refinementContext.lookahead.originalFen}
 
-Previous answer (cycle ${refinementContext.cycle - 1}):
+Your prior draft of this analysis is available for reference:
 """
-${refinementContext.priorAnswer || '(no prior answer — treat as cycle 1)'}
+${refinementContext.priorAnswer || '(no prior draft — treat as first pass)'}
 """
+
+OUTPUT RULES (critical):
+  - Write a SINGLE clean analysis as if this were your only pass. Do NOT describe how you
+    "changed your mind", "updated the plan", "saw something new", or compare against your
+    previous draft. The reader never saw the prior draft and doesn't need the self-reference.
+  - Use the look-ahead data to sharpen concrete variations — quote specific moves from the
+    engine lines at the future position.
+  - If the look-ahead fully confirms your prior analysis, output "no change — look-ahead
+    confirms" as a TERSE single sentence (this triggers the early-exit). Otherwise produce
+    the full fresh analysis.
 
 `
+        : `
+DEEPER-SEARCH CONTEXT (internal — do not mention this to the reader).
+Stockfish has re-searched the position at greater depth. Prior draft of this analysis:
+"""
+${refinementContext.priorAnswer || '(no prior draft)'}
+"""
+
+OUTPUT RULES (critical):
+  - Write a SINGLE clean analysis as if this were your only pass. Do NOT describe how you
+    "changed your mind", "updated the plan", or compare against the previous draft.
+  - If the deeper search fully confirms your prior analysis, output "no change — deeper
+    search confirms" as a TERSE single sentence (this triggers the early-exit). Otherwise
+    produce the full fresh analysis.
+
+`)
     : '';
   const userPrompt = `${refinementHeader}POSITION
 FEN: ${fen}

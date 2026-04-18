@@ -1890,35 +1890,74 @@ async function main() {
       Cycle 1/${maxCycles} — Stockfish searching for <em>${mode}</em> analysis.
     </div>`;
     btnEl.disabled = true;
+    // Remember the user's pause/lock state and also the engine-mute
+    // flag so we can restore them afterwards. The probe needs the
+    // engine responding normally, so we clear the mute for the duration
+    // of the analysis — this makes the coach work whether Stockfish was
+    // running, paused, or fully locked when the user clicked.
     const wasLocked = locked, wasPaused = paused;
+    const wasEngineMuted = window.__engineMuted === true;
+    window.__engineMuted = false;
     engine.stop();
     try {
-      const fen = board.isAtLive() ? board.fen() : rebuildFenAtPly(board.chess, board.viewPly);
+      const fenStart = board.isAtLive() ? board.fen() : rebuildFenAtPly(board.chess, board.viewPly);
       const recent = board.chess.history().slice(-8);
 
-      // ─── Multi-cycle loop ─────────────────────────────────────────
-      // Cycle 1 = baseline (SF depth 18, MultiPV 5).
-      // Cycle N>1 = deeper SF pass + AI refines previous answer.
-      // Early stop if the AI explicitly reports "no change" or the
-      // top-ranked move hasn't changed between consecutive cycles.
+      // ─── Multi-cycle loop (LOOKAHEAD mode) ────────────────────────
+      // Cycle 1 = probe current position (P0).
+      // Cycle N>1 = probe a FUTURE position reached by walking 2 plies
+      //             along the previous cycle's top PV. This lets the
+      //             AI verify its plan against "where does this line
+      //             actually go?" rather than just re-analysing P0 at
+      //             deeper depth.
+      //
+      // Depth also ramps a little (18 → 20 → 22 → 24 → 26) so future
+      // positions still get a solid search.
+      //
+      // Early stop if the AI reports "no change" or the top move hasn't
+      // shifted between cycles.
       const cycleHistory = [];
       let priorAnswer = null;
       let priorTopMove = null;
       let lines = [], depth = 0, result = null;
+      // FEN we'll probe THIS cycle. Starts at P0, advances along SF PV
+      // each cycle.
+      let currentFen = fenStart;
+      // Moves played to reach currentFen from P0 (for the AI prompt)
+      let lookaheadPath = [];
 
       const extractFirstBoldMove = (text) => {
         const m = /\*\*([A-Za-z][^*]{0,8})\*\*/.exec(text || '');
         return m ? m[1].trim() : null;
       };
 
+      // Walk N plies forward from `fromFen` along `pvSanArray` SAN moves,
+      // returning { fen, played } or null if any move is illegal.
+      const walkForward = (fromFen, pvSanArray, plies) => {
+        try {
+          const Chess = board.chess.constructor;
+          const c = new Chess(fromFen);
+          const played = [];
+          for (let i = 0; i < plies && i < pvSanArray.length; i++) {
+            const mv = c.move(pvSanArray[i], { sloppy: true });
+            if (!mv) return null;
+            played.push(pvSanArray[i]);
+          }
+          return { fen: c.fen(), played };
+        } catch (_) { return null; }
+      };
+
       for (let cycle = 1; cycle <= maxCycles; cycle++) {
-        const cycleDepth = 18 + (cycle - 1) * 4;         // 18, 22, 26, 30, 34
+        const cycleDepth = 18 + (cycle - 1) * 2;         // 18, 20, 22, 24, 26
         const cycleMultiPV = cycle === 1 ? 5 : 3;
+        const probeFenLabel = cycle === 1
+          ? 'current position'
+          : `future position — ${lookaheadPath.length} plies along the principal variation`;
         outputEl.innerHTML = `<div class="ai-status-msg">
           ⏳ <strong>Cycle ${cycle}/${maxCycles}</strong><br>
-          Stockfish depth ${cycleDepth}, MultiPV ${cycleMultiPV}…
+          Stockfish depth ${cycleDepth} · MultiPV ${cycleMultiPV} · ${probeFenLabel}.
         </div>`;
-        const probe = await AICoach.probeEngine(engine, fen, cycleDepth, cycleMultiPV);
+        const probe = await AICoach.probeEngine(engine, currentFen, cycleDepth, cycleMultiPV);
         lines = probe.lines; depth = probe.depth;
         if (!lines.length) {
           outputEl.innerHTML = '<p style="color:var(--c-bad)">Stockfish returned no candidates. Try ♻ Restart.</p>';
@@ -1929,11 +1968,11 @@ async function main() {
           ${cycle === 1 ? 'Asking' : 'Refining with'} <strong>${AICoach.getModel()}</strong> (${mode} mode)…
         </div>`;
         const engineTop = { scoreKind: lines[0].scoreKind, score: lines[0].score, pv: lines[0].pvSan?.split(' ') || [] };
-        const rpt = coachReport(fen, { engineTop });
+        const rpt = coachReport(currentFen, { engineTop });
 
-        // Per-cycle rebuild of research context (the deeper engine lines
-        // feed into coach_v2, making each cycle's synthesis slightly
-        // sharper — matches what the AI sees).
+        // Per-cycle rebuild of research context keyed to the PROBED FEN
+        // so archetype / levers / attack-geometry all reflect the look-
+        // ahead position, not just the original.
         let coachV2Report = null;
         try {
           const engineSnap = {
@@ -1943,24 +1982,31 @@ async function main() {
             })).filter(mv => mv.uci),
             sanHistory: board.chess.history(),
           };
-          coachV2Report = CoachV2.coachReport(fen, engineSnap);
+          coachV2Report = CoachV2.coachReport(currentFen, engineSnap);
         } catch (err) { console.warn('[ai-coach] CoachV2 unavailable', err.message); }
 
-        // Only fetch tablebase + explorer once — they don't change per cycle.
-        // Explorer is tried on ALL phases (not just opening) — the Lichess
-        // masters DB contains many middlegame and endgame positions that
-        // have been reached in master play, so even move-25 positions
-        // often return meaningful stats. We filter out empty results in
-        // the prompt-builder rather than gating the fetch itself.
+        // Only fetch tablebase + explorer once on cycle 1 (original FEN).
         let tablebase = null, openingExplorer = null;
         if (cycle === 1) {
-          try { if (Tablebase.isTablebasePosition(fen)) tablebase = await Tablebase.queryTablebase(fen); } catch {}
-          try { openingExplorer = await OpeningExplorer.queryOpeningExplorer(fen); } catch {}
+          try { if (Tablebase.isTablebasePosition(fenStart)) tablebase = await Tablebase.queryTablebase(fenStart); } catch {}
+          try { openingExplorer = await OpeningExplorer.queryOpeningExplorer(fenStart); } catch {}
         }
 
-        const refinementContext = cycle > 1 ? { cycle, priorAnswer } : null;
+        // Build refinement context with LOOKAHEAD framing so the AI
+        // knows it's looking at a future position and what path led here.
+        const refinementContext = cycle > 1
+          ? {
+              cycle,
+              priorAnswer,
+              lookahead: {
+                originalFen: fenStart,
+                pliesAhead: lookaheadPath.length,
+                pathMoves: lookaheadPath,
+              },
+            }
+          : null;
         result = await AICoach.askCoach({
-          fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
+          fen: currentFen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
           coachV2Report, tablebase, openingExplorer, refinementContext,
           thinkingTier,
         });
@@ -1980,17 +2026,33 @@ async function main() {
         }
         priorAnswer = result.text;
         priorTopMove = thisTopMove;
+
+        // Advance along SF's top PV by 2 plies for the NEXT cycle's probe.
+        // If the PV is empty or walk fails, stay on current FEN (loop
+        // falls back to depth-deepen on the same position).
+        if (cycle < maxCycles) {
+          const topPvSan = (lines[0].pvSan || '').split(/\s+/).filter(Boolean);
+          const step = walkForward(currentFen, topPvSan, 2);
+          if (step) {
+            currentFen = step.fen;
+            lookaheadPath = [...lookaheadPath, ...step.played];
+          }
+        }
       }
 
+      const lookaheadLabel = lookaheadPath.length
+        ? ` <span class="muted" style="font-weight:normal;font-size:10px;">· final cycle probed ${lookaheadPath.length} plies ahead (${lookaheadPath.join(' ')})</span>`
+        : '';
       const enginePanel = `
         <div class="engine-ground-truth">
-          <h4>🎯 Stockfish · depth ${depth} · top ${lines.length} <span class="muted" style="font-weight:normal;font-size:10px;">(White's POV)</span></h4>
+          <h4>🎯 Stockfish · depth ${depth} · top ${lines.length} <span class="muted" style="font-weight:normal;font-size:10px;">(White's POV)</span>${lookaheadLabel}</h4>
           <table class="sf-lines">
             ${lines.map((l, i) => {
               // Engine returns score from side-to-move POV — flip to
               // White POV so the sign matches the main eval gauge and
-              // the AI prompt.
-              const stm = fen.split(' ')[1] || 'w';
+              // the AI prompt. currentFen is the FEN that was actually
+              // probed in the final cycle (may be a look-ahead position).
+              const stm = currentFen.split(' ')[1] || 'w';
               const sWhite = stm === 'w' ? l.score : -l.score;
               const disp = l.scoreKind === 'mate'
                 ? (sWhite > 0 ? '#' + sWhite : '#-' + Math.abs(sWhite))
@@ -2056,6 +2118,11 @@ async function main() {
       }
     } finally {
       btnEl.disabled = false;
+      // Restore the engine-mute flag to what the user had before we
+      // started the probe. If they had the engine locked, we respect
+      // that and leave it muted again (no fireAnalysis). If they had it
+      // running, we resume normal live analysis.
+      window.__engineMuted = wasEngineMuted;
       if (!wasLocked && !wasPaused) fireAnalysis();
     }
   }
