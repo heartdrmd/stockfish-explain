@@ -24,6 +24,9 @@
   flex-wrap: wrap;
   margin-left: auto;
 }
+/* Pushes subsequent nav items to the right edge. Used to separate the
+   Flip/Pause/Engine controls from the rest. */
+.nav-spacer { flex: 1 1 auto; }
 
 .depth-ctrl {
   display: inline-flex;

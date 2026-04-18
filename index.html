@@ -19,11 +19,9 @@
     <h1 class="site-title">Stockfish<span class="accent">.explain</span></h1>
 
     <nav class="site-nav">
+      <!-- Primary action group (left) -->
       <button id="btn-new"    class="btn"       title="New game">New game</button>
-      <button id="btn-flip"   class="btn"       title="Flip board (F)">⇅ Flip</button>
       <button id="btn-undo"   class="btn"       title="Take back last move">Undo</button>
-      <button id="btn-pause"  class="btn"       title="Pause/resume engine analysis">⏸ Pause</button>
-      <button id="btn-lock"   class="btn"       title="Lock engine OFF — no analysis until unlocked">🔓 Engine</button>
       <!-- Engine flavor selector — top-level, no submenu. Same <select> the
            drawer used to own; moved here for one-click access. -->
       <select id="select-flavor" class="header-flavor"
@@ -66,7 +64,15 @@
       <button id="btn-paste-fen" class="btn" title="Paste a FEN to load a position">📥 Load FEN</button>
       <button id="btn-editor"   class="btn" title="Set up any position on the board (new starting position)">🛠 Setup</button>
       <button id="btn-save-pgn"  class="btn" title="Download the current game as a PGN file">💾 PGN</button>
+      <button id="btn-download-log" class="btn" title="Download a diagnostic log file — send it to me if something breaks">📄 Log</button>
       <span id="engine-mode"  class="pill" title="Current engine + threads">loading…</span>
+
+      <!-- Engine-control group (right) — Flip / Pause / Engine on the right
+           side so they're visually separated from the setup/analysis actions. -->
+      <span class="nav-spacer"></span>
+      <button id="btn-flip"   class="btn"       title="Flip board (F)">⇅ Flip</button>
+      <button id="btn-pause"  class="btn"       title="Pause/resume engine analysis">⏸ Pause</button>
+      <button id="btn-lock"   class="btn"       title="Lock engine OFF — no analysis until unlocked">🔓 Engine</button>
 
       <!-- Global AI bar — model + key + cost (no buttons; use per-tab CTAs) -->
       <div class="ai-status">
@@ -185,6 +191,7 @@
         <button id="board-nav-prev"  class="nav-btn" title="Previous (← / wheel up)">◀</button>
         <button id="board-nav-next"  class="nav-btn" title="Next (→ / wheel down)">▶</button>
         <button id="board-nav-end"   class="nav-btn" title="Live (End)">⏭</button>
+        <button id="board-nav-flip"  class="nav-btn" title="Flip board (F)">⇅</button>
         <span id="board-nav-ply" class="nav-ply muted">—</span>
       </div>
     </section>
@@ -339,6 +346,13 @@
 
       <div class="tournament-setup">
         <div class="setting" style="grid-column: 1 / -1;">
+          <label>
+            <input type="checkbox" id="practice-use-current">
+            Use the current board position as the starting position
+          </label>
+          <small class="muted" id="practice-use-current-info" style="font-family: var(--font-mono); font-size: 11px; display:block;"></small>
+        </div>
+        <div class="setting" id="practice-opening-row" style="grid-column: 1 / -1;">
           <label for="practice-opening">Opening</label>
           <select id="practice-opening" class="tourn-select"></select>
           <small class="muted" id="practice-opening-moves" style="font-family: var(--font-mono); font-size: 11px;"></small>

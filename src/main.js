@@ -15,6 +15,50 @@ import { MODEL_SUGGESTIONS }      from './ai-coach.js';
 import { setupEditor }            from './editor.js';
 import * as Dorfman                from './dorfman.js';
 
+// ─── Diagnostic log capture ─────────────────────────────────────────
+// Tees every console.log/.warn/.error/.info into an in-memory ring
+// buffer so the user can click "📄 Log" and download the whole session
+// as a text file to send back for debugging — no devtools needed.
+const LOG_BUFFER = [];
+const LOG_MAX    = 2000;                 // cap at ~2000 lines
+function captureLog(level, args) {
+  try {
+    const stamp = new Date().toISOString();
+    const msg = args.map(a => {
+      if (typeof a === 'string') return a;
+      try { return JSON.stringify(a); } catch { return String(a); }
+    }).join(' ');
+    LOG_BUFFER.push(`[${stamp}] ${level.padEnd(5)} ${msg}`);
+    if (LOG_BUFFER.length > LOG_MAX) LOG_BUFFER.splice(0, LOG_BUFFER.length - LOG_MAX);
+  } catch {}
+}
+for (const lvl of ['log', 'info', 'warn', 'error']) {
+  const orig = console[lvl].bind(console);
+  console[lvl] = (...args) => { captureLog(lvl, args); orig(...args); };
+}
+// Also catch uncaught errors and unhandled promise rejections
+window.addEventListener('error', (e) => {
+  captureLog('error', [`uncaught: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`]);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  captureLog('error', [`unhandled-promise: ${(e.reason && e.reason.message) || e.reason}`]);
+});
+function buildLogFile() {
+  const header = [
+    '=== stockfish.explain diagnostic log ===',
+    `generated:  ${new Date().toISOString()}`,
+    `userAgent:  ${navigator.userAgent}`,
+    `hostname:   ${location.hostname}`,
+    `deviceRAM:  ${navigator.deviceMemory || 'unknown'} GB (quantized)`,
+    `cores:      ${navigator.hardwareConcurrency || 'unknown'}`,
+    `coop/coep:  ${typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : 'unknown'}`,
+    '',
+    '---- captured console output ----',
+    '',
+  ].join('\n');
+  return header + LOG_BUFFER.join('\n') + '\n';
+}
+
 async function main() {
   // Wire the API-key modal FIRST — before anything else that might fail.
   // If init later crashes, the 🔑 Key button still works.
@@ -910,22 +954,69 @@ async function main() {
       if (pMode.value === 'movetime') pVal.value = 1500;
     });
 
+    // Custom starting position: "use current board position" checkbox.
+    // When ticked, practice starts from whatever's on the board right now
+    // (including FEN loads, positions from the editor, or mid-game in the
+    // tree). We also try to auto-detect which opening the position falls
+    // into by comparing the played SAN moves against each opening's
+    // prefix — if the current position IS a prefix extension of some
+    // known opening, we name it.
+    const pUseCurrent     = document.getElementById('practice-use-current');
+    const pUseCurrentInfo = document.getElementById('practice-use-current-info');
+    const pOpeningRow     = document.getElementById('practice-opening-row');
+    function refreshUseCurrent() {
+      if (!pUseCurrent.checked) {
+        pUseCurrentInfo.textContent = '';
+        if (pOpeningRow) pOpeningRow.style.display = '';
+        return;
+      }
+      if (pOpeningRow) pOpeningRow.style.display = 'none';
+      const mains = board.tree.mainlineNodes();
+      const fen   = board.fen();
+      const sanPath = mains.map(n => n.san);
+      const matched = detectOpeningFromSanPath(sanPath);
+      pUseCurrentInfo.innerHTML = matched
+        ? `Detected opening: <strong>${matched.name}</strong> (${matched.group}) — ${sanPath.length ? 'plus ' + (sanPath.length - matched.matchLength) + ' more move(s)' : 'exact match'}`
+        : sanPath.length
+          ? `Custom position (${sanPath.length} moves played) — no matching opening in our book`
+          : `Current position is the standard starting setup`;
+      // Stash FEN + SAN path so the Start handler can use them
+      pUseCurrent._fen     = fen;
+      pUseCurrent._sanPath = sanPath;
+      pUseCurrent._match   = matched;
+    }
+    pUseCurrent.addEventListener('change', refreshUseCurrent);
+    // Refresh when modal opens (so the detected opening reflects the
+    // current state at open time, not at page load time).
+    pOpen.addEventListener('click', () => { refreshUseCurrent(); });
+
     pOpen.addEventListener('click',  () => pModal.hidden = false);
     pClose.addEventListener('click', () => pModal.hidden = true);
     pModal.addEventListener('click', (e) => { if (e.target === pModal) pModal.hidden = true; });
 
     pStart.addEventListener('click', () => {
+      const useCurrent = pUseCurrent.checked;
       const op = pickedPracticeOpening();
       const color = pColor.value;       // 'white' | 'black'
       const skill = +pStren.value;
       const limitMode = pMode.value;
       const limitVal  = +pVal.value;
 
-      // Load the opening position
-      board.newGame();
-      if (op.moves.length) {
-        const played = playOpening(op.moves);
-        if (played) board.playUciMoves(played.uciMoves, { animate: false });
+      if (useCurrent) {
+        // Keep the current board position as-is — don't newGame / reset.
+        // The tree, FEN, and move history all remain. Practice just kicks
+        // in on the NEXT move from here.
+        console.log('[practice] starting from current position', {
+          fen: board.fen(),
+          detectedOpening: pUseCurrent._match ? pUseCurrent._match.name : '(custom)',
+        });
+      } else {
+        // Load the opening position
+        board.newGame();
+        if (op.moves.length) {
+          const played = playOpening(op.moves);
+          if (played) board.playUciMoves(played.uciMoves, { animate: false });
+        }
       }
 
       // Set practice state
@@ -986,6 +1077,20 @@ async function main() {
   // Top-row buttons
   document.getElementById('btn-new').addEventListener('click',  () => board.newGame());
   document.getElementById('btn-flip').addEventListener('click', () => board.flipBoard());
+  // Second flip button in the below-board nav strip, for quick reach
+  const boardNavFlip = document.getElementById('board-nav-flip');
+  if (boardNavFlip) boardNavFlip.addEventListener('click', () => board.flipBoard());
+
+  // 📄 Log — download the captured console output so the user can send
+  // it to me without having to open devtools.
+  const btnDownloadLog = document.getElementById('btn-download-log');
+  if (btnDownloadLog) {
+    btnDownloadLog.addEventListener('click', () => {
+      const content = buildLogFile();
+      downloadBlob(content, `stockfish-explain-log-${Date.now()}.txt`, 'text/plain');
+      flashPill(ui.engineMode, `Log downloaded (${LOG_BUFFER.length} lines)`, 1400);
+    });
+  }
   document.getElementById('btn-undo').addEventListener('click', () => board.undo());
 
   // Copy FEN
@@ -2190,6 +2295,28 @@ function downloadBlob(text, filename, mime = 'text/plain') {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// Given the SAN moves played from the standard start, find the longest
+// opening from our OPENINGS book whose moves are a prefix of (or equal
+// to) the played sequence. Returns { name, group, matchLength } or null.
+function detectOpeningFromSanPath(sanPath) {
+  if (!sanPath || !sanPath.length) return null;
+  let best = null;
+  for (const group of OPENINGS) {
+    for (const item of group.items) {
+      if (!item.moves || !item.moves.length) continue;
+      if (item.moves.length > sanPath.length) continue;
+      let ok = true;
+      for (let i = 0; i < item.moves.length; i++) {
+        if (item.moves[i] !== sanPath[i]) { ok = false; break; }
+      }
+      if (ok && (!best || item.moves.length > best.matchLength)) {
+        best = { name: item.name, group: group.group, matchLength: item.moves.length };
+      }
+    }
+  }
+  return best;
 }
 
 function gameOverMessage(chess) {
