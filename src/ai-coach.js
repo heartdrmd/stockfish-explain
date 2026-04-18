@@ -434,6 +434,41 @@ function buildCoachV2Block(rep) {
     `  • Initiative/tempo: ${fmt(factors.dynamics)}`,
   ].filter(l => l.includes('[')).join('\n');
 
+  // ─── Top-3 weighted lenses ───────────────────────────────────────
+  // Rank each factor by the absolute magnitude of its numeric diff
+  // (sign * 40 for factors that only carry a sign). Surface the three
+  // biggest influences with their theoretical attribution so the AI
+  // focuses on what actually matters in THIS position rather than
+  // treating every lens equally.
+  const LENS_META = {
+    kingSafety: { label: 'King safety',       author: 'Dorfman / Aagaard',        proxy: 40 },
+    material:   { label: 'Material balance',  author: 'Classical / Kaufman',      proxy: null },
+    queensOff:  { label: 'Phantom Q-trade',   author: 'Dorfman',                  proxy: 30 },
+    activity:   { label: 'Piece activity',    author: 'AlphaZero / Nimzowitsch',  proxy: null },
+    pawns:      { label: 'Pawn structure',    author: 'Silman / Capablanca',      proxy: null },
+    space:      { label: 'Space',             author: 'Nimzowitsch / Watson',     proxy: null },
+    files:      { label: 'Files & diagonals', author: 'Nimzowitsch / Dvoretsky',  proxy: null },
+    dynamics:   { label: 'Initiative / tempo',author: 'Aagaard / Dvoretsky',      proxy: null },
+  };
+  const magnitudeOf = (key, f) => {
+    if (!f || !f.sign) return 0;
+    if (key === 'activity') return Math.abs((f.wAct || 0) - (f.bAct || 0));
+    if (typeof f.diff === 'number') return Math.abs(f.diff);
+    return Math.abs(f.sign) * (LENS_META[key]?.proxy || 20);
+  };
+  const ranked = Object.keys(LENS_META)
+    .map(key => ({ key, meta: LENS_META[key], f: factors[key], mag: magnitudeOf(key, factors[key]) }))
+    .filter(x => x.f && x.f.sign && x.mag > 0)
+    .sort((a, b) => b.mag - a.mag)
+    .slice(0, 3);
+  const topFactorsBlock = ranked.length
+    ? `\n  TOP 3 WEIGHTED FACTORS (rank by magnitude — focus your analysis here):\n` +
+      ranked.map((x, i) => {
+        const side = x.f.sign > 0 ? 'White' : 'Black';
+        return `    ${i + 1}. ${x.meta.label} [${x.meta.author}] — favours ${side}, magnitude ≈${Math.round(x.mag)}\n       Rationale: ${x.f.note || '(no note)'}`;
+      }).join('\n')
+    : '';
+
   const archBlock = rep.archetype
     ? `\n• Pawn-structure archetype: ${rep.archetype.label}` +
       (rep.archetype.signals?.length ? `\n  Signals: ${rep.archetype.signals.join(' · ')}` : '') +
@@ -476,7 +511,9 @@ POSITIONAL COACH (synthesised from Dorfman method + Silman imbalances + Nimzowit
   Reason: ${rep.verdict?.reason || ''}
   Phase: ${rep.phase}
   Mode (White): ${rep.mode?.white || 'n/a'}
-  Mode (Black): ${rep.mode?.black || 'n/a'}
+  Mode (Black): ${rep.mode?.black || 'n/a'}${topFactorsBlock}
+
+  Full factor scan (for reference only — the TOP 3 above are the load-bearing ones):
 ${factorLines}${openingBlock}${archBlock}${imbBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${trapBlock}
 `;
 }
