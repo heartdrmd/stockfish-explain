@@ -1775,6 +1775,33 @@ export function fenSignature(fen) {
   }
 }
 
+// Vertically flip + colour-swap a signature. Used so that e.g. an
+// IQP-for-Black position can match an IQP-for-White book entry — same
+// strategic archetype, colours reversed.
+function mirrorSignature(sig) {
+  if (!sig) return null;
+  const flipRows = (s) => {
+    const rows = [];
+    for (let r = 0; r < 8; r++) rows.push(s.slice(r * 8, (r + 1) * 8));
+    return rows.reverse().join('');
+  };
+  const swapCase = (s) => s.replace(/[A-Za-z]/g,
+    c => c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase());
+  const flipRank = (idx) => (idx < 0 ? -1 : ((7 - (idx >> 3)) << 3) | (idx & 7));
+  return {
+    pawns: swapCase(flipRows(sig.pawns)),
+    pieces: swapCase(flipRows(sig.pieces)),
+    // Material swap: Black pieces become White pieces and vice versa.
+    material: [sig.material[5], sig.material[6], sig.material[7], sig.material[8], sig.material[9],
+               sig.material[0], sig.material[1], sig.material[2], sig.material[3], sig.material[4]],
+    // After colour-swap, what was the black king is now a white king
+    // (at its flipped square) and vice versa.
+    wk: flipRank(sig.bk),
+    bk: flipRank(sig.wk),
+    stm: sig.stm === 'w' ? 'b' : 'w',
+  };
+}
+
 /**
  * Find the most-specific opening entry whose moves are a prefix of the
  * played SAN history. If no prefix matches and a FEN is supplied, fall
@@ -1807,21 +1834,36 @@ export function detectOpening(sanHistory, fen) {
   }
 
   // 2) FEN-based structural match. Runs whenever ≥6 plies have been
-  //    played. If a shallow prefix also hit, we compare: keep the
-  //    structural if it points at a deeper book entry than the shallow
-  //    prefix.
+  //    played. Tries both the current signature and its colour-mirror
+  //    against each book entry so colour-reversed archetypes (e.g., an
+  //    IQP-for-Black reaching a position that matches an IQP-for-White
+  //    book entry with colours flipped) still find a home. If a shallow
+  //    prefix also hit, we compare: keep the structural if it points at
+  //    a deeper book entry than the shallow prefix.
   let structuralHit = null;
   if (fen && sanHistory && sanHistory.length >= STRUCTURAL_MIN_PLIES) {
     const sig = fenSignature(fen);
+    const mirror = mirrorSignature(sig);
     if (sig) {
-      let best = null, bestDist = Infinity;
+      let best = null, bestDist = Infinity, bestMirrored = false;
       for (const entry of OPENINGS_BOOK) {
         if (!entry._sig || entry._len < STRUCTURAL_MIN_PLIES) continue;
-        const d = signatureDistance(sig, entry._sig);
-        if (d < bestDist) { bestDist = d; best = entry; }
+        const dNormal = signatureDistance(sig, entry._sig);
+        // Mirror distance gets a small +1 penalty: we prefer a same-
+        // colour match of equal quality, since reversed archetypes need
+        // the user to flip the plan mentally.
+        const dMirror = mirror ? signatureDistance(mirror, entry._sig) + 1 : Infinity;
+        const useMirror = dMirror < dNormal;
+        const d = useMirror ? dMirror : dNormal;
+        if (d < bestDist) { bestDist = d; best = entry; bestMirrored = useMirror; }
       }
       if (best && bestDist <= STRUCTURAL_THRESHOLD) {
-        structuralHit = { ...best, _matched: 'structural', _distance: Math.round(bestDist) };
+        structuralHit = {
+          ...best,
+          _matched: bestMirrored ? 'structural-mirrored' : 'structural',
+          _distance: Math.round(bestDist),
+          _mirrored: bestMirrored,
+        };
       }
     }
   }
@@ -1846,10 +1888,11 @@ export function detectOpening(sanHistory, fen) {
 export function renderOpeningBlock(entry) {
   if (!entry) return '';
   const plans = (side, items) => (items || []).map(i => `<li>${escapeHtml(i)}</li>`).join('');
-  const structural = entry._matched === 'structural';
-  const label = structural ? '📖 Similar to' : '📖 Opening —';
+  const structural = entry._matched === 'structural' || entry._matched === 'structural-mirrored';
+  const mirrored = entry._matched === 'structural-mirrored';
+  const label = structural ? (mirrored ? '📖 Similar to (colours reversed)' : '📖 Similar to') : '📖 Opening —';
   const suffix = structural
-    ? ` <span class="muted" style="font-weight: normal; font-size: 10px;">(structural match, d=${entry._distance})</span>`
+    ? ` <span class="muted" style="font-weight: normal; font-size: 10px;">(structural match${mirrored ? ', colour-mirrored' : ''}, d=${entry._distance})</span>`
     : '';
   return `
     <div class="coach-opening">
@@ -1881,8 +1924,10 @@ export function renderOpeningBlock(entry) {
 export function renderOpeningForAI(entry) {
   if (!entry) return '';
   const bullets = (items) => (items || []).map(i => `  - ${i}`).join('\n');
-  const header = entry._matched === 'structural'
-    ? `DETECTED OPENING (structural similarity, distance ${entry._distance})\nReached by transposition — treat as: ${entry.name} (${entry.eco || '?'})`
+  const isStruct = entry._matched === 'structural' || entry._matched === 'structural-mirrored';
+  const isMirror = entry._matched === 'structural-mirrored';
+  const header = isStruct
+    ? `DETECTED OPENING (structural similarity${isMirror ? ', colour-reversed' : ''}, distance ${entry._distance})\nReached by transposition — treat as: ${entry.name} (${entry.eco || '?'})${isMirror ? '\nNote: the plans below apply with colours reversed — swap "White" and "Black" when reading them.' : ''}`
     : `DETECTED OPENING\nName: ${entry.name} (${entry.eco || '?'})`;
   return `
 ${header}
