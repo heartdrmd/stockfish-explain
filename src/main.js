@@ -1918,12 +1918,22 @@ async function main() {
       // shifted between cycles.
       const cycleHistory = [];
       let priorTopMove = null;
-      let lines = [], depth = 0, result = null;
-      // FEN we'll probe THIS cycle. Starts at P0, advances along SF PV
-      // each cycle.
-      let currentFen = fenStart;
-      // Moves played to reach currentFen from P0 (for the AI prompt)
+      let result = null;
+      // The CURRENT position stays the AI's primary analysis target
+      // across all cycles. Cycle 1 establishes canonical engine lines
+      // for it. Cycles 2+ probe a FUTURE position along SF's PV and
+      // attach those lines as supporting evidence — the AI is always
+      // told "analyze the current position; use the lookahead only to
+      // verify whether the plan survives."
+      let canonicalLines = [];
+      let canonicalDepth = 0;
+      // FEN we probe this cycle. Starts at fenStart and walks forward.
+      let probeFen = fenStart;
+      // Moves played to reach probeFen from fenStart.
       let lookaheadPath = [];
+      // Most recent lookahead probe's lines + depth (for the AI block).
+      let lookaheadLines = null;
+      let lookaheadDepth = 0;
 
       const extractFirstBoldMove = (text) => {
         const m = /\*\*([A-Za-z][^*]{0,8})\*\*/.exec(text || '');
@@ -1949,67 +1959,87 @@ async function main() {
       for (let cycle = 1; cycle <= maxCycles; cycle++) {
         const cycleDepth = 18 + (cycle - 1) * 2;         // 18, 20, 22, 24, 26
         const cycleMultiPV = cycle === 1 ? 5 : 3;
-        const probeFenLabel = cycle === 1
+        const probeLabel = cycle === 1
           ? 'current position'
-          : `future position — ${lookaheadPath.length} plies along the principal variation`;
+          : `lookahead probe — ${lookaheadPath.length} plies along the principal variation`;
         outputEl.innerHTML = `<div class="ai-status-msg">
           ⏳ <strong>Cycle ${cycle}/${maxCycles}</strong><br>
-          Stockfish depth ${cycleDepth} · MultiPV ${cycleMultiPV} · ${probeFenLabel}.
+          Stockfish depth ${cycleDepth} · MultiPV ${cycleMultiPV} · ${probeLabel}.
         </div>`;
-        const probe = await AICoach.probeEngine(engine, currentFen, cycleDepth, cycleMultiPV);
-        lines = probe.lines; depth = probe.depth;
-        if (!lines.length) {
-          outputEl.innerHTML = '<p style="color:var(--c-bad)">Stockfish returned no candidates. Try ♻ Restart.</p>';
-          return;
+        const probe = await AICoach.probeEngine(engine, probeFen, cycleDepth, cycleMultiPV);
+        if (!probe.lines.length) {
+          // If cycle 1 itself failed, abort. Otherwise keep the last
+          // successful analysis.
+          if (cycle === 1) {
+            outputEl.innerHTML = '<p style="color:var(--c-bad)">Stockfish returned no candidates. Try ♻ Restart.</p>';
+            return;
+          }
+          break;
+        }
+        // Cycle 1 establishes the canonical engine lines — these are
+        // the ONLY lines the AI uses to ground move suggestions for
+        // the current position. Subsequent cycles do NOT overwrite
+        // them; they only produce supplementary "lookahead" evidence.
+        if (cycle === 1) {
+          canonicalLines = probe.lines;
+          canonicalDepth = probe.depth;
+        } else {
+          lookaheadLines = probe.lines;
+          lookaheadDepth = probe.depth;
         }
         outputEl.innerHTML = `<div class="ai-status-msg">
           ⏳ <strong>Cycle ${cycle}/${maxCycles}</strong><br>
           ${cycle === 1 ? 'Asking' : 'Refining with'} <strong>${AICoach.getModel()}</strong> (${mode} mode)…
         </div>`;
-        const engineTop = { scoreKind: lines[0].scoreKind, score: lines[0].score, pv: lines[0].pvSan?.split(' ') || [] };
-        const rpt = coachReport(currentFen, { engineTop });
+        const engineTop = {
+          scoreKind: canonicalLines[0].scoreKind,
+          score: canonicalLines[0].score,
+          pv: canonicalLines[0].pvSan?.split(' ') || [],
+        };
+        const rpt = coachReport(fenStart, { engineTop });
 
-        // Per-cycle rebuild of research context keyed to the PROBED FEN
-        // so archetype / levers / attack-geometry all reflect the look-
-        // ahead position, not just the original.
+        // coach_v2 is built ONCE around the current position and the
+        // canonical engine top — research (archetype / levers / king
+        // attack / opening match) describes the current board, not a
+        // lookahead position.
         let coachV2Report = null;
         try {
           const engineSnap = {
-            topMoves: lines.map(l => ({
+            topMoves: canonicalLines.map(l => ({
               san: l.san, uci: l.uci, score: l.score, scoreKind: l.scoreKind,
               pv: l.pvSan?.split(' ') || [],
             })).filter(mv => mv.uci),
             sanHistory: board.chess.history(),
           };
-          coachV2Report = CoachV2.coachReport(currentFen, engineSnap);
+          coachV2Report = CoachV2.coachReport(fenStart, engineSnap);
         } catch (err) { console.warn('[ai-coach] CoachV2 unavailable', err.message); }
 
-        // Only fetch tablebase + explorer once on cycle 1 (original FEN).
+        // Tablebase + explorer fetched once on cycle 1 only.
         let tablebase = null, openingExplorer = null;
         if (cycle === 1) {
           try { if (Tablebase.isTablebasePosition(fenStart)) tablebase = await Tablebase.queryTablebase(fenStart); } catch {}
           try { openingExplorer = await OpeningExplorer.queryOpeningExplorer(fenStart); } catch {}
         }
 
-        // Build refinement context with LOOKAHEAD framing so the AI
-        // knows it's looking at a future position and what path led
-        // here. We deliberately do NOT pass priorAnswer — without it
-        // the model cannot produce self-referential "I changed my
-        // mind" / "updated my plan" commentary. The convergence check
-        // happens locally via top-move comparison, not via AI
-        // introspection.
-        const refinementContext = cycle > 1
+        // Refinement context: cycle 2+ provides the lookahead probe
+        // data as SUPPORTING EVIDENCE. Primary fen + engineLines still
+        // describe the CURRENT position — the AI's moves are grounded
+        // there, not in the future FEN.
+        const refinementContext = cycle > 1 && lookaheadLines
           ? {
               cycle,
               lookahead: {
-                originalFen: fenStart,
+                fen: probeFen,
+                lines: lookaheadLines,
+                depth: lookaheadDepth,
                 pliesAhead: lookaheadPath.length,
                 pathMoves: lookaheadPath,
               },
             }
           : null;
         result = await AICoach.askCoach({
-          fen: currentFen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
+          fen: fenStart, coachReport: rpt, engineLines: canonicalLines,
+          recentMoves: recent, mode,
           coachV2Report, tablebase, openingExplorer, refinementContext,
           thinkingTier,
         });
@@ -2031,32 +2061,36 @@ async function main() {
         }
         priorTopMove = thisTopMove;
 
-        // Advance along SF's top PV by 2 plies for the NEXT cycle's probe.
-        // If the PV is empty or walk fails, stay on current FEN (loop
-        // falls back to depth-deepen on the same position).
+        // Advance probeFen along the most-recent top-PV by 2 plies for
+        // the NEXT cycle. Source PV is the latest probe's (cycle 1 =
+        // canonical, cycle 2+ = lookahead). If the walk fails at any
+        // edge, we reuse the current probeFen (loop will re-probe
+        // deeper at the same spot).
         if (cycle < maxCycles) {
-          const topPvSan = (lines[0].pvSan || '').split(/\s+/).filter(Boolean);
-          const step = walkForward(currentFen, topPvSan, 2);
+          const srcLines = (cycle === 1) ? canonicalLines : (lookaheadLines || canonicalLines);
+          const topPvSan = (srcLines[0].pvSan || '').split(/\s+/).filter(Boolean);
+          const step = walkForward(probeFen, topPvSan, 2);
           if (step) {
-            currentFen = step.fen;
+            probeFen = step.fen;
             lookaheadPath = [...lookaheadPath, ...step.played];
           }
         }
       }
 
       const lookaheadLabel = lookaheadPath.length
-        ? ` <span class="muted" style="font-weight:normal;font-size:10px;">· final cycle probed ${lookaheadPath.length} plies ahead (${lookaheadPath.join(' ')})</span>`
+        ? ` <span class="muted" style="font-weight:normal;font-size:10px;">· verified with ${lookaheadPath.length}-ply lookahead (${lookaheadPath.join(' ')})</span>`
         : '';
+      // Engine panel always shows the CURRENT position's canonical
+      // lines (cycle 1 data). POV flip uses the current FEN's
+      // side-to-move so the sign matches the main eval gauge.
+      const displayLines = canonicalLines;
+      const displayDepth = canonicalDepth;
       const enginePanel = `
         <div class="engine-ground-truth">
-          <h4>🎯 Stockfish · depth ${depth} · top ${lines.length} <span class="muted" style="font-weight:normal;font-size:10px;">(White's POV)</span>${lookaheadLabel}</h4>
+          <h4>🎯 Stockfish · depth ${displayDepth} · top ${displayLines.length} <span class="muted" style="font-weight:normal;font-size:10px;">(White's POV — current position)</span>${lookaheadLabel}</h4>
           <table class="sf-lines">
-            ${lines.map((l, i) => {
-              // Engine returns score from side-to-move POV — flip to
-              // White POV so the sign matches the main eval gauge and
-              // the AI prompt. currentFen is the FEN that was actually
-              // probed in the final cycle (may be a look-ahead position).
-              const stm = currentFen.split(' ')[1] || 'w';
+            ${displayLines.map((l, i) => {
+              const stm = fenStart.split(' ')[1] || 'w';
               const sWhite = stm === 'w' ? l.score : -l.score;
               const disp = l.scoreKind === 'mate'
                 ? (sWhite > 0 ? '#' + sWhite : '#-' + Math.abs(sWhite))

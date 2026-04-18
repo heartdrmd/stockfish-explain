@@ -305,26 +305,50 @@ export async function askCoach({
   const tablebaseBlock = tablebase ? buildTablebaseBlock(tablebase) : '';
   const openingBlock = openingExplorer ? buildOpeningBlock(openingExplorer) : '';
 
-  // Refinement header: we deliberately do NOT send the prior cycle's
-  // answer to the model. Without it, the model cannot produce self-
-  // referential commentary ("I changed my mind", "updated my plan",
-  // "on further review") — there is nothing for it to compare against.
-  // The refinement signal instead comes from NEW data (a deeper search
-  // or, in look-ahead mode, a future FEN) which naturally sharpens
-  // concrete variations.
-  const refinementHeader = refinementContext
-    ? (refinementContext.lookahead && refinementContext.lookahead.pliesAhead > 0
-        ? `
-LOOK-AHEAD PROBE — the FEN above is ${refinementContext.lookahead.pliesAhead} plies into Stockfish's principal variation from the original position ${refinementContext.lookahead.originalFen}. Path walked: ${refinementContext.lookahead.pathMoves.join(' ')}.
-Write a clean single analysis of the position as given. Do not reference previous drafts, do not narrate your reasoning process — just the final analysis.
+  // Refinement header. Cycle 2+ supplies additional lookahead engine
+  // data — the AI's primary target remains the CURRENT position and
+  // the canonical engine lines above describe that position. The
+  // lookahead is supplementary evidence only: SF walked forward N
+  // plies and evaluated the resulting position; does the planned line
+  // actually hold up? The AI is NOT told to switch its analysis target.
+  // We deliberately do not send prior drafts so there is nothing the
+  // model can self-reference.
+  const lookaheadBlock = (refinementContext && refinementContext.lookahead)
+    ? (() => {
+        const la = refinementContext.lookahead;
+        if (!la.lines || !la.lines.length) return '';
+        const laStm = (la.fen || '').split(' ')[1] || 'w';
+        const laToWhite = (l) => laStm === 'w' ? l.score : -l.score;
+        const fmtLa = (l) => {
+          const s = laToWhite(l);
+          if (l.scoreKind === 'mate') {
+            return s > 0 ? `mate in ${s} for White` : `mate in ${Math.abs(s)} for Black`;
+          }
+          const cp = (s / 100).toFixed(2);
+          return `${s >= 0 ? '+' : ''}${cp}`;
+        };
+        const laLines = la.lines.map((l, i) =>
+          `  #${i+1}  ${l.san || l.uci}   eval ${fmtLa(l)} (White's POV)   PV: ${l.pvSan || '?'}`
+        ).join('\n');
+        return `
+LOOK-AHEAD EVIDENCE (supplementary — NOT the position to analyze).
+Stockfish has walked ${la.pliesAhead} plies forward along the principal line and searched the resulting position at depth ${la.depth}.
+  Path walked from the current position: ${la.pathMoves.join(' ')}
+  Lookahead FEN: ${la.fen}
+  Stockfish's top ${la.lines.length} moves AT the lookahead position (evals in White's POV):
+${laLines}
 
-`
-        : `
-DEEPER-SEARCH PROBE — Stockfish has re-searched this position at greater depth (deeper lines above).
-Write a clean single analysis of the position. Do not reference previous drafts, do not narrate your reasoning process — just the final analysis.
-
-`)
+How to USE this evidence:
+  - Your job is still to analyze the CURRENT position (the FEN above and its engine top-5, which are the moves the user can actually play right now).
+  - Every move you RECOMMEND must be in the CURRENT position's engine top-5, not the lookahead top-5.
+  - The lookahead tells you whether the planned line actually leads somewhere good N plies out. If the current eval looks good but the lookahead eval collapsed, flag that the natural continuation is worse than it first looks, and refine the plan accordingly.
+  - If the lookahead confirms the plan, cite the specific future move that makes it work.
+  - DO NOT describe the lookahead position as if it were the current board. DO NOT recommend moves from the lookahead top-5 as if they were immediately playable.
+  - Do not reference prior drafts or narrate your reasoning process — just write a clean final analysis.
+`;
+      })()
     : '';
+  const refinementHeader = lookaheadBlock;
   const userPrompt = `${refinementHeader}POSITION
 FEN: ${fen}
 Side to move: ${coachReport.sideName}
