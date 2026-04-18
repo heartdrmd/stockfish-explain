@@ -261,9 +261,10 @@ export function getPromptModes() { return Object.keys(PROMPT_MODES); }
  */
 export async function askCoach({
   fen, coachReport, engineLines, recentMoves = [], model = null, mode = 'general',
-  coachV2Report = null,     // NEW — rich CoachV2 output (Dorfman + archetype + imbalance + strategy)
-  openingExplorer = null,   // NEW — Lichess master-games stats for current FEN
-  tablebase = null,         // NEW — Syzygy tablebase result if ≤7 pieces
+  coachV2Report = null,     // rich CoachV2 output (Dorfman + archetype + imbalance + strategy)
+  openingExplorer = null,   // Lichess master-games stats for current FEN
+  tablebase = null,         // Syzygy tablebase result if ≤7 pieces
+  refinementContext = null, // { cycle, priorAnswer, deeperLines } for multi-cycle analysis
 } = {}) {
   const m = model || getModel();
   // In proxy mode the server holds the API key. Otherwise fall back to the
@@ -285,8 +286,23 @@ export async function askCoach({
   const tablebaseBlock = tablebase ? buildTablebaseBlock(tablebase) : '';
   const openingBlock = openingExplorer ? buildOpeningBlock(openingExplorer) : '';
 
-  const userPrompt = `
-POSITION
+  const refinementHeader = refinementContext
+    ? `
+REFINEMENT CYCLE ${refinementContext.cycle} — Stockfish has now searched DEEPER on the same position.
+Your previous answer (cycle ${refinementContext.cycle - 1}) is quoted below. The engine lines above
+reflect the deeper search. Your task this cycle:
+  (a) Identify anything in your previous answer that the deeper search CONTRADICTS.
+  (b) Sharpen specifics — concrete moves, variations, evaluations — where the deeper lines allow.
+  (c) If your previous answer is still correct, explicitly say "no change — deeper search confirms" and keep it short.
+
+Previous answer (cycle ${refinementContext.cycle - 1}):
+"""
+${refinementContext.priorAnswer || '(no prior answer — treat as cycle 1)'}
+"""
+
+`
+    : '';
+  const userPrompt = `${refinementHeader}POSITION
 FEN: ${fen}
 Side to move: ${coachReport.sideName}
 ${recentMoves.length ? `Last ${recentMoves.length} moves: ${recentMoves.join(' ')}` : ''}

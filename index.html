@@ -247,6 +247,15 @@
         </div>
 
         <div class="tab-panel" data-tab-panel="coach" hidden>
+          <!-- ═══════════ ANALYSIS BUDGET PICKER ═══════════ -->
+          <div id="analysis-budget-picker" class="budget-picker" role="radiogroup" aria-label="Analysis depth / cycles">
+            <span class="budget-picker-label">Depth:</span>
+            <label class="budget-opt"><input type="radio" name="ai-budget" value="fast" checked><span>⚡ Fast<br><em>1 cycle · ~10s</em></span></label>
+            <label class="budget-opt"><input type="radio" name="ai-budget" value="balanced"><span>⚖ Balanced<br><em>2 cycles · ~30s</em></span></label>
+            <label class="budget-opt"><input type="radio" name="ai-budget" value="deep"><span>🔬 Deep<br><em>3 cycles · ~1min</em></span></label>
+            <label class="budget-opt"><input type="radio" name="ai-budget" value="research"><span>🧪 Research<br><em>up to 5 · ~3min</em></span></label>
+          </div>
+
           <!-- ═══════════ RUN BOTH (single trigger) ═══════════ -->
           <button id="combined-ai-btn" class="ai-big-cta combined-cta">
             <span class="cta-title">🧠 Run both — Position + Coach in parallel</span>

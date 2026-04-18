@@ -1873,66 +1873,107 @@ async function main() {
       </div>`;
       return;
     }
+    // Budget → cycles mapping (from the radio picker)
+    const budgetMap = { fast: 1, balanced: 2, deep: 3, research: 5 };
+    const budget = document.querySelector('input[name="ai-budget"]:checked')?.value || 'fast';
+    const maxCycles = budgetMap[budget] || 1;
+
     outputEl.hidden = false;
     outputEl.innerHTML = `<div class="ai-status-msg">
-      ⏳ <strong>Working (~10 seconds)…</strong><br>
-      Step 1/2 — Stockfish searching depth 18, MultiPV 5 for <em>${mode}</em> analysis.
+      ⏳ <strong>Working…</strong><br>
+      Cycle 1/${maxCycles} — Stockfish searching for <em>${mode}</em> analysis.
     </div>`;
     btnEl.disabled = true;
     const wasLocked = locked, wasPaused = paused;
     engine.stop();
     try {
       const fen = board.isAtLive() ? board.fen() : rebuildFenAtPly(board.chess, board.viewPly);
-      const { lines, depth } = await AICoach.probeEngine(engine, fen, 18, 5);
-      if (!lines.length) {
-        outputEl.innerHTML = '<p style="color:var(--c-bad)">Stockfish returned no candidates. Try ♻ Restart.</p>';
-        return;
-      }
-      outputEl.innerHTML = `<div class="ai-status-msg">
-        ⏳ <strong>Working…</strong><br>
-        Step 2/2 — Sending engine data to <strong>${AICoach.getModel()}</strong> (${mode} mode).
-      </div>`;
-      const engineTop = { scoreKind: lines[0].scoreKind, score: lines[0].score, pv: lines[0].pvSan?.split(' ') || [] };
-      const rpt = coachReport(fen, { engineTop });
       const recent = board.chess.history().slice(-8);
 
-      // Gather the ENRICHED coaching context from every research module so
-      // the AI gets the full Dorfman/Silman/archetype/imbalance synthesis,
-      // tablebase ground truth for endgames, and master-game statistics
-      // for the opening phase — not just the old minimal coachReport.
-      let coachV2Report = null;
-      try {
-        const engineSnap = {
-          topMoves: lines.map(l => ({
-            san: l.san, uci: l.uci, score: l.score, scoreKind: l.scoreKind,
-            pv: l.pvSan?.split(' ') || [],
-          })).filter(m => m.uci),
-          sanHistory: board.chess.history(),
-        };
-        coachV2Report = CoachV2.coachReport(fen, engineSnap);
-      } catch (err) { console.warn('[ai-coach] CoachV2 unavailable', err.message); }
+      // ─── Multi-cycle loop ─────────────────────────────────────────
+      // Cycle 1 = baseline (SF depth 18, MultiPV 5).
+      // Cycle N>1 = deeper SF pass + AI refines previous answer.
+      // Early stop if the AI explicitly reports "no change" or the
+      // top-ranked move hasn't changed between consecutive cycles.
+      const cycleHistory = [];
+      let priorAnswer = null;
+      let priorTopMove = null;
+      let lines = [], depth = 0, result = null;
 
-      let tablebase = null;
-      try {
-        if (Tablebase.isTablebasePosition(fen)) tablebase = await Tablebase.queryTablebase(fen);
-      } catch {}
+      const extractFirstBoldMove = (text) => {
+        const m = /\*\*([A-Za-z][^*]{0,8})\*\*/.exec(text || '');
+        return m ? m[1].trim() : null;
+      };
 
-      let openingExplorer = null;
-      try {
-        if (coachV2Report && coachV2Report.phase === 'opening') {
-          openingExplorer = await OpeningExplorer.queryOpeningExplorer(fen);
+      for (let cycle = 1; cycle <= maxCycles; cycle++) {
+        const cycleDepth = 18 + (cycle - 1) * 4;         // 18, 22, 26, 30, 34
+        const cycleMultiPV = cycle === 1 ? 5 : 3;
+        outputEl.innerHTML = `<div class="ai-status-msg">
+          ⏳ <strong>Cycle ${cycle}/${maxCycles}</strong><br>
+          Stockfish depth ${cycleDepth}, MultiPV ${cycleMultiPV}…
+        </div>`;
+        const probe = await AICoach.probeEngine(engine, fen, cycleDepth, cycleMultiPV);
+        lines = probe.lines; depth = probe.depth;
+        if (!lines.length) {
+          outputEl.innerHTML = '<p style="color:var(--c-bad)">Stockfish returned no candidates. Try ♻ Restart.</p>';
+          return;
         }
-      } catch {}
+        outputEl.innerHTML = `<div class="ai-status-msg">
+          ⏳ <strong>Cycle ${cycle}/${maxCycles}</strong><br>
+          ${cycle === 1 ? 'Asking' : 'Refining with'} <strong>${AICoach.getModel()}</strong> (${mode} mode)…
+        </div>`;
+        const engineTop = { scoreKind: lines[0].scoreKind, score: lines[0].score, pv: lines[0].pvSan?.split(' ') || [] };
+        const rpt = coachReport(fen, { engineTop });
 
-      const result = await AICoach.askCoach({
-        fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
-        coachV2Report, tablebase, openingExplorer,
-      });
+        // Per-cycle rebuild of research context (the deeper engine lines
+        // feed into coach_v2, making each cycle's synthesis slightly
+        // sharper — matches what the AI sees).
+        let coachV2Report = null;
+        try {
+          const engineSnap = {
+            topMoves: lines.map(l => ({
+              san: l.san, uci: l.uci, score: l.score, scoreKind: l.scoreKind,
+              pv: l.pvSan?.split(' ') || [],
+            })).filter(mv => mv.uci),
+            sanHistory: board.chess.history(),
+          };
+          coachV2Report = CoachV2.coachReport(fen, engineSnap);
+        } catch (err) { console.warn('[ai-coach] CoachV2 unavailable', err.message); }
+
+        // Only fetch tablebase + explorer once — they don't change per cycle
+        let tablebase = null, openingExplorer = null;
+        if (cycle === 1) {
+          try { if (Tablebase.isTablebasePosition(fen)) tablebase = await Tablebase.queryTablebase(fen); } catch {}
+          try {
+            if (coachV2Report && coachV2Report.phase === 'opening') {
+              openingExplorer = await OpeningExplorer.queryOpeningExplorer(fen);
+            }
+          } catch {}
+        }
+
+        const refinementContext = cycle > 1 ? { cycle, priorAnswer } : null;
+        result = await AICoach.askCoach({
+          fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
+          coachV2Report, tablebase, openingExplorer, refinementContext,
+        });
+        cycleHistory.push({ cycle, depth, text: result.text });
+
+        const thisTopMove = extractFirstBoldMove(result.text);
+        const saidNoChange = /no change|deeper search confirms|unchanged/i.test(result.text || '');
+        if (cycle >= 2 && (saidNoChange || (thisTopMove && thisTopMove === priorTopMove))) {
+          priorAnswer = result.text;
+          // Converged — stop spending budget
+          break;
+        }
+        priorAnswer = result.text;
+        priorTopMove = thisTopMove;
+      }
+
       const checks = AICoach.verifyCoachSuggestions(result.text, lines);
 
       const enginePanel = `
         <div class="engine-ground-truth">
-          <h4>🎯 Stockfish · depth ${depth} · top 5</h4>
+          <h4>🎯 Stockfish · depth ${depth} · top ${lines.length}</h4>
           <table class="sf-lines">
             ${lines.map((l, i) => `<tr>
               <td class="sf-rank">#${i+1}</td>
@@ -1948,15 +1989,25 @@ async function main() {
           <ul>${checks.map(c => `<li class="${c.verified ? 'ok' : 'fail'}">
             ${c.verified ? '✓' : '✗'} <strong>${c.san}</strong> — ${c.note}</li>`).join('')}</ul>
         </div>` : '';
+      const cycleHistoryPanel = cycleHistory.length > 1 ? `
+        <details class="cycle-history">
+          <summary>🔁 Cycle history (${cycleHistory.length} cycle${cycleHistory.length !== 1 ? 's' : ''} · showing final above) ▾</summary>
+          ${cycleHistory.map(c => `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--c-border);">
+            <strong>Cycle ${c.cycle}</strong> <span class="muted">(SF depth ${c.depth})</span>
+            <div style="margin-top:4px;font-size:11px;">${renderMarkdown(c.text)}</div>
+          </div>`).join('')}
+        </details>` : '';
 
       outputEl.innerHTML = `
         ${enginePanel}
         <div class="ai-response">${renderMarkdown(result.text)}</div>
         ${verifyPanel}
+        ${cycleHistoryPanel}
         <div class="ai-meta muted">
           ${result.model || ''} · ${result.usage ? `${result.usage.input_tokens||0}→${result.usage.output_tokens||0} tokens` : ''}
           · this call: $${(result.cost?.thisCall||0).toFixed(4)}
           · session: $${(result.cost?.sessionTotal||0).toFixed(4)} (${result.cost?.callsThisSession||0} calls)
+          · cycles run: ${cycleHistory.length}/${maxCycles}
         </div>`;
       window.dispatchEvent(new Event('ai-call-complete'));
     } catch (err) {
