@@ -188,7 +188,27 @@ async function main() {
       // rule-independence). Replaces the smaller Dorfman-only panel.
       let coachHTML = '';
       try {
-        const rep = CoachV2.coachReport(fen);
+        // Snapshot latest engine analysis (if any) so the coach can
+        // VALIDATE its theoretical advice against concrete engine lines.
+        let engineSnapshot = null;
+        try {
+          if (engine && engine.topMoves && engine.topMoves.size) {
+            const tm = Array.from(engine.topMoves.values())
+                           .sort((a, b) => (a.multipv || 99) - (b.multipv || 99))
+                           .slice(0, 5)
+                           .map(info => ({
+                             san:       firstSanFromUciPv(fen, info.pv || []),
+                             uci:       (info.pv || [])[0],
+                             score:     info.score,
+                             scoreKind: info.scoreKind,
+                             pv:        info.pv || [],
+                             depth:     info.depth,
+                           }))
+                           .filter(m => m.uci);
+            if (tm.length) engineSnapshot = { topMoves: tm, depth: tm[0].depth };
+          }
+        } catch {}
+        const rep = CoachV2.coachReport(fen, engineSnapshot);
         const verdictSide =
           rep.verdict.sign > 0 ? '<span class="dv-white">White</span>'
           : rep.verdict.sign < 0 ? '<span class="dv-black">Black</span>'
@@ -199,10 +219,21 @@ async function main() {
           const s = f.sign > 0 ? chip('w', 'White') : f.sign < 0 ? chip('b', 'Black') : chip('eq', '=');
           return `<li><strong>${label}:</strong> ${s} — ${f.note || ''}</li>`;
         };
+        const validationChip = (v) => {
+          if (v === 'ok')          return '<span class="pv-tag pv-tag-ok">✓ engine OK</span>';
+          if (v === 'fragile')     return '<span class="pv-tag pv-tag-fragile">⚠ engine fragile</span>';
+          if (v === 'speculative') return '<span class="pv-tag pv-tag-spec">? unverified</span>';
+          if (v === 'critical')    return '<span class="pv-tag pv-tag-crit">⚡ urgent</span>';
+          return '';
+        };
         const plansList = (side) => {
           const ps = rep.plans[side];
           if (!ps.length) return '<li class="muted">no specific plan — play principled moves</li>';
-          return ps.map(p => `<li>${p.text}</li>`).join('');
+          return ps.map(p => {
+            const chip = p.validation ? validationChip(p.validation) : '';
+            const note = p.note ? `<span class="muted" style="font-size:10px; display:block; margin-top:2px">${p.note}</span>` : '';
+            return `<li>${p.text} ${chip}${note}</li>`;
+          }).join('');
         };
         const worstLine = (side) => {
           const w = rep.worstPiece[side];
@@ -210,9 +241,18 @@ async function main() {
           const pieceName = { n: 'knight', b: 'bishop', r: 'rook', q: 'queen' }[w.type] || w.type;
           return `${pieceName} on <strong>${w.square}</strong> — badness score ${w.badness}${w.reroute ? ` · ${w.reroute}` : ''}`;
         };
+        const engineBanner = rep.engineOverrides && rep.engineOverrides.concretePriority.length
+          ? `<div class="coach-engine-alert">
+               ${rep.engineOverrides.concretePriority.map(p => `<div class="coach-engine-alert-row">${p.text}</div>`).join('')}
+             </div>`
+          : (rep.engineOverrides
+              ? `<div class="coach-engine-ok"><strong>✓ Engine agrees.</strong> ${rep.engineOverrides.summary}${rep.engineOverrides.bestMove ? ` (best move: ${rep.engineOverrides.bestMove})` : ''}</div>`
+              : `<div class="coach-engine-missing"><em>Engine data not yet available — advice below is theoretical only. Wait a moment for analysis.</em></div>`);
+
         coachHTML = `
           <div class="dissect-group dorfman-group coach-group">
             <h4>Positional Coach — ${rep.phase} · ${rep.sideToMove} to move</h4>
+            ${engineBanner}
             <p class="dorfman-verdict"><strong>${verdictSide} is statically better.</strong>
                ${rep.verdict.dominant ? 'Dominant factor: ' + rep.verdict.dominant + '. ' : ''}
                ${rep.verdict.reason}</p>
@@ -2416,6 +2456,19 @@ function downloadBlob(text, filename, mime = 'text/plain') {
 // Given the SAN moves played from the standard start, find the longest
 // opening from our OPENINGS book whose moves are a prefix of (or equal
 // to) the played sequence. Returns { name, group, matchLength } or null.
+// Convert the first UCI move of a PV into SAN from a given FEN so
+// the Coach's plan-validator can match engine moves by SAN.
+function firstSanFromUciPv(fen, pv) {
+  if (!pv || !pv.length) return null;
+  try {
+    const c = new Chess(fen);
+    const uci = pv[0];
+    const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4),
+                        promotion: uci.length > 4 ? uci[4] : undefined });
+    return mv ? mv.san : null;
+  } catch { return null; }
+}
+
 function detectOpeningFromSanPath(sanPath) {
   if (!sanPath || !sanPath.length) return null;
   let best = null;

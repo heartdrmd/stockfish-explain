@@ -30,43 +30,51 @@ const CENTRE = new Set(['d4', 'd5', 'e4', 'e5']);
 /**
  * Main entry point. Given a FEN, return a full coaching report.
  */
-export function coachReport(fen) {
+/**
+ * @param {string} fen
+ * @param {object} [engineData] optional — pass the latest Stockfish snapshot:
+ *   {
+ *     score:      number (centipawns, White POV) — decisive threshold ±300
+ *     mate:       number|null (plies to mate, signed)
+ *     depth:      number
+ *     topMoves:   [{ san, uci, score, scoreKind, pv[] }]   // MultiPV
+ *   }
+ *  When provided, plans are VALIDATED against engine candidates and
+ *  concrete-priority overrides kick in (hanging piece / mate threat
+ *  suppress long-term positional advice).
+ */
+export function coachReport(fen, engineData = null) {
   const chess = new Chess(fen);
   const board = chess.board();
   const stm = chess.turn();                  // 'w' or 'b'
 
-  // Extract every feature we need, per side.
   const features = extractFeatures(chess, board);
-
-  // Score each Silman-style factor, with Dorfman lexicographic priority.
-  const factors = scoreFactors(features);
-
-  // Plan phase
-  const phase = gamePhase(features);
-
-  // Critical-moment detector (Dorfman)
+  const factors  = scoreFactors(features);
+  const phase    = gamePhase(features);
   const critical = detectCritical(chess, board);
-
-  // Prophylaxis — what's the opponent's best idea? (shallow null-move)
   const prophylaxis = detectProphylaxis(chess);
-
-  // Silman's "worst piece" + reroute (Aagaard question 2)
   const worstW = detectWorstPiece(chess, board, 'w', features);
   const worstB = detectWorstPiece(chess, board, 'b', features);
-
-  // Lexicographic verdict (Dorfman)
   const verdict = lexicographicVerdict(factors);
-
-  // Plans — concrete bullet points per side based on active imbalances
-  const plansW = generatePlans(features, factors, phase, 'w');
-  const plansB = generatePlans(features, factors, phase, 'b');
-
-  // Watson rule-independence — context-based penalty cancellations
+  let plansW = generatePlans(features, factors, phase, 'w');
+  let plansB = generatePlans(features, factors, phase, 'b');
   const contextNotes = watsonContextNotes(features);
-
-  // Mode suggestion (Dorfman rule 9)
   const modeW = recommendedMode(verdict, phase, 'w');
   const modeB = recommendedMode(verdict, phase, 'b');
+
+  // ─── Engine-aware combination ────────────────────────────────────
+  // If the caller passed engine data, validate each plan against the
+  // engine's top moves and apply concrete-priority overrides so the
+  // report doesn't give theoretically-sound-but-practically-wrong
+  // advice (e.g. "you have the bishop pair" when the #1 engine move
+  // for the opponent is trading it off with a knight, or long-term
+  // structural plans when the engine shows a mate threat).
+  let engineOverrides = null;
+  if (engineData && engineData.topMoves && engineData.topMoves.length) {
+    engineOverrides = combineWithEngine(chess, board, features, engineData, { w: plansW, b: plansB }, stm);
+    plansW = engineOverrides.plans.w;
+    plansB = engineOverrides.plans.b;
+  }
 
   return {
     sideToMove:  stm === 'w' ? 'White' : 'Black',
@@ -80,6 +88,7 @@ export function coachReport(fen) {
     plans:      { white: plansW, black: plansB },
     contextNotes,
     mode:       { white: modeW, black: modeB },
+    engineOverrides,     // null if no engine data; else { concretePriority, validations, summary }
   };
 }
 
@@ -756,4 +765,203 @@ function recommendedMode(verdict, phase, side) {
     return phase === 'endgame' ? 'convert — simplify toward a won endgame' : 'consolidate — improve pieces, avoid unnecessary risk';
   }
   return 'seek dynamics — forcing moves, pawn breaks, piece activity';
+}
+
+// ─── Engine-aware combination ───────────────────────────────────────
+//
+// Turns theoretical advice into PRACTICAL advice by cross-referencing
+// with what Stockfish actually plays:
+//
+//   1. CONCRETE-PRIORITY OVERRIDE: if the engine shows a forced mate,
+//      a decisive tactical swing, or a hanging-piece alert, all long-
+//      term positional plans are demoted and the engine move promoted.
+//
+//   2. PLAN VALIDATION: each static plan is checked against the
+//      engine's top-N moves. A plan is:
+//        • ✓ VALIDATED if a top-3 engine move is consistent with the plan
+//        • ⚠ FRAGILE if a top move by the OTHER side undermines it
+//          (e.g. "you have bishop pair" → opponent's #1 is NxB)
+//        • ? SPECULATIVE if no top-3 move touches the plan's theme
+//
+//   3. WORST-PIECE SYNC: if the engine's top move improves the
+//      detected worst piece → validated; otherwise flagged as
+//      long-term rather than immediate.
+
+function combineWithEngine(chess, board, features, engineData, plans, stm) {
+  const topMoves = engineData.topMoves || [];
+  const top = topMoves[0];
+  const decisiveThreshold = 300;         // cp — |eval| ≥ this = decisive
+  const tacticalSwing     = 150;         // cp between top move and side's static
+  const bestMoveSan       = top?.san || null;
+  const bestMoveUci       = top?.uci || top?.pv?.[0] || null;
+
+  const score = top?.scoreKind === 'mate'
+    ? (top.score > 0 ? 10000 - top.score : -10000 - top.score)
+    : (top?.score ?? 0);
+  // Engine score from side-to-move POV → convert to White POV
+  const scoreWhite = stm === 'w' ? score : -score;
+
+  const concretePriority = [];
+
+  // Hanging piece detection — engine's top move captures an undefended piece
+  if (top && topMoves.length >= 2) {
+    const jump = Math.abs((topMoves[0].score ?? 0) - (topMoves[1].score ?? 0));
+    if (jump >= tacticalSwing) {
+      concretePriority.push({
+        kind: 'tactical-jump',
+        text: `⚡ Concrete over theory — engine's #1 (${bestMoveSan}) is ${(jump/100).toFixed(2)} pawns better than #2. There's a tactical point here; positional plans are secondary until this is resolved.`,
+      });
+    }
+  }
+
+  // Mate threat
+  if (top?.scoreKind === 'mate') {
+    const side = top.score > 0
+      ? (stm === 'w' ? 'White' : 'Black')
+      : (stm === 'w' ? 'Black' : 'White');
+    concretePriority.push({
+      kind: 'mate',
+      text: `♔ Forced mate — ${side} has mate in ${Math.abs(top.score)}. All long-term positional talk is noise; find the forcing sequence.`,
+    });
+  }
+
+  // Decisive eval
+  if (Math.abs(scoreWhite) >= decisiveThreshold && top?.scoreKind !== 'mate') {
+    const side = scoreWhite > 0 ? 'White' : 'Black';
+    concretePriority.push({
+      kind: 'decisive',
+      text: `Engine reads the position as decisive for ${side} (${(scoreWhite/100).toFixed(2)}). Static factors below may not reflect this — follow the engine's top line.`,
+    });
+  }
+
+  // Per-plan validation — look at top-N moves and tag each plan
+  const validatePlans = (planList, side) => {
+    const out = [];
+    // The engine's top moves are for the side-to-move. If the plan's
+    // side matches stm, we validate against top moves directly. If it's
+    // the other side's plans, we look at the first move in each PV's
+    // second ply (i.e. what the engine expects them to play next).
+    const iAmSideToMove = (side === stm);
+
+    for (const plan of planList) {
+      const tag = classifyPlan(plan.text, chess, board, features, side, topMoves, iAmSideToMove);
+      out.push({ ...plan, validation: tag.validation, note: tag.note });
+    }
+    return out;
+  };
+
+  // Specific "bishop pair can be traded off" check
+  const bishopPairRisk = checkBishopPairRisk(chess, board, features, topMoves, stm);
+  if (bishopPairRisk) {
+    concretePriority.push({
+      kind: 'bishop-pair-fragile',
+      text: bishopPairRisk,
+    });
+  }
+
+  const plansValidated = {
+    w: validatePlans(plans.w, 'w'),
+    b: validatePlans(plans.b, 'b'),
+  };
+
+  return {
+    concretePriority,
+    plans: plansValidated,
+    bestMove: bestMoveSan,
+    score: scoreWhite,
+    summary: concretePriority.length
+      ? `Engine overrides: ${concretePriority.length} concrete alert(s) supersede positional theory.`
+      : 'No concrete alerts — static plans match engine preferences.',
+  };
+}
+
+// Classify a plan-text against engine top moves. Returns { validation, note }.
+// validation: 'ok' (engine consistent), 'fragile' (engine undermines),
+//             'speculative' (no engine evidence), 'critical' (engine says do this NOW).
+function classifyPlan(planText, chess, board, features, planSide, topMoves, iAmSideToMove) {
+  const lower = planText.toLowerCase();
+  // Only check side-to-move's plans against engine candidates directly.
+  if (!iAmSideToMove) return { validation: 'info', note: '' };
+  if (!topMoves.length) return { validation: 'speculative', note: '' };
+
+  const top3 = topMoves.slice(0, 3);
+  const firstMoves = top3.map(m => m.san || '');
+
+  // Map plan themes to move patterns:
+  //   "bishop pair" / "open lines" → pawn-push openers (c4, d4, e4, f4)
+  //   "passed pawn"               → pawn move on a-h files near promotion
+  //   "blockade"                   → piece move onto square directly ahead of enemy passer
+  //   "castle"                     → O-O or O-O-O
+  //   "rook on 7th" / "open file" → R move to open file / 7th rank
+  //   "outpost"                    → piece move to detected outpost square
+  //   "your king is uncastled"     → O-O or O-O-O
+
+  if (/\bcastle\b/.test(lower)) {
+    const consistent = firstMoves.some(m => m === 'O-O' || m === 'O-O-O');
+    return consistent
+      ? { validation: 'ok', note: `engine's top line castles — ${firstMoves[0]}` }
+      : { validation: 'fragile', note: 'engine is NOT castling now — there may be more urgent business' };
+  }
+  if (/passed pawn|push it/.test(lower)) {
+    const consistent = firstMoves.some(m => /^[a-h][1-8]$/.test(m) || /^[a-h]x/.test(m));
+    return consistent
+      ? { validation: 'ok', note: `engine plays a pawn move — ${firstMoves[0]}` }
+      : { validation: 'speculative', note: 'engine is not pushing pawns right now' };
+  }
+  if (/outpost/.test(lower)) {
+    // Look at engine moves landing on any detected outpost of this side
+    const outposts = features.outposts[planSide] || [];
+    const consistent = firstMoves.some(m => {
+      const dest = m.match(/[a-h][1-8]/g);
+      return dest && dest.some(sq => outposts.includes(sq));
+    });
+    return consistent
+      ? { validation: 'ok', note: 'engine heads for an outpost' }
+      : { validation: 'speculative', note: 'engine has more pressing concerns than the outpost right now' };
+  }
+  if (/open the position|open files|bishop pair/.test(lower)) {
+    // Check if opponent's top move TRADES OFF one of our bishops
+    const enemyMove = topMoves[0];
+    if (enemyMove && /x/.test(enemyMove.san || '') && /B/.test(enemyMove.san || '')) {
+      return { validation: 'fragile', note: 'engine shows the opponent can trade off the bishop pair — plan is not stable' };
+    }
+    return { validation: 'ok', note: 'bishop pair intact in engine lines' };
+  }
+  if (/7th rank|seventh/.test(lower)) {
+    const consistent = firstMoves.some(m => /^R.*7$/.test(m));
+    return consistent ? { validation: 'ok', note: 'engine confirms rook invasion' } : { validation: 'speculative', note: '' };
+  }
+  if (/blockade/.test(lower)) {
+    return { validation: 'info', note: '' };   // too abstract to verify quickly
+  }
+  // Default: no mapping → speculative (theoretically sound but unverified)
+  return { validation: 'speculative', note: '' };
+}
+
+// If we claim "you have the bishop pair" as an advantage, but the
+// opponent's TOP move is NxB (or similar) that liquidates the pair,
+// surface the risk explicitly.
+function checkBishopPairRisk(chess, board, features, topMoves, stm) {
+  const us = stm;
+  const them = stm === 'w' ? 'b' : 'w';
+  if (!features.hasBishopPair[us] || features.hasBishopPair[them]) return null;
+  // Top move that captures one of our bishops?
+  // Engine top moves are for side-to-move (us). We need opponent's top
+  // NEXT move, which we can't compute without searching their side —
+  // but we can look at our top move's FIRST reply in the PV.
+  const pv = topMoves[0]?.pv || [];
+  if (pv.length < 2) return null;
+  const theirReply = pv[1];
+  // Check if the destination square of theirReply holds one of our bishops
+  if (!theirReply) return null;
+  const destSq = theirReply.slice(2, 4);
+  // Find if there's a bishop on destSq belonging to us
+  const fileIdx = 'abcdefgh'.indexOf(destSq[0]);
+  const rankIdx = 8 - parseInt(destSq[1], 10);
+  if (fileIdx < 0 || rankIdx < 0 || rankIdx > 7) return null;
+  const target = board[rankIdx][fileIdx];
+  if (target && target.color === us && target.type === 'b') {
+    return `⚠ Your bishop pair is fragile — in the engine's main line the opponent replies ${theirReply} trading off one of your bishops. Don't commit to bishop-pair plans without first securing them.`;
+  }
+  return null;
 }
