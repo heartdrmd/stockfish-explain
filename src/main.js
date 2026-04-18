@@ -588,6 +588,12 @@ async function main() {
     if (window.__threatMode) window.__exitThreatMode({ silent: true });
     renderMoveList(); fireAnalysis();
   });
+  // Non-move tree mutations (adding a Stockfish PV as a variation via
+  // right-click, promoting, deleting) still need the move list to
+  // re-render. They don't change the live board so we skip fireAnalysis.
+  board.addEventListener('tree-changed', () => {
+    renderMoveList();
+  });
   board.addEventListener('new-game', () => {
     if (window.__threatMode) window.__exitThreatMode({ silent: true });
     renderMoveList(); fireAnalysis();

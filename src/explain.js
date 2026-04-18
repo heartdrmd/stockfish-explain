@@ -150,30 +150,34 @@ export class Explainer {
     });
     this.ui.pvLines.innerHTML = lines.join('');
 
-    // Wire clicks — each PV move plays every move from index 0 through the
-    // clicked one onto the board.
-    this.ui.pvLines.querySelectorAll('.pv-move').forEach(span => {
-      span.addEventListener('click', (e) => {
-        e.stopPropagation();   // don't also trigger the line-level handler
-        const pvIdx = +span.dataset.pv;
-        const mvIdx = +span.dataset.move;
-        const pv = topMoves[pvIdx]?.pv;
-        if (!pv) return;
-        const slice = pv.slice(0, mvIdx + 1);
-        this.board.playUciMoves(slice);
-      });
-    });
-
-    // Clicking anywhere ELSE in the line (rank, score, padding) plays the
-    // entire line up to the max shown. Makes "just play this whole line"
-    // a single tap instead of hunting for the last move span.
+    // Left-click ANYWHERE inside a PV line → play ONLY the first ply of
+    // that line (the engine's recommended move for that candidate).
+    // Subsequent moves in the line aren't legal from the current position
+    // anyway — they're contingent on the first move being played.
+    //
+    // Right-click ANYWHERE inside a PV line → open a context menu with:
+    //   • Add first move as variation
+    //   • Add full line as variation (up to 8 plies)
+    const board = this.board;
     this.ui.pvLines.querySelectorAll('.pv-line').forEach((lineEl, lineIdx) => {
       lineEl.style.cursor = 'pointer';
-      lineEl.title = 'Click to play this whole line · click a specific move to stop there';
-      lineEl.addEventListener('click', () => {
+      lineEl.title = 'Left-click: play the first move of this line. Right-click: add as variation.';
+      lineEl.addEventListener('click', (e) => {
+        // If the click landed on an individual move span we also want the
+        // same behavior: play only the first ply. stopPropagation prevents
+        // any nested handler from re-firing.
+        e.stopPropagation();
         const pv = topMoves[lineIdx]?.pv;
         if (!pv || !pv.length) return;
-        this.board.playUciMoves(pv.slice(0, 10));
+        board.playUciMoves([pv[0]]);   // ONE PLY
+      });
+
+      lineEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const pv = topMoves[lineIdx]?.pv;
+        if (!pv || !pv.length) return;
+        openPvContextMenu(e, pv, board);
       });
     });
   }
@@ -308,3 +312,44 @@ function uciLineToClickableSan(chess, uciMoves, max, pvIdx) {
 }
 
 function boldify(s) { return s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'); }
+
+// Right-click menu on a Stockfish PV line. Lets the user add the
+// engine's candidate line as a variation in the move list without
+// actually navigating to it on the board. `tree.addUciLine` creates
+// the branches; the current live position stays unchanged.
+function openPvContextMenu(e, pv, board) {
+  // Remove any existing PV context menu
+  document.querySelectorAll('.pv-context-menu').forEach(el => el.remove());
+  const menu = document.createElement('div');
+  menu.className = 'pv-context-menu move-context-menu';   // reuse same styling
+  menu.style.left = e.clientX + 'px';
+  menu.style.top  = e.clientY + 'px';
+
+  const items = [
+    { label: '📝 Add first move as variation', action: () => {
+      board.tree.addUciLine([pv[0]], board.tree.currentPath);
+      board.dispatchEvent(new CustomEvent('tree-changed'));
+    }},
+    { label: `📝 Add full line (${Math.min(pv.length, 8)} plies) as variation`, action: () => {
+      board.tree.addUciLine(pv.slice(0, 8), board.tree.currentPath);
+      board.dispatchEvent(new CustomEvent('tree-changed'));
+    }},
+  ];
+  for (const item of items) {
+    const btn = document.createElement('button');
+    btn.className = 'mc-item';
+    btn.textContent = item.label;
+    btn.addEventListener('click', () => {
+      item.action();
+      menu.remove();
+    });
+    menu.appendChild(btn);
+  }
+  document.body.appendChild(menu);
+  setTimeout(() => {
+    const off = (ev) => {
+      if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', off); }
+    };
+    document.addEventListener('click', off);
+  }, 0);
+}
