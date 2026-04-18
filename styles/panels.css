@@ -233,6 +233,20 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+.combined-cta {
+  margin-bottom: 16px;
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: var(--c-accent, #7aa7ff) !important;
+  background: linear-gradient(180deg, rgba(122,167,255,0.10), rgba(122,167,255,0.04)) !important;
+}
+.combined-cta:hover {
+  background: linear-gradient(180deg, rgba(122,167,255,0.18), rgba(122,167,255,0.08)) !important;
+}
+.combined-cta:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 
 /* ==================== Dissect content ==================== */
 .dissect-group {

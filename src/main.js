@@ -1832,7 +1832,24 @@ async function main() {
     if (coachBtn) coachBtn.addEventListener('click', () => askAI('general',  coachOut, coachBtn));
     if (posBtn)   posBtn.addEventListener  ('click', () => askAI('position', posOut,   posBtn));
     if (tacBtn)   tacBtn.addEventListener  ('click', () => askAI('tactics',  tacOut,   tacBtn));
-    console.log('[ai] tab buttons wired — coach:', !!coachBtn, 'position:', !!posBtn, 'tactics:', !!tacBtn);
+    // Combined trigger — fires Position + Coach in parallel so one click
+    // produces both analyses. Each response lands in its own output
+    // section; the combined button is disabled until both resolve.
+    const combinedBtn = document.getElementById('combined-ai-btn');
+    if (combinedBtn) {
+      combinedBtn.addEventListener('click', async () => {
+        combinedBtn.disabled = true;
+        try {
+          await Promise.all([
+            askAI('position', posOut,   posBtn),
+            askAI('general',  coachOut, coachBtn),
+          ]);
+        } finally {
+          combinedBtn.disabled = false;
+        }
+      });
+    }
+    console.log('[ai] tab buttons wired — coach:', !!coachBtn, 'position:', !!posBtn, 'tactics:', !!tacBtn, 'combined:', !!combinedBtn);
   }
 
   // Shared AI-probe flow — used by all three tab CTA buttons.
