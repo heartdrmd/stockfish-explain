@@ -248,12 +248,22 @@
 
         <div class="tab-panel" data-tab-panel="coach" hidden>
           <!-- ═══════════ ANALYSIS BUDGET PICKER ═══════════ -->
-          <div id="analysis-budget-picker" class="budget-picker" role="radiogroup" aria-label="Analysis depth / cycles">
-            <span class="budget-picker-label">Depth:</span>
+          <div id="analysis-budget-picker" class="budget-picker" role="radiogroup" aria-label="Analysis cycles">
+            <span class="budget-picker-label">Cycles:</span>
             <label class="budget-opt"><input type="radio" name="ai-budget" value="fast" checked><span>⚡ Fast<br><em>1 cycle · ~10s</em></span></label>
             <label class="budget-opt"><input type="radio" name="ai-budget" value="balanced"><span>⚖ Balanced<br><em>2 cycles · ~30s</em></span></label>
             <label class="budget-opt"><input type="radio" name="ai-budget" value="deep"><span>🔬 Deep<br><em>3 cycles · ~1min</em></span></label>
             <label class="budget-opt"><input type="radio" name="ai-budget" value="research"><span>🧪 Research<br><em>up to 5 · ~3min</em></span></label>
+          </div>
+
+          <!-- ═══════════ THINKING DEPTH PICKER ═══════════ -->
+          <div id="thinking-depth-picker" class="budget-picker thinking-picker" role="radiogroup" aria-label="Extended thinking depth">
+            <span class="budget-picker-label">Thinking depth <em style="text-transform:none;font-weight:400;">(Opus / Sonnet only — Haiku ignores)</em>:</span>
+            <label class="budget-opt"><input type="radio" name="ai-thinking" value="off" checked><span>⏸ Off<br><em>no reasoning</em></span></label>
+            <label class="budget-opt"><input type="radio" name="ai-thinking" value="low"><span>💭 Low<br><em>2k tokens</em></span></label>
+            <label class="budget-opt"><input type="radio" name="ai-thinking" value="medium"><span>🧠 Medium<br><em>8k tokens</em></span></label>
+            <label class="budget-opt"><input type="radio" name="ai-thinking" value="high"><span>🔮 High<br><em>20k tokens</em></span></label>
+            <label class="budget-opt"><input type="radio" name="ai-thinking" value="exhaustive"><span>♾ Exhaustive<br><em>32k tokens</em></span></label>
           </div>
 
           <!-- ═══════════ RUN BOTH (single trigger) ═══════════ -->

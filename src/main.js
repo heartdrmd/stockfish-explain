@@ -1877,6 +1877,8 @@ async function main() {
     const budgetMap = { fast: 1, balanced: 2, deep: 3, research: 5 };
     const budget = document.querySelector('input[name="ai-budget"]:checked')?.value || 'fast';
     const maxCycles = budgetMap[budget] || 1;
+    // Thinking-depth tier (extended thinking budget per cycle)
+    const thinkingTier = document.querySelector('input[name="ai-thinking"]:checked')?.value || 'off';
 
     outputEl.hidden = false;
     outputEl.innerHTML = `<div class="ai-status-msg">
@@ -1956,6 +1958,7 @@ async function main() {
         result = await AICoach.askCoach({
           fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
           coachV2Report, tablebase, openingExplorer, refinementContext,
+          thinkingTier,
         });
         cycleHistory.push({
           cycle, depth, text: result.text,
@@ -1997,15 +2000,6 @@ async function main() {
             }).join('')}
           </table>
         </div>`;
-      const cycleHistoryPanel = cycleHistory.length > 1 ? `
-        <details class="cycle-history">
-          <summary>🔁 Cycle history (${cycleHistory.length} cycle${cycleHistory.length !== 1 ? 's' : ''} · showing final above) ▾</summary>
-          ${cycleHistory.map(c => `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--c-border);">
-            <strong>Cycle ${c.cycle}</strong> <span class="muted">(SF depth ${c.depth} · ${c.tokensIn}→${c.tokensOut} tokens · $${c.thisCallCost.toFixed(4)})</span>
-            <div style="margin-top:4px;font-size:11px;">${renderMarkdown(c.text)}</div>
-          </div>`).join('')}
-        </details>` : '';
-
       // Prominent cost badge — total for THIS analysis (sum of all cycles)
       // plus session running total. Shown at the top of the response so
       // the user sees spend before reading the output.
@@ -2014,6 +2008,11 @@ async function main() {
       const totalTokensOut = cycleHistory.reduce((a, c) => a + (c.tokensOut || 0), 0);
       const sessionTotal = result.cost?.sessionTotal || 0;
       const sessionCalls = result.cost?.callsThisSession || 0;
+      // Thinking-tier label for the badge (only meaningful when the
+      // model actually supports extended thinking).
+      const thinkingLabel = result.thinkingBudget && result.thinkingBudget > 0
+        ? ` · thinking ${thinkingTier} (${result.thinkingBudget.toLocaleString()} tkn)`
+        : '';
       const costBadge = `
         <div class="cost-badge">
           <div class="cost-badge-main">
@@ -2022,7 +2021,7 @@ async function main() {
             <span class="cost-label">this analysis</span>
           </div>
           <div class="cost-badge-detail">
-            ${cycleHistory.length} cycle${cycleHistory.length !== 1 ? 's' : ''} · ${totalTokensIn.toLocaleString()}→${totalTokensOut.toLocaleString()} tokens · ${result.model || ''}
+            ${cycleHistory.length} cycle${cycleHistory.length !== 1 ? 's' : ''} · ${totalTokensIn.toLocaleString()}→${totalTokensOut.toLocaleString()} tokens · ${result.model || ''}${thinkingLabel}
             <br>
             Session total: <strong>$${sessionTotal.toFixed(4)}</strong> across ${sessionCalls} call${sessionCalls !== 1 ? 's' : ''}
           </div>
@@ -2031,8 +2030,7 @@ async function main() {
       outputEl.innerHTML = `
         ${costBadge}
         ${enginePanel}
-        <div class="ai-response">${renderMarkdown(result.text)}</div>
-        ${cycleHistoryPanel}`;
+        <div class="ai-response">${renderMarkdown(result.text)}</div>`;
       window.dispatchEvent(new Event('ai-call-complete'));
     } catch (err) {
       // Gate errors get a friendly handler that re-opens the password modal

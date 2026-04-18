@@ -25,67 +25,27 @@ const DEFAULT_MODEL  = 'claude-haiku-4-5';
 const PROXY_MODE = (typeof window !== 'undefined')
   && (window.location.protocol === 'http:' || window.location.protocol === 'https:');
 
-// Known model strings. Users can type any string (including ones newer
-// than this list) in the model input; this list is just for the dropdown.
-// If a given model returns 404, the error is shown verbatim.
-// Full list of known Anthropic model strings. The API accepts aliases (like
-// `claude-opus-4-5`) that resolve to the current stable snapshot, and dated
-// snapshots (like `claude-opus-4-1-20250805`). Type any model — the API
-// returns 404 with the exact error if a name isn't valid.
+// Model suggestions — trimmed to the top/current version of each family.
+// Users can still type any other snapshot directly into the input; this is
+// just the default dropdown.
 export const MODEL_SUGGESTIONS = [
-  // Opus family — highest capability
-  'claude-opus-4-7',
-  'claude-opus-4-5',
-  'claude-opus-4-1',
-  'claude-opus-4-1-20250805',
-  'claude-opus-4',
-  'claude-opus-4-20250514',
-  'claude-3-opus-20240229',
-  // Sonnet family — balanced (good default)
-  'claude-sonnet-4-6',
-  'claude-sonnet-4-5',
-  'claude-sonnet-4-5-20250929',
-  'claude-sonnet-4',
-  'claude-sonnet-4-20250514',
-  'claude-3-7-sonnet-20250219',
-  'claude-3-5-sonnet-latest',
-  'claude-3-5-sonnet-20241022',
-  'claude-3-5-sonnet-20240620',
-  'claude-3-sonnet-20240229',
-  // Haiku family — fastest / cheapest
-  'claude-haiku-4-5',
-  'claude-3-5-haiku-latest',
-  'claude-3-5-haiku-20241022',
-  'claude-3-haiku-20240307',
+  'claude-opus-4-7',     // highest capability
+  'claude-sonnet-4-6',   // balanced (good default)
+  'claude-haiku-4-5',    // fastest / cheapest
 ];
 
-// Per-million-token pricing (approximate, USD). Used for cost estimates.
-// Update when Anthropic changes pricing.
+// Which models support extended thinking. Haiku 4.5 does not; Sonnet 4+
+// and Opus 4+ do.
+export const THINKING_SUPPORTED = new Set([
+  'claude-opus-4-7',
+  'claude-sonnet-4-6',
+]);
+
+// Per-million-token pricing (USD) for the top version of each family.
 export const MODEL_PRICES = {
-  // Opus — $15 input / $75 output per million tokens
-  'claude-opus-4-7':            { input: 15,  output: 75 },
-  'claude-opus-4-5':            { input: 15,  output: 75 },
-  'claude-opus-4-1':            { input: 15,  output: 75 },
-  'claude-opus-4-1-20250805':   { input: 15,  output: 75 },
-  'claude-opus-4':              { input: 15,  output: 75 },
-  'claude-opus-4-20250514':     { input: 15,  output: 75 },
-  'claude-3-opus-20240229':     { input: 15,  output: 75 },
-  // Sonnet — $3 input / $15 output per million tokens
-  'claude-sonnet-4-6':          { input:  3,  output: 15 },
-  'claude-sonnet-4-5':          { input:  3,  output: 15 },
-  'claude-sonnet-4-5-20250929': { input:  3,  output: 15 },
-  'claude-sonnet-4':            { input:  3,  output: 15 },
-  'claude-sonnet-4-20250514':   { input:  3,  output: 15 },
-  'claude-3-7-sonnet-20250219': { input:  3,  output: 15 },
-  'claude-3-5-sonnet-latest':   { input:  3,  output: 15 },
-  'claude-3-5-sonnet-20241022': { input:  3,  output: 15 },
-  'claude-3-5-sonnet-20240620': { input:  3,  output: 15 },
-  'claude-3-sonnet-20240229':   { input:  3,  output: 15 },
-  // Haiku — cheap
-  'claude-haiku-4-5':           { input:  1,    output:  5 },
-  'claude-3-5-haiku-latest':    { input:  0.8,  output:  4 },
-  'claude-3-5-haiku-20241022':  { input:  0.8,  output:  4 },
-  'claude-3-haiku-20240307':    { input:  0.25, output: 1.25 },
+  'claude-opus-4-7':   { input: 15, output: 75 },
+  'claude-sonnet-4-6': { input:  3, output: 15 },
+  'claude-haiku-4-5':  { input:  1, output:  5 },
 };
 export function priceFor(model) {
   return MODEL_PRICES[model] || { input: 3, output: 15 };  // default to Sonnet
@@ -288,12 +248,25 @@ export function getPromptModes() { return Object.keys(PROMPT_MODES); }
  * Phase 2: ask Claude, seeded with engine ground truth. Mode selects the
  * system prompt — 'general', 'position', or 'tactics'.
  */
+// Thinking-budget tiers. Maps UI preset → token budget the model is
+// allowed to spend on internal reasoning before producing its answer.
+// Extended thinking is supported on Opus 4.7 and Sonnet 4.6; it's a no-op
+// on Haiku 4.5 (we skip sending the parameter there).
+export const THINKING_TIERS = {
+  off:        { tokens:     0, label: '⏸ Off' },
+  low:        { tokens:  2000, label: '💭 Low' },
+  medium:     { tokens:  8000, label: '🧠 Medium' },
+  high:       { tokens: 20000, label: '🔮 High' },
+  exhaustive: { tokens: 32000, label: '♾ Exhaustive' },
+};
+
 export async function askCoach({
   fen, coachReport, engineLines, recentMoves = [], model = null, mode = 'general',
   coachV2Report = null,     // rich CoachV2 output (Dorfman + archetype + imbalance + strategy)
   openingExplorer = null,   // Lichess master-games stats for current FEN
   tablebase = null,         // Syzygy tablebase result if ≤7 pieces
   refinementContext = null, // { cycle, priorAnswer, deeperLines } for multi-cycle analysis
+  thinkingTier = 'off',     // extended-thinking tier — off/low/medium/high/exhaustive
 } = {}) {
   const m = model || getModel();
   // In proxy mode the server holds the API key. Otherwise fall back to the
@@ -410,16 +383,30 @@ Write the explanation now. Rich, specific, and grounded in every piece of resear
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
       };
+  // Extended thinking: only send the param when a non-off tier was
+  // picked AND the model supports it. Anthropic requires max_tokens >
+  // thinking.budget_tokens, so we bump max_tokens above the budget by
+  // an output buffer of 3000 for the final response.
+  const tierConfig = THINKING_TIERS[thinkingTier] || THINKING_TIERS.off;
+  const thinkingBudget = (tierConfig.tokens > 0 && THINKING_SUPPORTED.has(m))
+    ? tierConfig.tokens : 0;
+  const responseBuffer = 3000;
+  const body = {
+    model: m,
+    max_tokens: thinkingBudget > 0 ? thinkingBudget + responseBuffer : responseBuffer,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  };
+  if (thinkingBudget > 0) {
+    body.thinking = { type: 'enabled', budget_tokens: thinkingBudget };
+    // With extended thinking enabled, Anthropic requires temperature = 1.
+    body.temperature = 1;
+  }
   const response = await fetch(url, {
     method: 'POST',
     headers,
     credentials: PROXY_MODE ? 'include' : 'omit',
-    body: JSON.stringify({
-      model: m,
-      max_tokens: 3000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -435,9 +422,21 @@ Write the explanation now. Rich, specific, and grounded in every piece of resear
   }
 
   const data = await response.json();
-  const text = data.content?.[0]?.text || '(empty response)';
+  // Extended thinking responses interleave "thinking" blocks and "text"
+  // blocks. Skip thinking and concatenate only text blocks. If no blocks
+  // have type "text", fall back to the first block's text field.
+  let text;
+  if (Array.isArray(data.content)) {
+    const textBlocks = data.content.filter(b => b.type === 'text').map(b => b.text);
+    text = textBlocks.length ? textBlocks.join('\n\n') : (data.content[0]?.text || '(empty response)');
+  } else {
+    text = '(empty response)';
+  }
   const cost = addCost(data.model || m, data.usage);
-  return { text, usage: data.usage, model: data.model, cost, mode };
+  return {
+    text, usage: data.usage, model: data.model, cost, mode,
+    thinkingTier, thinkingBudget,
+  };
 }
 
 /**
