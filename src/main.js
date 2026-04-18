@@ -15,6 +15,7 @@ import { MODEL_SUGGESTIONS }      from './ai-coach.js';
 import { setupEditor }            from './editor.js';
 import * as Dorfman                from './dorfman.js';
 import * as CoachV2                from './coach_v2.js';
+import * as Tablebase              from './tablebase.js';
 
 // ─── Diagnostic log capture ─────────────────────────────────────────
 // Tees every console.log/.warn/.error/.info into an in-memory ring
@@ -278,6 +279,15 @@ async function main() {
               : ''
             }
 
+            ${Tablebase.isTablebasePosition(fen)
+              ? `<div class="coach-tablebase" id="coach-tb-${Tablebase.pieceCount(fen)}p">
+                   <strong>📚 Tablebase position (${Tablebase.pieceCount(fen)} pieces)</strong>
+                   <div class="coach-tb-body" data-fen="${fen.replace(/"/g, '&quot;')}">
+                     <em class="muted">Querying Lichess Syzygy tablebase…</em>
+                   </div>
+                 </div>`
+              : ''}
+
             ${rep.archetype ? `
               <div class="coach-archetype">
                 <h5 class="coach-section-h">📐 Structure: ${rep.archetype.label}</h5>
@@ -370,6 +380,34 @@ async function main() {
           ${sectionList('Development',         sRep.development)}
         </details>
       `;
+
+      // Kick off the async tablebase fetch AFTER the innerHTML is
+      // committed so the placeholder is in the DOM by the time the
+      // Promise resolves. Only fires for ≤7-piece positions.
+      if (Tablebase.isTablebasePosition(fen)) {
+        const stmNow = new Chess(fen).turn();
+        (async () => {
+          const tb = await Tablebase.queryTablebase(fen);
+          // Bail if the user has navigated to a different position since
+          // we fired the request.
+          const body = ui.dissectStrategy.querySelector('.coach-tb-body');
+          if (!body) return;
+          if (body.dataset.fen !== fen) return;
+          if (!tb) {
+            body.innerHTML = '<em class="muted">Tablebase API unreachable — engine analysis remains authoritative.</em>';
+            return;
+          }
+          const verdict = Tablebase.describeTablebaseResult(tb, stmNow);
+          const bestMove = Tablebase.tablebaseBestMoveLabel(tb);
+          body.innerHTML = `
+            <div class="coach-tb-verdict">${verdict}</div>
+            ${bestMove ? `<div class="coach-tb-best">Best move: <strong>${bestMove}</strong></div>` : ''}
+            ${tb.moves.length > 1
+              ? `<div class="coach-tb-alts muted">Alternatives: ${tb.moves.slice(1, 5).map(m => `${m.san} (${m.category})`).join(' · ')}</div>`
+              : ''}
+          `;
+        })();
+      }
 
       const wList = tRep.w.length ? tRep.w.map(x => `<li>${x}</li>`).join('') : '<li class="muted">(none detected)</li>';
       const bList = tRep.b.length ? tRep.b.map(x => `<li>${x}</li>`).join('') : '<li class="muted">(none detected)</li>';
