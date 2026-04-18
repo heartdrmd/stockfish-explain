@@ -70,10 +70,7 @@ export class BoardController extends EventTarget {
       if (!target) return;
 
       // FIRST: if the user previously clicked a target and we highlighted
-      // candidates, this click might be them picking the source. Check
-      // BEFORE any early-return — otherwise clicking their own piece (the
-      // source) would fall through to chessground's drag handler instead
-      // of resolving the pending target-first move.
+      // candidates, this click might be them picking the source.
       if (this._pendingTargetSources && this._pendingTargetSources.includes(target)) {
         const prevTarget = this._pendingTarget;
         this._clearTargetFirst();
@@ -81,16 +78,25 @@ export class BoardController extends EventTarget {
         return;
       }
 
-      const p = this.chess.get(target);
+      // IMPORTANT: when the user has scrolled back to a past ply, `this.chess`
+      // still holds the LIVE position — NOT the past one the user is looking
+      // at. All legality + piece-color lookups in this handler must use the
+      // position actually displayed on the board. `_historicalChess` is set
+      // by goToPly() whenever viewPly < total; otherwise we use this.chess.
+      const effectiveChess = (!this.isAtLive() && this._historicalChess)
+        ? this._historicalChess
+        : this.chess;
+
+      const p = effectiveChess.get(target);
       // If our piece is on this square, chessground handles its own drag.
-      if (p && p.color === this.chess.turn()) return;
+      if (p && p.color === effectiveChess.turn()) return;
 
       // Collect legal sources that can reach this target.
       let legalSources = [];
       try {
-        legalSources = this.chess.moves({ verbose: true })
-                                 .filter(m => m.to === target)
-                                 .map(m => m.from);
+        legalSources = effectiveChess.moves({ verbose: true })
+                                     .filter(m => m.to === target)
+                                     .map(m => m.from);
       } catch { return; }
       if (!legalSources.length) return;
 
@@ -181,6 +187,7 @@ export class BoardController extends EventTarget {
     const total = this.totalPlies();
     if (n == null || n >= total) {
       this.viewPly = null;
+      this._historicalChess = null;    // guard against stale reads
       this._syncTreePathToPly(total);
       this._renderPosition(this.chess.fen(), lastMoveFromHistory(this.chess));
       this._allowUserToMoveIfTheirTurn();
@@ -271,16 +278,18 @@ export class BoardController extends EventTarget {
 
   async _onUserMove(orig, dest, _meta) {
     if (!this.isAtLive()) {
-      // User moved from an old ply — truncate history and branch from here.
+      // User moved from an old ply — truncate chess.js to the view ply
+      // and branch from here. The variation tree keeps the old line as a
+      // sibling; chess.js is rebuilt for legality of the new move.
       const verbose = this.chess.history({ verbose: true });
       const keep = this.viewPly || 0;
-      // Rebuild from the game's starting FEN (respects pasted positions).
       this.chess = new Chess(this.startingFen);
       for (let i = 0; i < keep; i++) {
         const m = verbose[i];
         this.chess.move({ from: m.from, to: m.to, promotion: m.promotion });
       }
       this.viewPly = null;
+      this._historicalChess = null;    // no longer needed
     }
 
     const piece = this.chess.get(orig);
