@@ -571,7 +571,14 @@ function buildTablebaseBlock(tb) {
 
 function buildOpeningBlock(data) {
   if (!data || !data.total) return '';
-  const parts = [`MASTER-GAME STATISTICS (Lichess masters database):`];
+  // Below this threshold the sample is too small to draw strategic
+  // conclusions from — skip to keep the prompt lean.
+  if (data.total < 5) return '';
+  const isDeepPosition = data.total < 100;
+  const headerLabel = isDeepPosition
+    ? 'MASTER-GAME STATISTICS (Lichess masters — rare position, small sample):'
+    : 'MASTER-GAME STATISTICS (Lichess masters database):';
+  const parts = [headerLabel];
   if (data.opening?.name) parts.push(`  Named opening: ${data.opening.name} (${data.opening.eco || '?'})`);
   parts.push(`  Sample size: ${data.total.toLocaleString()} master games`);
   parts.push(`  Results: White ${data.pctWhite}% · Draws ${data.pctDraw}% · Black ${data.pctBlack}%`);

@@ -1940,15 +1940,16 @@ async function main() {
           coachV2Report = CoachV2.coachReport(fen, engineSnap);
         } catch (err) { console.warn('[ai-coach] CoachV2 unavailable', err.message); }
 
-        // Only fetch tablebase + explorer once — they don't change per cycle
+        // Only fetch tablebase + explorer once — they don't change per cycle.
+        // Explorer is tried on ALL phases (not just opening) — the Lichess
+        // masters DB contains many middlegame and endgame positions that
+        // have been reached in master play, so even move-25 positions
+        // often return meaningful stats. We filter out empty results in
+        // the prompt-builder rather than gating the fetch itself.
         let tablebase = null, openingExplorer = null;
         if (cycle === 1) {
           try { if (Tablebase.isTablebasePosition(fen)) tablebase = await Tablebase.queryTablebase(fen); } catch {}
-          try {
-            if (coachV2Report && coachV2Report.phase === 'opening') {
-              openingExplorer = await OpeningExplorer.queryOpeningExplorer(fen);
-            }
-          } catch {}
+          try { openingExplorer = await OpeningExplorer.queryOpeningExplorer(fen); } catch {}
         }
 
         const refinementContext = cycle > 1 ? { cycle, priorAnswer } : null;
@@ -2133,12 +2134,10 @@ async function main() {
         } catch {}
         let tablebase = null;
         try { if (Tablebase.isTablebasePosition(fen)) tablebase = await Tablebase.queryTablebase(fen); } catch {}
+        // Explorer tried on all phases — Lichess masters DB covers
+        // middlegame + endgame positions too, not just openings.
         let openingExplorer = null;
-        try {
-          if (coachV2Report && coachV2Report.phase === 'opening') {
-            openingExplorer = await OpeningExplorer.queryOpeningExplorer(fen);
-          }
-        } catch {}
+        try { openingExplorer = await OpeningExplorer.queryOpeningExplorer(fen); } catch {}
 
         const result = await AICoach.askCoach({
           fen, coachReport: rpt, engineLines: lines, recentMoves: recent, mode,
