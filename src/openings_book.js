@@ -1556,30 +1556,61 @@ function chebyshev(a, b) {
   const dc = Math.abs((a & 7) - (b & 7));
   return Math.max(dr, dc);
 }
+// Per-file pawn weight: central pawns (c–f) define strategic themes far
+// more than rook/knight pawns, so weight central pawn mismatches more.
+const PAWN_FILE_WEIGHT = [1, 1, 2, 2, 2, 2, 1, 1]; // a b c d e f g h
+
+function weightedPawnDistance(a, b) {
+  if (!a || !b || a.length !== b.length) return 64;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) d += PAWN_FILE_WEIGHT[i & 7];
+  }
+  return d;
+}
+
 function signatureDistance(sigA, sigB) {
   if (!sigA || !sigB) return Infinity;
-  const pawnDist = hamming(sigA.pawns, sigB.pawns);            // 0..64
-  const pieceDist = hamming(sigA.pieces, sigB.pieces);          // 0..64
+  // Pawn skeleton — file-weighted hamming. Central pawns dominate.
+  const pawnDist = weightedPawnDistance(sigA.pawns, sigB.pawns);
+  // Piece placement — plain hamming. Pieces move around through a game
+  // so this is a looser signal than pawns.
+  const pieceDist = hamming(sigA.pieces, sigB.pieces);
+  // Material — compare only the *shape* of the material balance, not
+  // raw count. Dividing by 2 halves the penalty from a couple of piece
+  // trades at different depths of the game.
   let matDiff = 0;
   for (let i = 0; i < sigA.material.length; i++) {
     matDiff += Math.abs(sigA.material[i] - sigB.material[i]);
   }
+  matDiff = matDiff / 2;
   const kingDist = chebyshev(sigA.wk, sigB.wk) + chebyshev(sigA.bk, sigB.bk);
-  const stmPenalty = sigA.stm !== sigB.stm ? 4 : 0;
-  // Weights: pawn structure dominates (×3), piece placement (×1),
-  // material (×2), king placement (×0.5). Hard-floor 0.
-  return pawnDist * 3 + pieceDist * 1 + matDiff * 2 + kingDist * 0.5 + stmPenalty;
+  // STM mismatch is a real strategic difference (whose move it is
+  // changes initiative calc) but not worth 4 full distance units.
+  const stmPenalty = sigA.stm !== sigB.stm ? 2 : 0;
+  // Weights: pawn structure DOMINATES (×4 via the file-weighting above
+  // peaks at 2×16=32), piece placement moderate (×1), material-shape
+  // dampened (×1 after the /2 above), king placement light (×0.5).
+  return pawnDist * 3 + pieceDist * 1 + matDiff * 1 + kingDist * 0.5 + stmPenalty;
 }
 
-// Tuned threshold: empirically ~25 separates "same strategic family"
-// from "unrelated". Returning null rather than a spurious match is
-// preferable when nothing is actually close.
-const STRUCTURAL_THRESHOLD = 22;
+// Looser threshold — ~32 instead of ~22 catches genuine transpositions
+// like "Maroczy via English" that used to return null. The tightened
+// metric above (file-weighted pawns, halved material, softer stm) keeps
+// spurious matches from leaking in despite the looser cap.
+const STRUCTURAL_THRESHOLD = 32;
 // Minimum ply count before structural fallback is allowed. Before this,
 // positions are too close to the starting array for similarity to be
 // meaningful — let the SAN-prefix matcher (and its null result) handle
 // the opening phase.
 const STRUCTURAL_MIN_PLIES = 6;
+// Prefix matches of this depth or greater are trusted over a structural
+// match. Below this depth the prefix is "greedy-shallow" — a 1-ply
+// entry like the Zukertort would otherwise lock the book in forever
+// after 1.Nf3, hiding deeper structural insights. With this gate we
+// still run structural matching on shallow prefix hits and prefer the
+// one that finds a more specific entry.
+const PREFIX_TRUST_DEPTH = 4;
 
 /**
  * Compute a signature from an arbitrary FEN. Used by the structural
@@ -1605,7 +1636,8 @@ export function fenSignature(fen) {
  * @returns {object|null} the matching entry (with `_matched` field)
  */
 export function detectOpening(sanHistory, fen) {
-  // 1) Exact SAN-prefix match
+  // 1) Longest SAN-prefix match (OPENINGS_BOOK is sorted longest-first).
+  let prefixHit = null;
   if (sanHistory && sanHistory.length) {
     for (const entry of OPENINGS_BOOK) {
       if (entry._len > sanHistory.length) continue;
@@ -1613,12 +1645,22 @@ export function detectOpening(sanHistory, fen) {
       for (let i = 0; i < entry._len; i++) {
         if (entry.moves[i] !== sanHistory[i]) { ok = false; break; }
       }
-      if (ok) return { ...entry, _matched: 'exact', _distance: 0 };
+      if (ok) { prefixHit = entry; break; }
     }
   }
-  // 2) FEN-based structural fallback (only after the opening is past
-  //    its earliest phase — before that every position is too close to
-  //    the starting array to produce meaningful matches).
+  // Trust a prefix hit outright only when it's deep enough to be
+  // strategically meaningful. A 1-ply hit like "Nf3 → Zukertort" gets
+  // run past the structural matcher first and is preferred only if
+  // structural can't do better.
+  if (prefixHit && prefixHit._len >= PREFIX_TRUST_DEPTH) {
+    return { ...prefixHit, _matched: 'exact', _distance: 0 };
+  }
+
+  // 2) FEN-based structural match. Runs whenever ≥6 plies have been
+  //    played. If a shallow prefix also hit, we compare: keep the
+  //    structural if it points at a deeper book entry than the shallow
+  //    prefix.
+  let structuralHit = null;
   if (fen && sanHistory && sanHistory.length >= STRUCTURAL_MIN_PLIES) {
     const sig = fenSignature(fen);
     if (sig) {
@@ -1629,10 +1671,21 @@ export function detectOpening(sanHistory, fen) {
         if (d < bestDist) { bestDist = d; best = entry; }
       }
       if (best && bestDist <= STRUCTURAL_THRESHOLD) {
-        return { ...best, _matched: 'structural', _distance: Math.round(bestDist) };
+        structuralHit = { ...best, _matched: 'structural', _distance: Math.round(bestDist) };
       }
     }
   }
+
+  // 3) Choose between shallow prefix and structural. Prefer the one
+  //    that matched a deeper (more specific) book entry. Ties go to
+  //    structural since the FEN is richer evidence than a 1-2 ply
+  //    opening move.
+  if (prefixHit && structuralHit) {
+    return structuralHit._len > prefixHit._len ? structuralHit
+         : { ...prefixHit, _matched: 'exact', _distance: 0 };
+  }
+  if (structuralHit) return structuralHit;
+  if (prefixHit)    return { ...prefixHit, _matched: 'exact', _distance: 0 };
   return null;
 }
 

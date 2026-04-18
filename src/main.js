@@ -1969,8 +1969,6 @@ async function main() {
         priorTopMove = thisTopMove;
       }
 
-      const checks = AICoach.verifyCoachSuggestions(result.text, lines);
-
       const enginePanel = `
         <div class="engine-ground-truth">
           <h4>🎯 Stockfish · depth ${depth} · top ${lines.length}</h4>
@@ -1983,12 +1981,6 @@ async function main() {
             </tr>`).join('')}
           </table>
         </div>`;
-      const verifyPanel = checks.length ? `
-        <div class="ai-verification">
-          <h4>🔎 Moves mentioned — checked against Stockfish</h4>
-          <ul>${checks.map(c => `<li class="${c.verified ? 'ok' : 'fail'}">
-            ${c.verified ? '✓' : '✗'} <strong>${c.san}</strong> — ${c.note}</li>`).join('')}</ul>
-        </div>` : '';
       const cycleHistoryPanel = cycleHistory.length > 1 ? `
         <details class="cycle-history">
           <summary>🔁 Cycle history (${cycleHistory.length} cycle${cycleHistory.length !== 1 ? 's' : ''} · showing final above) ▾</summary>
@@ -2001,7 +1993,6 @@ async function main() {
       outputEl.innerHTML = `
         ${enginePanel}
         <div class="ai-response">${renderMarkdown(result.text)}</div>
-        ${verifyPanel}
         ${cycleHistoryPanel}
         <div class="ai-meta muted">
           ${result.model || ''} · ${result.usage ? `${result.usage.input_tokens||0}→${result.usage.output_tokens||0} tokens` : ''}
