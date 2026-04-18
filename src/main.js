@@ -14,6 +14,7 @@ import * as AICoach               from './ai-coach.js';
 import { MODEL_SUGGESTIONS }      from './ai-coach.js';
 import { setupEditor }            from './editor.js';
 import * as Dorfman                from './dorfman.js';
+import * as CoachV2                from './coach_v2.js';
 
 // ─── Diagnostic log capture ─────────────────────────────────────────
 // Tees every console.log/.warn/.error/.info into an in-memory ring
@@ -180,45 +181,90 @@ async function main() {
           </div>`).join('')}</div>` : ''}
       `;
 
-      // Dorfman's Method — positional verdict + critical moment
-      let dorfmanHTML = '';
+      // Positional Coach v2 — synthesized from multiple chess-theory sources
+      // (Dorfman lexicographic factors, Silman imbalances, Nimzowitsch
+      // overprotection/blockade, Capablanca endgame, Aagaard questions,
+      // Dvoretsky prophylaxis, Shereshevsky two-weaknesses, Watson
+      // rule-independence). Replaces the smaller Dorfman-only panel.
+      let coachHTML = '';
       try {
-        const dr = Dorfman.dorfmanReport(fen);
+        const rep = CoachV2.coachReport(fen);
         const verdictSide =
-          dr.verdict.sign > 0 ? '<span class="dv-white">White</span>'
-          : dr.verdict.sign < 0 ? '<span class="dv-black">Black</span>'
+          rep.verdict.sign > 0 ? '<span class="dv-white">White</span>'
+          : rep.verdict.sign < 0 ? '<span class="dv-black">Black</span>'
           : '<span class="dv-eq">neither side</span>';
         const chip = (side, txt) => `<span class="dorfman-chip dorfman-chip-${side}">${txt}</span>`;
         const factorLine = (label, f) => {
+          if (!f) return '';
           const s = f.sign > 0 ? chip('w', 'White') : f.sign < 0 ? chip('b', 'Black') : chip('eq', '=');
-          return `<li><strong>${label}:</strong> ${s} — ${f.note}</li>`;
+          return `<li><strong>${label}:</strong> ${s} — ${f.note || ''}</li>`;
         };
-        dorfmanHTML = `
-          <div class="dissect-group dorfman-group">
-            <h4>Dorfman's Method — static verdict</h4>
-            <p class="dorfman-verdict"><strong>${verdictSide} is statically better.</strong> ${dr.verdict.dominant}</p>
+        const plansList = (side) => {
+          const ps = rep.plans[side];
+          if (!ps.length) return '<li class="muted">no specific plan — play principled moves</li>';
+          return ps.map(p => `<li>${p.text}</li>`).join('');
+        };
+        const worstLine = (side) => {
+          const w = rep.worstPiece[side];
+          if (!w) return '(no obvious weak piece)';
+          const pieceName = { n: 'knight', b: 'bishop', r: 'rook', q: 'queen' }[w.type] || w.type;
+          return `${pieceName} on <strong>${w.square}</strong> — badness score ${w.badness}${w.reroute ? ` · ${w.reroute}` : ''}`;
+        };
+        coachHTML = `
+          <div class="dissect-group dorfman-group coach-group">
+            <h4>Positional Coach — ${rep.phase} · ${rep.sideToMove} to move</h4>
+            <p class="dorfman-verdict"><strong>${verdictSide} is statically better.</strong>
+               ${rep.verdict.dominant ? 'Dominant factor: ' + rep.verdict.dominant + '. ' : ''}
+               ${rep.verdict.reason}</p>
+
             <ul class="dorfman-factors">
-              ${factorLine('1. King safety',       dr.factors.kingSafety)}
-              ${factorLine('2. Material',          dr.factors.material)}
-              ${factorLine('3. Phantom queen trade', dr.factors.queensOff)}
-              ${factorLine('4. Pawn structure',    dr.factors.pawnStructure)}
-              ${dr.factors.pieceCombo.sign ? factorLine('Piece combination (2N+B)', dr.factors.pieceCombo) : ''}
-              ${dr.oppCastle.active ? `<li><strong>Opposite castling:</strong> ${dr.oppCastle.note}</li>` : ''}
-              <li><strong>Plan independence:</strong> ${dr.independence.note}</li>
+              ${factorLine('King safety',         rep.factors.kingSafety)}
+              ${factorLine('Material',            rep.factors.material)}
+              ${factorLine('Phantom queen trade', rep.factors.queensOff)}
+              ${factorLine('Piece activity',      rep.factors.activity)}
+              ${factorLine('Pawn structure',      rep.factors.pawns)}
+              ${factorLine('Space',               rep.factors.space)}
+              ${factorLine('Files / diagonals',   rep.factors.files)}
+              ${factorLine('Initiative / tempo',  rep.factors.dynamics)}
             </ul>
-            ${dr.criticalMoment.isCritical
-              ? `<p class="dorfman-critical">⚠ <strong>Critical moment.</strong> ${dr.criticalMoment.note}</p>`
-              : `<p class="muted" style="font-size:12px">${dr.criticalMoment.note}</p>`
+
+            ${rep.critical.isCritical
+              ? `<p class="dorfman-critical">⚠ <strong>Critical moment.</strong> ${rep.critical.note} — ${rep.critical.triggers.join(' · ')}</p>`
+              : `<p class="muted" style="font-size:12px">Play within your plan — ${rep.critical.note}</p>`
             }
-            <p class="muted" style="font-size:11px">Recommended mode: <strong>${dr.recommendedMode}</strong>${dr.counterMode ? ` · counter: ${dr.counterMode}` : ''}</p>
+
+            ${rep.prophylaxis.opponentIdea
+              ? `<p style="font-size:12px"><strong>🧠 Prophylaxis:</strong> ${rep.prophylaxis.note}</p>`
+              : ''
+            }
+
+            <div class="coach-side-grid">
+              <div class="coach-side coach-side-w">
+                <h5>White</h5>
+                <div class="coach-worst"><em>Worst piece:</em> ${worstLine('white')}</div>
+                <div class="coach-mode"><em>Mode:</em> ${rep.mode.white}</div>
+                <ul class="coach-plans">${plansList('white')}</ul>
+              </div>
+              <div class="coach-side coach-side-b">
+                <h5>Black</h5>
+                <div class="coach-worst"><em>Worst piece:</em> ${worstLine('black')}</div>
+                <div class="coach-mode"><em>Mode:</em> ${rep.mode.black}</div>
+                <ul class="coach-plans">${plansList('black')}</ul>
+              </div>
+            </div>
+
+            ${rep.contextNotes.length
+              ? `<p class="muted" style="font-size:11px;margin-top:6px"><strong>Context:</strong> ${rep.contextNotes.join(' · ')}</p>`
+              : ''
+            }
           </div>
         `;
       } catch (err) {
-        dorfmanHTML = `<p class="muted">Dorfman panel unavailable: ${err.message}</p>`;
+        coachHTML = `<p class="muted">Coach panel unavailable: ${err.message}</p>`;
       }
 
       ui.dissectStrategy.innerHTML = `
-        ${dorfmanHTML}
+        ${coachHTML}
         <div class="dissect-group imb-group">
           <h4>Material & imbalance <span class="imb-system-mini">(${imb.system})</span></h4>
           ${valHTML}

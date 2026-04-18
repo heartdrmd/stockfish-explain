@@ -1676,3 +1676,39 @@ body.practice-mode.practice-thinking .ceval::after {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.5; }
 }
+
+/* ─── Positional Coach (v2) panel — synthesized analyzer ────────── */
+.coach-group { background: rgba(59, 130, 246, 0.08); }
+.coach-side-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+.coach-side {
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.15);
+}
+.coach-side-w { border-left: 3px solid #eaeaea; }
+.coach-side-b { border-left: 3px solid #555; }
+.coach-side h5 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--c-accent);
+}
+.coach-worst, .coach-mode { font-size: 12px; line-height: 1.45; margin-bottom: 4px; }
+.coach-worst em, .coach-mode em { color: var(--c-muted); font-style: normal; }
+.coach-plans { list-style: none; padding: 0; margin: 4px 0 0; }
+.coach-plans li {
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 4px 6px 4px 14px;
+  border-left: 2px solid var(--c-accent);
+  margin-bottom: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 0 3px 3px 0;
+  position: relative;
+}
