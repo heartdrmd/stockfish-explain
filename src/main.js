@@ -16,6 +16,7 @@ import { setupEditor }            from './editor.js';
 import * as Dorfman                from './dorfman.js';
 import * as CoachV2                from './coach_v2.js';
 import * as Tablebase              from './tablebase.js';
+import * as OpeningExplorer        from './opening_explorer.js';
 
 // ─── Diagnostic log capture ─────────────────────────────────────────
 // Tees every console.log/.warn/.error/.info into an in-memory ring
@@ -288,6 +289,15 @@ async function main() {
                  </div>`
               : ''}
 
+            ${rep.phase === 'opening'
+              ? `<div class="coach-explorer">
+                   <strong>📖 Master-games database</strong>
+                   <div class="coach-oe-body" data-fen="${fen.replace(/"/g, '&quot;')}">
+                     <em class="muted">Querying Lichess Masters explorer…</em>
+                   </div>
+                 </div>`
+              : ''}
+
             ${rep.archetype ? `
               <div class="coach-archetype">
                 <h5 class="coach-section-h">📐 Structure: ${rep.archetype.label}</h5>
@@ -380,6 +390,25 @@ async function main() {
           ${sectionList('Development',         sRep.development)}
         </details>
       `;
+
+      // Opening-phase master-DB lookup — fires only when CoachV2 flagged
+      // the phase as opening. Uses Lichess's masters explorer API.
+      try {
+        const coachRep = CoachV2.coachReport(fen);
+        if (coachRep.phase === 'opening') {
+          (async () => {
+            const data = await OpeningExplorer.queryOpeningExplorer(fen);
+            const body = ui.dissectStrategy.querySelector('.coach-oe-body');
+            if (!body) return;
+            if (body.dataset.fen !== fen) return;
+            if (!data) {
+              body.innerHTML = '<em class="muted">Explorer unreachable or rate-limited.</em>';
+              return;
+            }
+            body.innerHTML = OpeningExplorer.renderExplorerBlock(data);
+          })();
+        }
+      } catch (_) {}
 
       // Kick off the async tablebase fetch AFTER the innerHTML is
       // committed so the placeholder is in the DOM by the time the

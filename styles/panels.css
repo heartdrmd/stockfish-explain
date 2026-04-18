@@ -1857,3 +1857,59 @@ body.practice-mode.practice-thinking .ceval::after {
 .coach-tb-verdict { font-weight: 700; color: #ca8a04; margin-bottom: 2px; }
 .coach-tb-best    { font-family: var(--font-san); margin-bottom: 2px; }
 .coach-tb-alts    { font-size: 11px; font-family: var(--font-san); }
+
+/* ─── Opening explorer (Lichess masters) panel ──────────────── */
+.coach-explorer {
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-left: 3px solid #8b5cf6;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.coach-oe-body { margin-top: 4px; }
+.oe-opening { font-size: 13px; margin-bottom: 6px; }
+.oe-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.oe-bar {
+  display: inline-flex;
+  width: 200px;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: #333;
+}
+.oe-bar-w { background: #f5f5f5; display: inline-block; height: 100%; }
+.oe-bar-d { background: #888;    display: inline-block; height: 100%; }
+.oe-bar-b { background: #222;    display: inline-block; height: 100%; }
+.oe-pct   { font-family: var(--font-mono); font-size: 11px; color: var(--c-font-dim); }
+
+.oe-moves {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.oe-moves th {
+  text-align: left;
+  color: var(--c-font-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--c-border);
+}
+.oe-moves td {
+  padding: 3px 6px;
+  border-bottom: 1px dotted rgba(255,255,255,0.05);
+}
+.oe-moves .oe-san { font-family: var(--font-san); font-weight: 600; }
+.oe-moves .oe-wdl { font-family: var(--font-mono); color: var(--c-font-dim); }
