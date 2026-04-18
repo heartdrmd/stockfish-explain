@@ -19,8 +19,18 @@ export class Explainer {
   }
 
   wire() {
-    this.engine.addEventListener('thinking', (e) => this._onThinking(e.detail));
-    this.engine.addEventListener('bestmove', (e) => this._onBestmove(e.detail));
+    this.engine.addEventListener('thinking', (e) => {
+      // Mute gate: when the user has locked/paused the engine, drop info
+      // events BEFORE they touch the DOM. This makes lock/pause feel
+      // instant even while the worker is still winding down its current
+      // search iteration.
+      if (window.__engineMuted) return;
+      this._onThinking(e.detail);
+    });
+    this.engine.addEventListener('bestmove', (e) => {
+      if (window.__engineMuted) return;
+      this._onBestmove(e.detail);
+    });
     this.board.addEventListener('why-not-region', (e) => this._onWhyNot(e.detail));
   }
 

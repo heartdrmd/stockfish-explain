@@ -221,10 +221,57 @@ export class BoardController extends EventTarget {
     this.dispatchEvent(new CustomEvent('nav', { detail: { ply: this.viewPly, live: this.isAtLive() } }));
   }
 
-  forward()   { this.goToPly((this.viewPly ?? this.totalPlies()) + 1); }
-  backward()  { this.goToPly((this.viewPly ?? this.totalPlies()) - 1); }
-  toStart()   { this.goToPly(0); }
-  toEnd()     { this.goToPly(null); }
+  // TREE-AWARE navigation. forward / backward / toStart / toEnd walk
+  // the tree from tree.currentPath instead of using chess.history —
+  // so when the user is on a variation, Forward doesn't jump back
+  // to the mainline but stays on the branch. Click a different
+  // branch in the move list to switch branches.
+  _navigateTo(newPath) {
+    const nodes = this.tree.nodesAlong(newPath);
+    const replay = new Chess(this.startingFen);
+    for (const n of nodes) {
+      const u = n.uci;
+      try {
+        replay.move({ from: u.slice(0,2), to: u.slice(2,4), promotion: u.length > 4 ? u[4] : undefined });
+      } catch { break; }
+    }
+    this.chess = replay;
+    this.tree.currentPath = newPath;
+    this.viewPly = null;
+    this._historicalChess = null;
+    const lastMove = nodes.length
+      ? [nodes[nodes.length-1].uci.slice(0,2), nodes[nodes.length-1].uci.slice(2,4)]
+      : undefined;
+    const turn = replay.turn() === 'w' ? 'white' : 'black';
+    this.cg.set({
+      fen: replay.fen(),
+      turnColor: turn,
+      lastMove,
+      check: replay.inCheck() ? turn : false,
+      movable: { color: this.playerColor || 'both', dests: toDests(replay) },
+    });
+    this.dispatchEvent(new CustomEvent('nav', { detail: { path: newPath, live: true } }));
+  }
+  forward()   {
+    const node = this.tree.nodeAtPath(this.tree.currentPath);
+    if (!node || !node.children.length) return;
+    this._navigateTo(this.tree.currentPath + node.children[0].id);
+  }
+  backward()  {
+    if (!this.tree.currentPath) return;
+    this._navigateTo(this.tree.parentPath(this.tree.currentPath) || '');
+  }
+  toStart()   { this._navigateTo(''); }
+  toEnd()     {
+    let path = this.tree.currentPath;
+    let node = this.tree.nodeAtPath(path);
+    while (node && node.children.length) {
+      const c = node.children[0];
+      path += c.id;
+      node = c;
+    }
+    this._navigateTo(path);
+  }
 
   _renderPosition(fen, lastMove) {
     const parts = fen.split(' ');

@@ -553,6 +553,10 @@ async function main() {
   // unlocks.
   let paused = false;
   let locked = localStorage.getItem('stockfish-explain.engine-locked') === '1';
+  // Sync the instant-mute flag with persisted lock state so that if the
+  // engine was locked on a previous session, the UI gate is already
+  // closed before the first info event arrives.
+  window.__engineMuted = locked;
 
   // Practice mode state:
   //   practiceColor: which color the user plays ('white' | 'black' | null = off)
@@ -1250,9 +1254,19 @@ async function main() {
     updateLockButton();
     updatePowerButton();
     if (locked) {
+      // Mute FIRST so any in-flight info/bestmove events already in the
+      // worker's send queue get dropped by the explainer's gate — the UI
+      // freezes instantly even if the worker takes a moment to process
+      // the `stop` command.
+      window.__engineMuted = true;
       engine.stop();
+      // Also silence threat mode if it was active
+      if (window.__threatMode && window.__exitThreatMode) window.__exitThreatMode({ silent: true });
       ui.narrationText.textContent = '🔒 Engine stopped. Click the big ENGINE button to resume.';
+      console.log('[engine] LOCKED — muted + stopped');
     } else {
+      window.__engineMuted = false;
+      console.log('[engine] UNLOCKED — resuming analysis');
       fireAnalysis();
     }
   }
@@ -1430,12 +1444,16 @@ async function main() {
   btnPause.addEventListener('click', () => {
     paused = !paused;
     if (paused) {
+      window.__engineMuted = true;
       engine.stop();
       btnPause.textContent = '▶ Resume';
       btnPause.classList.add('paused');
+      console.log('[engine] PAUSED — muted + stopped');
     } else {
+      window.__engineMuted = false;
       btnPause.textContent = '⏸ Pause';
       btnPause.classList.remove('paused');
+      console.log('[engine] RESUMED');
       fireAnalysis();
     }
   });
