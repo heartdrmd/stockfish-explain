@@ -514,6 +514,11 @@ async function main() {
   //   practiceColor: which color the user plays ('white' | 'black' | null = off)
   //   When set, engine auto-plays the opposite color as soon as it's their turn.
   let practiceColor = null;
+  // Incremented whenever the user makes a move or practice ends —
+  // bestmove listeners capture the token value at the time they were
+  // registered and bail out if it's stale when they finally fire. Prevents
+  // a slow engine search from playing an old bestmove onto a new position.
+  let practiceSearchToken = 0;
 
   // Defer heavy work until AFTER chessground's slide animation
   // completes. The slide is 120 ms; we delay dissection by 160 ms so
@@ -531,6 +536,12 @@ async function main() {
   }
 
   function fireAnalysis() {
+    // Invalidate any practice-mode bestmove listener that's still waiting
+    // on the previous position — when engine.stop() below triggers, the
+    // worker will emit a final bestmove for the OLD search, and without
+    // this guard it could be played onto the NEW position.
+    practiceSearchToken++;
+
     const fen = board.isAtLive()
       ? board.fen()
       : rebuildFenAtPly(board.chess, board.viewPly);
@@ -546,21 +557,45 @@ async function main() {
       } else {
         engine.stop();
         if (!paused && !locked) {
-          // Practice mode: if it's the ENGINE's turn, search + auto-play.
+          // Practice mode: engine search is ONLY used to find its own
+          // move. On the user's turn we leave the engine idle so no
+          // analysis leaks to the user. The `practice-thinking` class
+          // on <body> drives the CSS that hides PV lines + score and
+          // shows the "engine thinking…" indicator.
           if (practiceColor && board.isAtLive()) {
             const playerChar = practiceColor[0];
             const engineTurn = chessNow.turn() !== playerChar;
             if (engineTurn) {
-              engine.start(fen, searchLimits());
+              console.log('[practice] engine turn — searching', { fen, limits: searchLimits() });
+              document.body.classList.add('practice-thinking');
+              ui.narrationText.innerHTML = '⏳ <strong>Engine is thinking…</strong>';
+              // Token to guard against stale listeners — if the user
+              // makes a move before bestmove arrives, the token
+              // increments and the old listener bails out.
+              const myToken = ++practiceSearchToken;
               const onBest = (ev) => {
                 engine.removeEventListener('bestmove', onBest);
+                if (myToken !== practiceSearchToken) {
+                  console.log('[practice] stale bestmove ignored', { myToken, current: practiceSearchToken });
+                  return;
+                }
+                document.body.classList.remove('practice-thinking');
                 if (ev.detail.best && ev.detail.best !== '(none)') {
+                  console.log('[practice] engine plays', ev.detail.best);
                   board.playEngineMove(ev.detail.best);
+                } else {
+                  console.log('[practice] engine returned (none) — probably game over');
+                  ui.narrationText.innerHTML = 'Engine has no legal moves — game over.';
                 }
               };
               engine.addEventListener('bestmove', onBest);
-            } else {
               engine.start(fen, searchLimits());
+            } else {
+              // User's turn — engine stays idle. Don't show analysis.
+              console.log('[practice] your turn — engine idle');
+              document.body.classList.remove('practice-thinking');
+              ui.narrationText.innerHTML =
+                `♟ <strong>Your turn</strong> (${practiceColor}). Make a move.`;
             }
           } else {
             engine.start(fen, searchLimits());
@@ -896,6 +931,9 @@ async function main() {
       // Set practice state
       practiceColor = color;
       board.playerColor = color;
+      practiceSearchToken++;   // invalidate any in-flight bestmove listener
+      document.body.classList.add('practice-mode');
+      console.log('[practice] started', { color, skill, limitMode, limitVal });
 
       // Configure engine
       engine.setSkill(skill);
