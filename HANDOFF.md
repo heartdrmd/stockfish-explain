@@ -1,160 +1,207 @@
-# Handoff — what I set up overnight
+# stockfish-explain — session handoff
 
-## Status: LIVE ✅
+**Last live commit:** `9ac4525` (Stage 5 openings book + coach/AI integration)
+**Repo:** `heartdrmd/stockfish-explain` on GitHub, auto-deploys to Render on push
+**Local working dir:** `/Users/nadalmaker/stockfish-web/`
+**Downloads mirror:** `/Users/nadalmaker/Downloads/stockfish-web/` (refreshed after each commit)
 
-- **GitHub repo**: https://github.com/heartdrmd/stockfish-explain
-- **GitHub Pages**: https://heartdrmd.github.io/stockfish-explain/  ← **works right now, open it**
-- **Release with 108 MB WASMs**: https://github.com/heartdrmd/stockfish-explain/releases/tag/v1.0-binaries
+---
 
-## What's in the repo (56 MB total)
+## What this app is
 
-- All source code (`src/`, `styles/`, `index.html`, `replay.html`)
-- `vendor/chessground/`, `vendor/chess.js/` (rendering + rules)
-- `assets/pieces/cburnett/` (12 SVG piece images)
-- `assets/stockfish/stockfish-18-lite*.{js,wasm}` — the 7 MB lite variants
-- `scripts/serve.py` (Python dev server with COOP/COEP headers)
-- `scripts/build-variants.sh` (recompile Stockfish variants with patched piece values)
+Browser-based chess analysis tool. Lichess-style UI. Bundles Stockfish WASM
+(variants: stock lite/full + Kaufman/Classical/AlphaZero/Avrukh/Avrukh+) and
+a proprietary positional coach. Deploys to Render as a Node/Express static
+host with password-gated AI (Anthropic API server-side).
 
-## What's in the release (~1.3 GB, 24 assets)
+Public URL: `https://stockfish-explain.onrender.com` (once Render redeploys).
+Password scheme (rotating daily, Central Time):
+- Site: `9069` + tomorrow's 2-digit day (unlocks site + Haiku AI)
+- Premium: `Dooha` + tomorrow's 2-digit day (unlocks Sonnet/Opus)
 
-All 12 full-net Stockfish WASMs + their 31 KB JS loaders, as release assets:
+---
 
-### Multi-threaded (strongest — requires COOP/COEP server)
-- `stockfish-18.{js,wasm}` — **stock Stockfish 17, multi-threaded, full NNUE**
-- `stockfish-kaufman.{js,wasm}` — Kaufman piece values, MT full
-- `stockfish-classical.{js,wasm}` — 1/3/3/5/9, MT full
-- `stockfish-alphazero.{js,wasm}` — AlphaZero-derived, MT full
-- `stockfish-avrukh.{js,wasm}` — Avrukh-style, MT full
-- `stockfish-avrukhplus.{js,wasm}` — Avrukh + bishop-pair SEE C++ patch, MT full
+## Architecture summary
 
-### Single-threaded (works on any server, including file://)
-- `stockfish-stock-single.{js,wasm}` — stock, single-threaded
-- `stockfish-kaufman-single.{js,wasm}`, `-classical-single`, `-alphazero-single`, `-avrukh-single`, `-avrukhplus-single`
-
-Direct download pattern:
 ```
-https://github.com/heartdrmd/stockfish-explain/releases/latest/download/<filename>
-```
+src/
+  main.js             — UI wiring, gate/auth, event handlers, renderDissection
+  board.js            — chessground + chess.js + variation tree navigation
+  tree.js             — GameTree (lichess-style variations)
+  engine.js           — Stockfish WASM wrapper (UCI, MultiPV, hash, threads)
+  explain.js          — Engine info → pearl/depth/PV rendering + arrows
+  editor.js           — Position-setup board (cburnett SVGs)
 
-## Behavior differences by environment
+  coach_v2.js         — Synthesised positional coach (Dorfman / Silman /
+                         Nimzowitsch / Aagaard / Capablanca / Dvoretsky /
+                         Watson / AlphaZero / Stockfish HCE concepts)
+  archetype.js        — IQP / Carlsbad / Hanging pawns / Maroczy detection
+  traps.js            — 11 trap/tactical-pattern static detectors
+  tablebase.js        — Lichess Syzygy API (≤7-piece perfect play)
+  opening_explorer.js — Lichess Masters API (win/draw/loss stats)
+  openings_book.js    — ~60 curated opening entries with plans/motifs
+  validation_harness.js — Empirical calibration tool (dev console)
 
-| Environment | Lite 7 MB variants | Full 108 MB variants | Multi-thread |
-|---|---|---|---|
-| **GitHub Pages** (what you see online) | ✅ work | ❌ disabled in dropdown (link to Release) | ❌ no COOP/COEP on Pages |
-| **Local `python3 scripts/serve.py`** | ✅ work | ✅ if you curl them from Release into `assets/stockfish/` | ✅ COOP/COEP headers set |
-| **Render / Netlify / Vercel** | ✅ | depends on how you host the big files | ✅ if you set headers |
+  ai-coach.js         — Anthropic prompt builder + API call
+                         Now receives: coachV2Report + tablebase + openingExplorer
+  dorfman.js          — Legacy; superseded by coach_v2 but kept for compat
+  coach.js            — Legacy heuristic coachReport (still fed to AI)
+  tournament.js       — Engine-vs-engine self-play
+  openings.js         — 230+ opening move lines for practice/tournament
+  narrate.js          — Engine-line prose utility
+  analysis.js         — Heuristic strategy/tactics reports
+  values.js           — Kaufman/Avrukh imbalance weights
+  promotion.js        — Pawn-promotion UI overlay
 
-## Next step: Render deployment
+server.js             — Express server + /api/gate + /api/ai proxy
 
-Your Render deployment should work well. Two approaches:
-
-### Approach A — Static site on Render (simplest, no backend)
-
-In Render dashboard:
-1. **New → Static Site**
-2. **Connect** `heartdrmd/stockfish-explain`
-3. **Publish directory**: `/` (root)
-4. **Build command**: *(leave empty)*
-5. **Environment**: none needed
-
-**Add the COOP/COEP headers** (this unlocks multi-threaded Stockfish):
-Create `render.yaml` in the repo root (I haven't added this yet — you might want to):
-
-```yaml
-services:
-  - type: web
-    name: stockfish-explain
-    runtime: static
-    buildCommand: ""
-    staticPublishPath: "."
-    headers:
-      - path: "/*"
-        name: Cross-Origin-Opener-Policy
-        value: same-origin
-      - path: "/*"
-        name: Cross-Origin-Embedder-Policy
-        value: require-corp
+styles/
+  panels.css          — Main stylesheet (1700+ lines)
+  board.css           — Chessground + pieces
+  layout.css          — Top-level grid
+  theme.css           — Dark theme variables
+  fonts.css           — Font imports
 ```
 
-With those headers, the multi-threaded lite variants will work on your Render deployment (unlike GitHub Pages which doesn't allow custom headers).
+---
 
-### Approach B — Web service on Render (Python)
+## What shipped this session (last 5 stages)
 
-If you want the full Python server (identical to local dev):
-1. **New → Web Service**
-2. **Connect** the repo
-3. **Build command**: *(empty)*
-4. **Start command**: `python3 scripts/serve.py $PORT` — but note: the script hardcodes port 8000. You'd need to tweak it to read `$PORT` from env vars.
+| Commit | What |
+|---|---|
+| `81d2bae` | Empirical validation harness — `window.__runCoachValidation()` in devtools, 15 canonical FENs hitting Lichess masters API + sign-agreement table |
+| `1be061f` | Syzygy tablebase module — auto-fires when ≤7 pieces; queries `tablebase.lichess.ovh/standard`; gold panel in Coach |
+| `b84f08d` | Lichess Masters opening explorer — purple panel in opening phase; W/D/L bars + top moves table; `explorer.lichess.ovh/masters` |
+| `883edab` | Trap library (11 detectors: Scholar's, Fool's, Noah's Ark, Légal, Fried Liver, Shilling, Greek-gift, back-rank, hanging piece, absolute pin, en-passant) + AI coach enrichment — AI prompt now receives full coach_v2 context + tablebase + explorer |
+| `9ac4525` | Openings book with ~60 curated entries covering every family (Sicilian / 1.e4 e5 / Semi-open / QGD-QGA-Slav / Indian / English / Flank / Rare). Detection via longest-prefix SAN match. Purple opening block in Coach + AI prompt. |
 
-Quick patch for `scripts/serve.py`:
-```python
-PORT = int(os.environ.get('PORT', 8000))
-```
+---
 
-Approach A is simpler. Go with that.
+## Next work — 10-chunk openings-book expansion
 
-### Getting the 108 MB files onto Render
+Goal: grow `src/openings_book.js` from ~60 to ~200 entries, broken into 10
+chunks so Render has a working deploy after every step.
 
-Option 1: **Commit them to a separate `wasm` branch**. Render can clone + deploy from any branch but the repo bloats.
+Format for each entry (already established in `src/openings_book.js`):
 
-Option 2: **Fetch at build time** — Render's free tier supports 400 GB outbound/mo, so you can `curl` them from the GitHub Release during the build step. In `render.yaml`:
-```yaml
-buildCommand: |
-  cd assets/stockfish
-  for v in stockfish-18 stockfish-stock-single stockfish-kaufman-single \
-           stockfish-classical-single stockfish-alphazero-single \
-           stockfish-avrukh-single stockfish-avrukhplus-single; do
-    curl -sL "https://github.com/heartdrmd/stockfish-explain/releases/latest/download/${v}.wasm" -o "${v}.wasm"
-    curl -sL "https://github.com/heartdrmd/stockfish-explain/releases/latest/download/${v}.js"   -o "${v}.js"
-  done
-```
-
-Then also update `src/main.js`: change the `isPagesHost` detection so full-net variants are enabled on Render:
 ```js
-// near line 60 in main.js:
-const isPagesHost = /\.github\.io$/i.test(location.hostname);  // ← Pages only disables full-net
-// Your Render URL (e.g. stockfish-explain.onrender.com) passes the check.
+{ name: '...', eco: '...', parent: '...',
+  moves: ['e4','e5',...],
+  structure: '1-sentence paraphrase in original words',
+  whitePlans: ['plan 1', 'plan 2', 'plan 3'],
+  blackPlans: ['plan 1', 'plan 2', 'plan 3'],
+  pitfalls: ['pitfall'],
+  motifs: ['motif1', 'motif2'],
+},
 ```
-No change needed — that regex only matches `.github.io`, so Render URLs keep full-net enabled.
 
-## Things I didn't touch
+IMPORTANT: all narrative text must be paraphrased original wording. Move
+sequences and ECO codes are factual data and are fine to reproduce as-is.
+Do not copy prose from any published opening book, chess.com article, or
+Wikipedia entry.
 
-- **Did NOT update git config** or change any git settings
-- **Did NOT force-push** or do anything destructive
-- **Did NOT use the Anthropic API key** you pasted earlier — please still rotate it
-- **Did NOT add any secrets** to the repo (I double-checked — no keys, tokens, or personal info in committed files)
-- **Did NOT create a `render.yaml`** — that's your call; you might want different settings
+### The 10 chunks (commit + push after each)
 
-## Quick verification checklist
+1. **Sicilian** — Classical Richter-Rauzer, Four Knights, Kalashnikov, Lowenthal, Paulsen umbrella, Closed Sicilian, Bc4 Quiet, Chekhover, KIA vs Sicilian, Wing Gambit, Hyperaccelerated Dragon (~11 entries)
+2. **1.e4 e5** — Ruy Zaitsev, Breyer, Smyslov, Anti-Marshall 8.h3/8.a4, Steinitz, Schliemann, Classical, Bird, Open Ruy, Pianissimo variants, Scotch Four Knights, Scotch Gambit, Three Knights, Centre, Danish, Bishop's, Ponziani, Latvian, Elephant (~15)
+3. **French** — Winawer sub-lines, Classical Steinitz, McCutcheon, Rubinstein, Burn, Fort Knox, KIA vs French (~8)
+4. **Caro/Pirc/Modern/Alekhine/Scandi** — Caro Two Knights, Fantasy, Modern (Bronstein-Larsen), Karpov; Pirc Austrian, 150 Attack, Byrne, Monkey's Bum; Alekhine Four Pawns, Exchange, Chase; Scandi Modern, Portuguese (~12)
+5. **QGD/QGA** — Lasker, Tartakower, Semi-Tarrasch, Ragozin, Vienna, Tarrasch; QGA Central, Furman, Janowski; Albin, Marshall, Chigorin, Baltic, Triangle (~12)
+6. **Slav/Semi-Slav/Catalan** — Chebanenko, Exchange Slav, Schlechter, Slav Gambit, Anti-Meran, Moscow, Anti-Moscow, Botvinnik, Shabalov-Shirov, Closed Catalan, Bogo 4.Bd2/4.Nbd2 (~11)
+7. **KID/Grünfeld** — 9.Ne1 Mar del Plata, Bayonet, Sämisch, Four Pawns, Fianchetto, Averbakh, Classical Exchange; Grünfeld Russian, Modern Exchange, Fianchetto, Bf4, Qb3, Hungarian (~13)
+8. **Nimzo/QID/Benoni/Benko/Dutch/Budapest** — Nimzo Classical/Sämisch/Leningrad/Kasparov/Hübner/Noa/Keres; QID Petrosian, Kasparov-Petrosian, Fianchetto; Benoni Classical/Taimanov/Four Pawns/Fianchetto/Flick-Knife; Benko Declined; Dutch Classical/Stonewall/Staunton/Anti-Dutch; Old Indian; Budapest, Fajarowicz; Blumenfeld (~22)
+9. **English + flank** — English Hedgehog, Double Fianchetto, Botvinnik, Anti-KID, Anti-QGD, Anti-Slav, Mikenas, Kramnik-Shirov, Réti Classical, KIA systems, Réti Gambit, Zukertort; Bird Classical, From's, Sokolsky, Larsen, Grob, Anderssen, Mieses, Van't Kruijs, Ware, Hungarian, Amar, Polish, Durkin (~20)
+10. **Rare + d-pawn specials** — London Classical, Colle-Zukertort, Torre, Pseudo-Trompowsky, Trompowsky, Veresov, Richter-Veresov, Jobava London, BDG main, BDG Ryder, Stonewall Attack, London vs KID, Torre vs KID, Englund Main/Declined, Czech/Rat, Mikenas/Queen's Knight, English Defence, Owen's, Modern vs 1.d4, Anti-Dutch variants, Jerome, Halloween, Cochrane, Max Lange, Schilling-Kostic, Fischer 1.b3 vs 1.e5, BDG Lemberger (~20)
 
-Open https://heartdrmd.github.io/stockfish-explain/ and you should see:
+### Execution pattern per chunk
 
-- [ ] Board renders with pieces in correct starting position (cburnett brown theme)
-- [ ] Engine pill shows "booting…" then "Stock Lite · 1 thread" (multi-thread disabled on Pages)
-- [ ] Engine dropdown shows:
-  - Stock Lite (single-thread) — usable
-  - Stock Lite (multi-thread) — disabled ("needs COOP/COEP")
-  - Full variants — disabled ("— download from Releases")
-  - Custom lite variants (Kaufman/Classical/AlphaZero/Avrukh+) — usable
-- [ ] Click a pawn, it moves; engine starts analyzing
-- [ ] Click 🔑 Key → modal pops up for Anthropic key
-- [ ] All tabs render
+```bash
+cd /Users/nadalmaker/stockfish-web
 
-## If something looks broken
+# 1. Edit src/openings_book.js — add N entries to BOOK_RAW array
+#    (the file auto-sorts longest-prefix-first at load, so insertion order doesn't matter)
 
-Check DevTools Console. The logs should include:
-- `[models] select populated with 21 models`
-- `[key] modal wired successfully — click 🔑 Key to open`
-- `[ai] tab buttons wired — coach: true position: true tactics: true`
-- After clicking engine loads: `[engine] ready, threaded=false`
+# 2. Smoke test
+ANTHROPIC_API_KEY=test_placeholder PORT=8200 node server.js &
+SERVER_PID=$!
+sleep 1
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8200/
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8200/src/openings_book.js
+kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null
 
-If any of those lines are missing, something failed — paste me the errors and I'll fix.
+# 3. Commit + push + refresh Downloads
+git add src/openings_book.js
+git commit -m "Expand openings book: chunk N — <families>"
+git push
+rm -rf /Users/nadalmaker/Downloads/stockfish-web
+cp -R /Users/nadalmaker/stockfish-web /Users/nadalmaker/Downloads/stockfish-web
+```
 
-## Copy in Downloads
+---
 
-Latest everything (including the 108 MB full-net WASMs locally) is at:
-`/Users/nadalmaker/Downloads/stockfish-web/` (818 MB)
+## Secondary backlog (after 10 chunks done)
 
-That's your "full working local copy" — use with `python3 scripts/serve.py`.
+- **Empirical weight calibration** — run `window.__runCoachValidation()`
+  end-to-end and feed the suggested weight deltas back into
+  `coach_v2.js::scoreFactors`.
+- **More trap detectors** — 11 shipped; could add Monticelli, Marshall
+  Petroff, Tarrasch, Siberian, Kieninger, Rubinstein QGD, Magnus-Smith,
+  Poisoned Pawn, Fishing-Pole, Englund decline (~10 more named traps).
+- **Generic-pattern detectors** — knight fork setup, discovered attack,
+  overloaded defender, smothered-mate prerequisites, pinned-pawn push,
+  loose-piece double attack. Specs are already in `traps.js` comments.
+- **Opening-explorer inline with openings-book block** — currently two
+  separate panels; merging would be cleaner UX.
+- **Inline practice-from-archetype** — from the Coach panel, offer "Play
+  this structure vs the engine" launching Practice pre-loaded with the
+  current FEN and a skill-level picker.
 
-Sleep well. Tell me in the morning how you want to proceed with Render.
+---
+
+## Dev / local test
+
+```bash
+cd /Users/nadalmaker/stockfish-web
+npm install                                       # once, to install express + cookie-parser
+ANTHROPIC_API_KEY=<real-key> PORT=8000 node server.js
+# open http://localhost:8000
+```
+
+Today's passwords are printed in the server's startup log.
+
+---
+
+## Deploy
+
+```bash
+git push   # triggers Render auto-deploy (autoDeploy: true in render.yaml)
+```
+
+Render builds Node service, fetches full WASM binaries from GitHub Releases
+via `scripts/fetch-full-wasms.sh` (too big for git — 108 MB each).
+ANTHROPIC_API_KEY env var is set once in the Render dashboard.
+
+---
+
+## Known quirks
+
+- Rate limit on agent dispatches: Anthropic backend throttles if you spawn
+  many parallel research agents. Do them serially.
+- Session context window: last session reached 88% — a fresh session with
+  this file in front of it has full capacity.
+- `navigator.deviceMemory` is quantized at 8 GB max and returns undefined
+  in Firefox/Safari — hash picker treats it as a floor, not ceiling.
+- GitHub Pages can't run server code or set COOP/COEP; multi-threaded
+  Stockfish only works on Render (or locally via python3 scripts/serve.py).
+- `coach_v2.js` has 4 call sites in `main.js`; all now pass `sanHistory`
+  via the engineSnapshot object. If you add a 5th call site, include it.
+
+---
+
+## Opening the new session
+
+> Read /Users/nadalmaker/stockfish-web/HANDOFF.md first. Then proceed with
+> Chunk 1 of the 10-chunk openings-book expansion plan. Commit and push
+> after each chunk. All narrative text must be paraphrased in original
+> words — do not reproduce prose from any published source. Move
+> sequences and ECO codes are factual and are fine to reproduce as-is.
