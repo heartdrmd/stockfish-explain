@@ -305,44 +305,23 @@ export async function askCoach({
   const tablebaseBlock = tablebase ? buildTablebaseBlock(tablebase) : '';
   const openingBlock = openingExplorer ? buildOpeningBlock(openingExplorer) : '';
 
+  // Refinement header: we deliberately do NOT send the prior cycle's
+  // answer to the model. Without it, the model cannot produce self-
+  // referential commentary ("I changed my mind", "updated my plan",
+  // "on further review") — there is nothing for it to compare against.
+  // The refinement signal instead comes from NEW data (a deeper search
+  // or, in look-ahead mode, a future FEN) which naturally sharpens
+  // concrete variations.
   const refinementHeader = refinementContext
     ? (refinementContext.lookahead && refinementContext.lookahead.pliesAhead > 0
         ? `
-LOOK-AHEAD CONTEXT (internal — do not mention this to the reader).
-Stockfish has walked ${refinementContext.lookahead.pliesAhead} plies forward along its principal variation
-and searched the FUTURE position you see below. Path taken:
-  ${refinementContext.lookahead.pathMoves.join(' ')}
-Original position: ${refinementContext.lookahead.originalFen}
-
-Your prior draft of this analysis is available for reference:
-"""
-${refinementContext.priorAnswer || '(no prior draft — treat as first pass)'}
-"""
-
-OUTPUT RULES (critical):
-  - Write a SINGLE clean analysis as if this were your only pass. Do NOT describe how you
-    "changed your mind", "updated the plan", "saw something new", or compare against your
-    previous draft. The reader never saw the prior draft and doesn't need the self-reference.
-  - Use the look-ahead data to sharpen concrete variations — quote specific moves from the
-    engine lines at the future position.
-  - If the look-ahead fully confirms your prior analysis, output "no change — look-ahead
-    confirms" as a TERSE single sentence (this triggers the early-exit). Otherwise produce
-    the full fresh analysis.
+LOOK-AHEAD PROBE — the FEN above is ${refinementContext.lookahead.pliesAhead} plies into Stockfish's principal variation from the original position ${refinementContext.lookahead.originalFen}. Path walked: ${refinementContext.lookahead.pathMoves.join(' ')}.
+Write a clean single analysis of the position as given. Do not reference previous drafts, do not narrate your reasoning process — just the final analysis.
 
 `
         : `
-DEEPER-SEARCH CONTEXT (internal — do not mention this to the reader).
-Stockfish has re-searched the position at greater depth. Prior draft of this analysis:
-"""
-${refinementContext.priorAnswer || '(no prior draft)'}
-"""
-
-OUTPUT RULES (critical):
-  - Write a SINGLE clean analysis as if this were your only pass. Do NOT describe how you
-    "changed your mind", "updated the plan", or compare against the previous draft.
-  - If the deeper search fully confirms your prior analysis, output "no change — deeper
-    search confirms" as a TERSE single sentence (this triggers the early-exit). Otherwise
-    produce the full fresh analysis.
+DEEPER-SEARCH PROBE — Stockfish has re-searched this position at greater depth (deeper lines above).
+Write a clean single analysis of the position. Do not reference previous drafts, do not narrate your reasoning process — just the final analysis.
 
 `)
     : '';

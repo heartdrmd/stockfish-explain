@@ -1917,7 +1917,6 @@ async function main() {
       // Early stop if the AI reports "no change" or the top move hasn't
       // shifted between cycles.
       const cycleHistory = [];
-      let priorAnswer = null;
       let priorTopMove = null;
       let lines = [], depth = 0, result = null;
       // FEN we'll probe THIS cycle. Starts at P0, advances along SF PV
@@ -1993,11 +1992,15 @@ async function main() {
         }
 
         // Build refinement context with LOOKAHEAD framing so the AI
-        // knows it's looking at a future position and what path led here.
+        // knows it's looking at a future position and what path led
+        // here. We deliberately do NOT pass priorAnswer — without it
+        // the model cannot produce self-referential "I changed my
+        // mind" / "updated my plan" commentary. The convergence check
+        // happens locally via top-move comparison, not via AI
+        // introspection.
         const refinementContext = cycle > 1
           ? {
               cycle,
-              priorAnswer,
               lookahead: {
                 originalFen: fenStart,
                 pliesAhead: lookaheadPath.length,
@@ -2018,13 +2021,14 @@ async function main() {
         });
 
         const thisTopMove = extractFirstBoldMove(result.text);
-        const saidNoChange = /no change|deeper search confirms|unchanged/i.test(result.text || '');
-        if (cycle >= 2 && (saidNoChange || (thisTopMove && thisTopMove === priorTopMove))) {
-          priorAnswer = result.text;
-          // Converged — stop spending budget
+        // Convergence: top bolded move unchanged between consecutive
+        // cycles = the AI's recommendation is stable; stop spending
+        // budget. We no longer look for "no change" phrases in the text
+        // because the AI no longer sees the prior answer and can't
+        // introspect about change.
+        if (cycle >= 2 && thisTopMove && thisTopMove === priorTopMove) {
           break;
         }
-        priorAnswer = result.text;
         priorTopMove = thisTopMove;
 
         // Advance along SF's top PV by 2 plies for the NEXT cycle's probe.
