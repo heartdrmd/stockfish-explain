@@ -17,6 +17,7 @@ import * as Dorfman                from './dorfman.js';
 import * as CoachV2                from './coach_v2.js';
 import * as Tablebase              from './tablebase.js';
 import * as OpeningExplorer        from './opening_explorer.js';
+import { renderOpeningBlock, renderOpeningForAI } from './openings_book.js';
 import                                './validation_harness.js';
 
 // ─── Diagnostic log capture ─────────────────────────────────────────
@@ -210,6 +211,13 @@ async function main() {
                            .filter(m => m.uci);
             if (tm.length) engineSnapshot = { topMoves: tm, depth: tm[0].depth };
           }
+          // Feed SAN history so the opening-book detector can identify
+          // the variation and emit plans/motifs for both sides.
+          if (engineSnapshot) {
+            engineSnapshot.sanHistory = board.chess.history();
+          } else {
+            engineSnapshot = { sanHistory: board.chess.history(), topMoves: [] };
+          }
         } catch {}
         const rep = CoachV2.coachReport(fen, engineSnapshot);
         const verdictSide =
@@ -311,6 +319,8 @@ async function main() {
                    </div>
                  </div>`
               : ''}
+
+            ${rep.opening ? renderOpeningBlock(rep.opening) : ''}
 
             ${rep.archetype ? `
               <div class="coach-archetype">
@@ -1880,6 +1890,7 @@ async function main() {
             san: l.san, uci: l.uci, score: l.score, scoreKind: l.scoreKind,
             pv: l.pvSan?.split(' ') || [],
           })).filter(m => m.uci),
+          sanHistory: board.chess.history(),
         };
         coachV2Report = CoachV2.coachReport(fen, engineSnap);
       } catch (err) { console.warn('[ai-coach] CoachV2 unavailable', err.message); }

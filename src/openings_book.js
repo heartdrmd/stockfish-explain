@@ -1,0 +1,537 @@
+// openings_book.js — synthesised opening coaching database.
+//
+// ~100 curated opening entries with plan templates, motifs, and common
+// pitfalls. Each entry is matched to a game by longest SAN-prefix
+// matching against the move history. When a match is found, the coach
+// panel shows:
+//   - the opening name + ECO code
+//   - a 1-sentence pawn-structure summary
+//   - 3-4 plans per side
+//   - 1-2 common pitfalls
+//   - 2-3 characteristic motifs
+//
+// Data synthesised from publicly-documented opening theory (ECO
+// classification, Wikipedia, public chess-press summaries). Plan and
+// motif descriptions are paraphrased in original words — no
+// copyrighted prose is reproduced. Move sequences and ECO codes are
+// factual reference data.
+//
+// Structure: a flat array of entries sorted long-prefix-first so the
+// matcher finds the most specific variation that applies.
+
+const BOOK_RAW = [
+  // ═════════════════════ SICILIAN ═════════════════════
+  { name: 'Najdorf Sicilian', eco: 'B90', parent: 'sicilian',
+    moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'],
+    structure: 'Small Black centre on d6 with flexible ...e5 or ...e6; ...a6 prepares ...b5 queenside expansion.',
+    whitePlans: ['English Attack (Be3, f3, Qd2, O-O-O, g4-g5)', 'Classical Bg5 pin pressuring f6 and d6', 'Fischer-Sozin Bc4 targeting f7', 'Positional Be2/O-O squeeze on d5'],
+    blackPlans: ['Queenside counter with ...b5, ...Bb7, ...Nbd7-b6-c4', 'Central ...e5 to contest d4 and gain space', 'Opposite-side castling race in sharp lines', 'Exchange sac ...Rxc3 shattering White queenside'],
+    pitfalls: ['Poisoned Pawn (7...Qb6 8.Qd2 Qxb2) — razor-sharp, memorise or avoid', 'Premature ...h5 vs English Attack loses to h4/g4-g5'],
+    motifs: ['Pawn storm g4-g5 vs ...b5-b4', '...Rxc3 exchange sac', 'Nd5 central jump'] },
+  { name: 'Sveshnikov Sicilian', eco: 'B33', parent: 'sicilian',
+    moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','Nf6','Nc3','e5'],
+    structure: 'Black concedes d5 hole for active piece play; backward d-pawn is the main positional flaw.',
+    whitePlans: ['Ndb5-Bxf6-Nd5 route planting knight on d5', 'Positional c4 clamping d5 square', 'Kingside castle + Bd3/a4 restraining ...b5'],
+    blackPlans: ['...a6 kicking Na3, then ...b5 hitting c4/e4', 'Dark-square trade via ...Be7/...Bg5', '...Ne7 rerouting to challenge Nd5'],
+    pitfalls: ['Unchallenged Nd5 leads to permanent bind', '...f5 break without prep opens e-file against own king'],
+    motifs: ['Ndb5-Nd5 double knight maneuver', '...Bxd5 eliminating the outpost'] },
+  { name: 'Dragon Sicilian', eco: 'B70', parent: 'sicilian',
+    moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','g6'],
+    structure: 'Fianchettoed g7-bishop on the long diagonal; opposite-side castling typical.',
+    whitePlans: ['Yugoslav Attack: Be3, f3, Qd2, O-O-O, Bh6, h4-h5', 'Exchange sac on h5 ripping open Black king', 'Nd5 central jump after ...Re8'],
+    blackPlans: ['...Rc8, ...Ne5, ...Nc4 queenside attack', '...Rxc3 exchange sac vs White queenside king', '...a5-a4 pawn lever opening b-file'],
+    pitfalls: ['Allowing Bh6 trade + h4-h5-hxg6 with no counter-play', '...Qa5 without ...Rc8 support drops queen to Nd5'],
+    motifs: ['Bh6 trade; h-file pry-open', '...Rxc3 sac; ...Nxe4 shot'] },
+  { name: 'Accelerated Dragon', eco: 'B36', parent: 'sicilian',
+    moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','g6'],
+    structure: 'Delays ...d6 to preserve ...d5 break; Maroczy Bind is principled response.',
+    whitePlans: ['Maroczy Bind c4/Nc3/Be2 restricting ...d5 and ...b5', 'Exchange on c6 + Qd2/Bh6 simplifying'],
+    blackPlans: ['...Ng4 trading Be3 then ...Nxd4 easing bind', '...d6, ...Bd7, ...Nxd4 + ...Bc6 hitting e4'],
+    pitfalls: ['Allowing the full c4-Nc3-Be2-Be3 Maroczy setup', '...Qb6 hasty drops to Nb3/Nd5 fork'],
+    motifs: ['Maroczy pawn cage c4/e4', '...Ng4 Be3 trade'] },
+  { name: 'Taimanov Sicilian', eco: 'B48', parent: 'sicilian',
+    moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','Nc6'],
+    structure: 'Flexible pawn skeleton; Black delays ...d6 and ...Nf6, keeping central tension.',
+    whitePlans: ['English Attack Be3/f3/Qd2/O-O-O vs ...a6/...Qc7', 'Maroczy Bind with c4 after early trades'],
+    blackPlans: ['...a6/...Qc7/...Nf6/...Bb4 pinning Nc3', '...b5 expansion with ...Bb7'],
+    pitfalls: ['Leaving Nc6 hanging to Nxc6 bxc6 + e5', 'Allowing Ndb5 when ...a6 is delayed'],
+    motifs: ['...Bb4 Nc3 pin; Ndb5 jump'] },
+  { name: 'Kan Sicilian', eco: 'B42', parent: 'sicilian',
+    moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','a6'],
+    structure: 'Hedgehog-compatible small-centre; ...a6/...b5 expansion on the queenside.',
+    whitePlans: ['Maroczy Bind c4+Nc3', 'Be2/O-O/Kh1, a4 clamp, plus f4'],
+    blackPlans: ['Hedgehog: ...b6/...Bb7/...d6/...Nbd7/...Qc7', '...b5 direct expansion'],
+    pitfalls: ['Passive Hedgehog without ...b5 or ...d5 drifts', 'Early ...b5 without ...Nf6/...Bb7 drops to a4'],
+    motifs: ['...d5 or ...b5 Hedgehog break'] },
+  { name: 'Scheveningen Sicilian', eco: 'B80', parent: 'sicilian',
+    moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','e6'],
+    structure: 'Classic small centre d6+e6; very elastic, often transposes to Najdorf.',
+    whitePlans: ['Keres Attack (g4 early)', 'English Attack Be3/f3/Qd2/O-O-O/g4-g5', 'Classical Be2/O-O/f4-f5'],
+    blackPlans: ['...a6/...Qc7/...Nbd7/...b5 expansion', '...Bb7 + ...Rc8 pressuring c-file'],
+    pitfalls: ['Allowing Keres g4-g5 without prep', 'Premature ...b5 without ...Bb7 meets Ndxb5'],
+    motifs: ['g4-g5 Keres kick', '...d5 freeing break', 'Nd5 sac'] },
+  { name: 'Alapin Sicilian (c3)', eco: 'B22', parent: 'sicilian-anti',
+    moves: ['e4','c5','c3'],
+    structure: 'White prepares d4, often reaching IQP or classical centre.',
+    whitePlans: ['d4 cxd4 cxd4: IQP + piece activity Bd3/Nc3/Re1', 'Bd3/O-O/Re1 + Nbd2-f1-g3 reroute'],
+    blackPlans: ['2...Nf6 forcing e5 decision', '2...d5 3.exd5 Qxd5 Scandinavian-style'],
+    pitfalls: ['Letting White IQP become dynamic weapon', '2...e5 transpositions comfort White'],
+    motifs: ['IQP play: d4-d5 break, Ng5/Bxh7+ attack'] },
+  { name: 'Rossolimo Sicilian', eco: 'B31', parent: 'sicilian-anti',
+    moves: ['e4','c5','Nf3','Nc6','Bb5'],
+    structure: 'White often plays Bxc6 giving Black doubled c-pawns for the bishop pair.',
+    whitePlans: ['Bxc6 dxc6/bxc6 + d3/Nbd2/Re1 + e5 clamp', 'c3/d4 classical centre vs ...g6'],
+    blackPlans: ['...g6/...Bg7/...Nf6 KID-style', '...e5 space claim after Bxc6 bxc6'],
+    pitfalls: ['Accepting Bxc6 dxc6 without a plan is sterile'],
+    motifs: ['Bxc6 bishop-pair trade; e5 clamp'] },
+  { name: 'Moscow Sicilian', eco: 'B51', parent: 'sicilian-anti',
+    moves: ['e4','c5','Nf3','d6','Bb5+'],
+    structure: 'After Bb5+ Bd7 White often trades bishops for quiet positional Sicilian.',
+    whitePlans: ['Bxd7+ Qxd7 + c4 Maroczy Bind', 'O-O/Re1/c3/d4 classical centre'],
+    blackPlans: ['...Nf6/...g6/...Bg7 solid fianchetto', '...Nc6/...e6/...Be7 flexible'],
+    pitfalls: ['...Nd7 to block check restricts development'],
+    motifs: ['Bxd7+ trade; c4 Maroczy clamp'] },
+  { name: 'Grand Prix Attack', eco: 'B23', parent: 'sicilian-anti',
+    moves: ['e4','c5','Nc3','Nc6','f4'],
+    structure: 'White aims for Bb5/Bc4 + early f4 and quick kingside attack.',
+    whitePlans: ['Bb5xc6 doubling pawns + d3/Nf3/O-O + f5 break', 'Bc4/f5/Qe1-h4 direct mating attack'],
+    blackPlans: ['...g6/...Bg7/...e6 blunting f5', '...d5 central counter'],
+    pitfalls: ['Allowing f5 break unchallenged'],
+    motifs: ['Bxc6 doubled-pawn plan; f4-f5 break; Qe1-h4 lift'] },
+  { name: 'Smith-Morra Gambit', eco: 'B21', parent: 'sicilian-anti',
+    moves: ['e4','c5','d4','cxd4','c3'],
+    structure: 'White gambits a pawn for open c/d-files and rapid development.',
+    whitePlans: ['Nxc3/Bc4/O-O/Qe2/Rd1 rapid development + e5 break', 'Bxf7+ or Nd5 sacrificial motifs'],
+    blackPlans: ['Siberian defence ...Nc6/...e6/...a6/...Nge7/...d6', 'Return pawn with ...d5 neutralising'],
+    pitfalls: ['Greedy ...Qxd4 loses to Nb5 tactics', 'Leaving f7 undefended'],
+    motifs: ['Nd5 jump forking b6/c7/f6; Bxf7+ sac'] },
+
+  // ═════════════════════ 1.e4 e5 ═════════════════════
+  { name: 'Ruy Lopez — Closed Chigorin', eco: 'C97', parent: 'ruy',
+    moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7','Re1','b5','Bb3','d6','c3','O-O','h3','Na5'],
+    structure: 'Classical Spanish chain (e4/d4 vs e5/d6); ...Na5 hits b3 then ...c5 clamps d4.',
+    whitePlans: ['Build d4 + maneuver Nbd2-f1-g3', 'Close centre with d5 + kingside buildup', 'a4 probe on the queenside'],
+    blackPlans: ['Trade c-pawn with ...c5 + ...Qc7', 'Reroute a5-knight back via ...Nc6/...Nb7', '...d5 only after White commits d5'],
+    pitfalls: ['Premature ...exd4 concedes centre', 'Letting a5-knight get stranded after a4-a5'],
+    motifs: ['Light-square bishop reroute Bc2-d3', 'd4-d5 advance', 'Nf1-g3 kingside swing'] },
+  { name: 'Ruy Lopez — Berlin Defence', eco: 'C65', parent: 'ruy',
+    moves: ['e4','e5','Nf3','Nc6','Bb5','Nf6'],
+    structure: 'Early ...Nf6; often leads to queen trade and endgame with Black doubled c-pawns + bishop pair.',
+    whitePlans: ['Berlin Wall endgame via 4.O-O Nxe4 5.d4', '4.d3 keeping queens on', 'h3/g4 limiting bishop pair'],
+    blackPlans: ['Accept endgame; use bishop pair + king centralisation', 'In 4.d3, prepare ...d6/...Bc5 slow maneuvering', '...c5-c4 queenside majority'],
+    pitfalls: ['Pushing kingside pawns too fast weakens king', 'Playing for quick win when endgame calls for patience'],
+    motifs: ['Bishop pair in endgame', 'Doubled c-pawns compensation'] },
+  { name: 'Ruy Lopez — Marshall Attack', eco: 'C89', parent: 'ruy',
+    moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7','Re1','b5','Bb3','O-O','c3','d5'],
+    structure: 'Black gambits a pawn after 8...d5 for long-term kingside attack.',
+    whitePlans: ['Consolidate with d4, Qf3, g3', 'Trade queens to defuse attack', 'Return pawn for safe endgame'],
+    blackPlans: ['Qf6-Qh3 + Bd6 for mating attack', 'Open f-file with ...f5-f4', 'Sac on g3 or h3'],
+    pitfalls: ['Rushing attack before ...Qh3 set up', 'Allowing queen trade'],
+    motifs: ['Queen lift to h3 via f6', 'Dark-square bishop on d6'] },
+  { name: 'Ruy Lopez — Exchange', eco: 'C68', parent: 'ruy',
+    moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Bxc6','dxc6'],
+    structure: 'Black gets doubled c-pawns + bishop pair; White plays for endgame pawn-majority edge.',
+    whitePlans: ['Head for endgame with better kingside majority', 'd3/Nbd2 slow maneuvering', 'Trade queens whenever possible'],
+    blackPlans: ['Active bishop pair with ...Bd6/...f6', '...f5 kingside break', 'Trade light-squared bishops'],
+    pitfalls: ['Trading bishop pair prematurely'],
+    motifs: ['Bishop pair vs healthier majority', '...f6-f5 break'] },
+  { name: 'Italian Game — Giuoco Piano', eco: 'C53', parent: 'italian',
+    moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d4'],
+    structure: 'Open centre after d4; Black pressures with Bb4+ check forcing critical decision.',
+    whitePlans: ['6.Bd2 (safe) or 6.Nbd2 (sharp) after the check', 'Push e4-e5 attacking f6-knight', 'Qb3 targeting f7'],
+    blackPlans: ['...Nxe4 exchange on c3 damaging structure', '...O-O + ...d5 break', 'Pressure d4-isolated pawn after trades'],
+    pitfalls: ['Leaving f7 undefended to Qb3/Bxf7', 'Exchanging at wrong moment'],
+    motifs: ['IQP positions', 'Diagonal pressure on f7/f2', '...d5 break'] },
+  { name: 'Giuoco Pianissimo', eco: 'C50', parent: 'italian',
+    moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','d3','Nf6','O-O','d6','c3'],
+    structure: 'Closed slow Italian with d3; both sides maneuver before committing.',
+    whitePlans: ['Nbd2-f1-g3 kingside maneuver', 'Prepare d3-d4 at right moment', 'a4 queenside expansion'],
+    blackPlans: ['Mirror with ...Nbd2-style maneuvering', '...a6 + ...Ba7', '...d5 break when ready'],
+    pitfalls: ['Getting outmaneuvered without a clear plan', 'Missing the d5 break timing'],
+    motifs: ['Slow maneuvering', 'Knight tours Nb1-d2-f1-g3'] },
+  { name: 'Evans Gambit', eco: 'C51', parent: 'italian',
+    moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','b4'],
+    structure: 'White sacs b-pawn for tempo and c3+d4 centre.',
+    whitePlans: ['c3 + d4 building powerful centre', 'Ba3 pinning eventual d6 pawn', 'Rapid development for kingside attack'],
+    blackPlans: ['Accept with ...Bxb4 then return pawn ...Bc5-a5', 'Decline with ...Bb6', '...d6 + ...Na5 defusing'],
+    pitfalls: ['Greedy material grabbing', 'Leaving king in centre'],
+    motifs: ['Pawn sac for activity', 'Central roller c3-d4'] },
+  { name: 'Two Knights Defence', eco: 'C55', parent: 'italian',
+    moves: ['e4','e5','Nf3','Nc6','Bc4','Nf6'],
+    structure: 'Black challenges centrally allowing sharp 4.Ng5 attacking f7.',
+    whitePlans: ['4.Ng5 attacking f7 for Fried Liver', '4.d3 quiet Italian', '4.d4 Scotch Gambit'],
+    blackPlans: ['...d5 opening lines', '...Bc5 Traxler counter-attack', '...Na5 after 4.Ng5 d5'],
+    pitfalls: ['Walking into Nxf7 Fried Liver unprepared'],
+    motifs: ['f7 pressure point', '...d5 counter-blow'] },
+  { name: 'Scotch Game', eco: 'C45', parent: 'scotch',
+    moves: ['e4','e5','Nf3','Nc6','d4','exd4','Nxd4'],
+    structure: 'Early centre opening; exchange of d-pawns leaves open position with rapid development.',
+    whitePlans: ['4...Nf6 5.Nxc6 Mieses for structure imbalance', 'c3 + Nc3 classical development', 'Be3/Qd2 solid setup'],
+    blackPlans: ['...Bc5 attacking d4-knight', '...Nf6 exchange on d4', '...Bb4+ check gaining tempo'],
+    pitfalls: ['Leaving d4-knight exposed to ...Qh4 + ...Bc5'],
+    motifs: ['Open centre tactics', '...Qh4 queen excursion'] },
+  { name: 'Petroff Defence', eco: 'C42', parent: 'petroff',
+    moves: ['e4','e5','Nf3','Nf6'],
+    structure: 'Symmetrical counter-attack on e4; leads to solid simplified structures.',
+    whitePlans: ['3.Nxe5 d6 4.Nf3 exchange for endgame', '3.d4 sharper centre', '3.Nc3 avoiding theory'],
+    blackPlans: ['Copy to equality with ...Nxe4 + ...d5', '...Bd6 + ...O-O natural development', 'Avoid 3...Nxe4 without ...d6'],
+    pitfalls: ['3...Nxe4 without ...d6 first loses pawn'],
+    motifs: ['Symmetry-breaking tactics', 'Central pawn duo e4/d4 vs e5/d5'] },
+  { name: 'Philidor Defence', eco: 'C41', parent: 'philidor',
+    moves: ['e4','e5','Nf3','d6'],
+    structure: 'Solid but passive; Black supports e5 accepting cramp.',
+    whitePlans: ['d4 immediately for space', 'Nc3 + Be3 classical', 'Avoid Hanham with pre-emptive Nc3'],
+    blackPlans: ['Hanham ...Nd7 + ...Ngf6 setup', '...exd4 + solid middlegame', '...g6 + ...Bg7 fianchetto'],
+    pitfalls: ['Legal Trap Bxf7+ tactics', 'Getting passively squeezed'],
+    motifs: ['Hanham setup knights d7/f6', 'Legal Trap tactics'] },
+  { name: 'Vienna Game', eco: 'C25', parent: 'vienna',
+    moves: ['e4','e5','Nc3'],
+    structure: 'Flexible 2nd move; leads to Vienna Gambit 3.f4 or quiet positional play.',
+    whitePlans: ['3.f4 Vienna Gambit for attack', '3.Bc4 Italian-like', '3.g3 Glek fianchetto'],
+    blackPlans: ['...Nf6 Falkbeer setup', '...d5 challenging centre', '...Nc6 + ...Bc5 classical'],
+    pitfalls: ['Fork tricks Bxf7+ / Nxe5', 'Frankenstein-Dracula complications'],
+    motifs: ['f4 push for attack', 'Nd5 ideas'] },
+  { name: "King's Gambit Accepted", eco: 'C33', parent: 'kings-gambit',
+    moves: ['e4','e5','f4','exf4'],
+    structure: 'Romantic gambit; Black captures on f4 leaving White open f-file after d4.',
+    whitePlans: ['3.Nf3 preventing ...Qh4+', 'Kieseritzky (3.Nf3 g5 4.h4 g4 5.Ne5) sharp', 'Muzio sac for open lines'],
+    blackPlans: ['Hold pawn with ...g5 + ...Bg7', 'Modern 3...d5 for equality', 'Fischer 3...d6 solid'],
+    pitfalls: ['Losing g-pawn chain quickly', 'Opening king with ...g5 without prep'],
+    motifs: ['f-file attack', 'Pawn sac for development'] },
+
+  // ═════════════════════ SEMI-OPEN (French / Caro / etc.) ═════════════════════
+  { name: 'French Winawer', eco: 'C15', parent: 'french',
+    moves: ['e4','e6','d4','d5','Nc3','Bb4'],
+    structure: 'Black pins Nc3, inviting doubled c-pawns for light-square bind + dark-square trumps.',
+    whitePlans: ['a3 forcing Bxc3+ using half-open b-file + bishop pair', 'Qg4 hitting g7', 'Strong e5 chain + h4-h5'],
+    blackPlans: ['Target doubled c3/c4 with ...c5/...Qa5/...Ne7-f5', 'Blockade d5/e4 with ...b6/...Ba6 trade', 'Counter Qg4 with ...Qc7 or ...Kf8'],
+    pitfalls: ['Drifting into passivity + failing to contest c-file', 'Castling kingside into ...h5-h4 storm'],
+    motifs: ['Light-square bishop trade ...b6/...Ba6', 'g7 weakness after Qg4'] },
+  { name: 'French Classical', eco: 'C11', parent: 'french',
+    moves: ['e4','e6','d4','d5','Nc3','Nf6'],
+    structure: 'Classical pawn-chain middlegame with pressure on e5/d4.',
+    whitePlans: ['Push e5 forcing Nfd7 + kingside space', 'Bg5 pinning + dark-square pressure', 'Castle long + kingside storm'],
+    blackPlans: ['Undermine with ...c5 + ...f6', 'Trade dark bishops to relieve cramp', '...Qb6 hitting d4/b2'],
+    pitfalls: ['Releasing tension with ...dxe4 prematurely', 'Allowing Bxf6 gxf6 when king unsafe'],
+    motifs: ['Pawn-chain levers c5/f6', 'Dark-square bishop problem'] },
+  { name: 'French Advance', eco: 'C02', parent: 'french',
+    moves: ['e4','e6','d4','d5','e5'],
+    structure: 'White locks centre early; Black attacks base at d4.',
+    whitePlans: ['Defend d4 with c3/Nf3/Be2', 'Exchange dark bishops Bd2-a5', 'Kingside expansion'],
+    blackPlans: ['Pressure d4 with ...c5/...Nc6/...Qb6', 'Activate bad bishop via ...Bd7-b5 or ...Nge7-f5', '...f6 break with heavy pieces'],
+    pitfalls: ['...Qxb2 greedily allowing Nb5 traps'],
+    motifs: ['b2/d4 fork points', 'Knight reroute to f5 via e7'] },
+  { name: 'French Tarrasch', eco: 'C05', parent: 'french',
+    moves: ['e4','e6','d4','d5','Nd2'],
+    structure: 'White keeps c-pawn free; closed pawn-chain or IQP structures.',
+    whitePlans: ['After ...c5 recapture with piece + Ngf3/Bd3/O-O', 'Closed: play for e5 + Ne2-f4', 'Play against isolated d5'],
+    blackPlans: ['...c5 immediately for activity', '...Nf6 classical or ...Nc6 main line', '...b6/...Ba6 or ...Bd7-b5'],
+    pitfalls: ['Allowing e5 wedge to stabilise'],
+    motifs: ['IQP Nf3-e5 outpost', 'Minor piece trades on c-file'] },
+  { name: 'Caro-Kann Classical', eco: 'B18', parent: 'caro-kann',
+    moves: ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5'],
+    structure: 'Black develops light-squared bishop outside the pawn chain before ...e6.',
+    whitePlans: ['Kick bishop with Ng3 Bg6 h4-h5', 'Nf3/Bd3/O-O pressuring kingside', 'Minority attack endgame edge'],
+    blackPlans: ['Complete ...Nd7/...Ngf6/...e6/...Be7/...O-O', 'Accept slight kingside weakening', 'Trade pieces neutralising space'],
+    pitfalls: ['Allowing h5 before retreating bishop to h7', 'Castling long into ...c5/...Qa5 storm'],
+    motifs: ['h4-h5 bishop-chase', 'Qb6 pressure in endgames'] },
+  { name: 'Caro-Kann Advance', eco: 'B12', parent: 'caro-kann',
+    moves: ['e4','c6','d4','d5','e5'],
+    structure: 'White grabs space; Black develops Bc8 to f5 freely avoiding French bad bishop.',
+    whitePlans: ['Challenge Bf5 with Nf3/Be2/Nh4 or g4 Short system', 'c3/h4-h5 kingside space', 'Nf5 outpost'],
+    blackPlans: ['...e6/...c5/...Nc6/...Nge7-f5 trading e5 chain', '...c5 hitting d4', '...Qb6 pressuring b2/d4'],
+    pitfalls: ['Bishop exposed to Nh4', 'Over-extending with g4 weakening king'],
+    motifs: ['Short-system g4 expulsion', 'Knight outpost f5'] },
+  { name: 'Caro-Kann Panov-Botvinnik', eco: 'B14', parent: 'caro-kann',
+    moves: ['e4','c6','d4','d5','exd5','cxd5','c4'],
+    structure: 'IQP structure against Black reminiscent of QGD lines.',
+    whitePlans: ['Nc3/Nf3/Bd3 or Bg5 pressuring d5 + kingside', 'Exploit central activity', 'Target isolated d-pawn'],
+    blackPlans: ['Blockade with ...Nb6 after ...Nc6/...e6/...Be7', 'Simplifications trading heavies', '...g6 fianchetto counter-pressure'],
+    pitfalls: ['Mishandling piece placement in attack'],
+    motifs: ['IQP attack vs blockade', 'Nb6/Nb4 blockade squares'] },
+  { name: 'Scandinavian Main', eco: 'B01', parent: 'scandinavian',
+    moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5'],
+    structure: 'Black accepts tempo loss for clean structure.',
+    whitePlans: ['d4/Nf3/Bc4/Bd2 gaining tempi', 'a3/b4 queenside pressure', 'Exploit queen with Nd5'],
+    blackPlans: ['...Nf6/...c6/...Bf5 or ...Bg4/...e6/...Nbd7', 'Solid Caro-like ...c6 structure'],
+    pitfalls: ['Queen exposed to b4/Nd5 hits'],
+    motifs: ['Tempo-gain development', 'c6-d5 pawn triangle'] },
+  { name: 'Pirc Classical', eco: 'B08', parent: 'pirc',
+    moves: ['e4','d6','d4','Nf6','Nc3','g6','Nf3','Bg7','Be2'],
+    structure: 'White solid centre; Black hypermodern fianchetto counterpunch.',
+    whitePlans: ['Short castle + Re1 + c4 expansion', 'Meet ...e5 with d5 or exchange', 'h3/Be3/Qd2 slow build'],
+    blackPlans: ['...e5 undermining d4', '...Nc6 or ...Nd7 setup', '...c6/...b5 queenside expansion'],
+    pitfalls: ['Playing passively allows unopposed centre'],
+    motifs: ['Central ...e5 break', 'Fianchetto pressure on d4'] },
+  { name: 'Modern Defence', eco: 'B06', parent: 'modern',
+    moves: ['e4','g6'],
+    structure: 'Black delays ...Nf6 keeping maximum flexibility.',
+    whitePlans: ['Broad centre c4/Nc3/d4', 'Austrian-style f4 setup', '150 Attack Be3/Qd2/O-O-O'],
+    blackPlans: ['...d6/...Nd7/...c6/...b5 queenside play', 'Postpone ...Nf6 avoiding f4-f5 tempo gain'],
+    pitfalls: ['Allowing c4 centre without counterplay'],
+    motifs: ['Delayed ...Nf6 flexibility', '...a6/...b5 queenside counter'] },
+  { name: 'Alekhine Defence Modern', eco: 'B04', parent: 'alekhine',
+    moves: ['e4','Nf6','e5','Nd5','d4','d6','Nf3'],
+    structure: 'White develops solidly with Nf3 avoiding Four Pawns.',
+    whitePlans: ['Nf3/Be2/O-O + c4 maintaining space', 'Meet ...Bg4 with h3 or Be2', 'Main line Bc4/c3 flexible'],
+    blackPlans: ['...Bg4 pin + ...e6/...Be7/...O-O', '...dxe5 Nxe5 + ...c6', '...Nb6 or ...Nd7 rerouting'],
+    pitfalls: ['Ng5 tactics after mistimed ...Bg4 trades'],
+    motifs: ['Bg4 pin leverage', '...c6/...e6 solidifying'] },
+
+  // ═════════════════════ QUEEN'S GAMBIT ═════════════════════
+  { name: 'QGD Orthodox', eco: 'D60', parent: 'qgd',
+    moves: ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Be7','e3','O-O','Nf3','Nbd7'],
+    structure: 'Classical symmetrical pawn chain; Black light-squared bishop locked behind e6.',
+    whitePlans: ['Minority attack b4-b5 creating weak c6', 'Central e3-e4 break after Qc2/Bd3/Rad1', 'Kingside space Ne5 + f4'],
+    blackPlans: ['Freeing ...c5 or ...dxc4 + ...c5', '...b6/...Bb7 Tartakower', '...Ne4 Lasker trade'],
+    pitfalls: ['Premature ...c5 drops d5', 'Bad bishop mismanagement'],
+    motifs: ['Minority attack b4-b5xc6', 'Pillsbury knight on e5', 'e3-e4 lever'] },
+  { name: 'QGD Exchange (Carlsbad)', eco: 'D35', parent: 'qgd',
+    moves: ['d4','d5','c4','e6','Nc3','Nf6','cxd5','exd5'],
+    structure: 'Carlsbad structure with half-open c-file for White and half-open e-file for Black.',
+    whitePlans: ['Minority attack b2-b4-b5xc6', 'Central break e3-e4 with pieces', 'Kingside Qc2/Bd3/O-O-O + g4'],
+    blackPlans: ['...c5 neutralising minority', '...f7-f5 kingside expansion', 'Defend c6 with ...Nb6 or ...a6'],
+    pitfalls: ['Allowing b5xc6 without counter', 'Attacking kingside before queenside ready'],
+    motifs: ['Minority attack b4-b5', 'Central lever e3-e4'] },
+  { name: 'Cambridge Springs Defence', eco: 'D52', parent: 'qgd',
+    moves: ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Nbd7','e3','c6','Nf3','Qa5'],
+    structure: 'Semi-closed centre; Black queen creates threats on c3 and g5.',
+    whitePlans: ['Break the pin with Nd2 or Bxf6', 'cxd5 exd5 entering favourable Exchange', 'Bd3/O-O + minority attack'],
+    blackPlans: ['...Bb4 adding to pin', '...dxc4 + ...Ne4 double attack', '...dxc4 + ...c5 endgame'],
+    pitfalls: ['White walking into ...dxc4/...Ne4 double attack', '...Qxa2 trapped after b3'],
+    motifs: ['Double attack ...Bb4 + ...Ne4', 'Trap ...Qxa2 Nb5'] },
+  { name: 'Semi-Slav Meran', eco: 'D47', parent: 'semi-slav',
+    moves: ['d4','d5','c4','e6','Nc3','Nf6','Nf3','c6','e3','Nbd7','Bd3','dxc4','Bxc4','b5'],
+    structure: 'Semi-open centre with Black grabbing queenside space.',
+    whitePlans: ['Aggressive e3-e4-e5 pushing', 'a4 undermining queenside', 'Sac on b5 or e6 in tactical lines'],
+    blackPlans: ['...Bb7/...a6 supporting queenside', '...c5 freeing break', '...O-O + target d4'],
+    pitfalls: ['...c5 without piece coordination'],
+    motifs: ['...b5-a6-b4 expansion', 'Central lever e4-e5'] },
+  { name: 'Slav Main Line', eco: 'D15', parent: 'slav',
+    moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5'],
+    structure: 'Open Slav; Black light-squared bishop outside the chain.',
+    whitePlans: ['e3/Bxc4/O-O + e4 break', 'Ne5 targeting active bishop and c6', 'a4-a5 restricting ...b5'],
+    blackPlans: ['...e6/...Bb4/...Nbd7 solid setup', '...c5 freeing break', 'Prevent e4 with ...Ne4 or ...Bg6'],
+    pitfalls: ['Allowing Nh4 trading active bishop'],
+    motifs: ['Active bishop ...Bf5', 'Central lever e3-e4'] },
+  { name: 'Open Catalan', eco: 'E04', parent: 'catalan',
+    moves: ['d4','Nf6','c4','e6','g3','d5','Bg2','dxc4'],
+    structure: 'Fianchettoed bishop on g2 exerts long-term queenside pressure.',
+    whitePlans: ['Win back c4 with Qa4+ or Qc2', 'Long-diagonal pressure', 'Advance d4-d5'],
+    blackPlans: ['Hold pawn with ...a6 + ...b5', 'Return with ...Bb4+', 'Trade g2-bishop via ...Bd7-b5'],
+    pitfalls: ['Too greedy with c4 pawn'],
+    motifs: ['Long diagonal Bg2', 'Qa4+ pawn recovery'] },
+
+  // ═════════════════════ INDIAN DEFENCES ═════════════════════
+  { name: "King's Indian Classical", eco: 'E92', parent: 'kid',
+    moves: ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O','Be2','e5','O-O','Nc6','d5','Ne7'],
+    structure: 'Locked chain c4/d5/e4 vs d6/e5; opposite-wing attacks typical.',
+    whitePlans: ['Push c5 cracking d6', 'Nd2/Ne1 supporting b4/f3/a-file', 'Trade dark bishops via Be3-Bd2'],
+    blackPlans: ['...f5/...f4 then ...g5-g4 kingside storm', '...Nh5/...Ng6 supporting attack', 'Lock queenside with ...a5/...c5'],
+    pitfalls: ['Losing tempo on kingside lets c5 arrive first', 'Castling before Nd2/Ne1 allows ...Nh5 tempo'],
+    motifs: ['Opposite-wing races', 'Knight tours around fixed chain', 'Sacrificial kingside storm'] },
+  { name: 'Grünfeld Exchange', eco: 'D85', parent: 'grunfeld',
+    moves: ['d4','Nf6','c4','g6','Nc3','d5','cxd5','Nxd5','e4','Nxc3','bxc3','Bg7','Nf3','c5','Be2'],
+    structure: 'Big white centre c3/d4/e4 vs Black hypermodern piece pressure.',
+    whitePlans: ['Short castle + Be3/Rb1 + d5 or e5 push', 'Rb1/Be3 defending d4 + kingside play', 'Centre pawn roller'],
+    blackPlans: ['Pile on d4 with ...Nc6/...Bg4/...Qa5/...cxd4', 'Trade dark bishops exposing king', '...b5 after ...a6'],
+    pitfalls: ['Pushing d5 prematurely frees g7-bishop', 'Trading on c3 without compensation'],
+    motifs: ['Long diagonal pressure on d4', 'Central roller d4-d5/e4-e5'] },
+  { name: 'Nimzo-Indian Rubinstein', eco: 'E40', parent: 'nimzo',
+    moves: ['d4','Nf6','c4','e6','Nc3','Bb4','e3'],
+    structure: 'Solid setup; IQP or hanging pawns depending on break.',
+    whitePlans: ['IQP with Bd3/Nf3/a3/Bxc3 + bishop pair', 'f3/e4 in open positions', 'Knight to e5 with attack support'],
+    blackPlans: ['Trade on c3 + fix doubled pawns', '...c5/...d5/...Nc6 Hübner-style', 'Blockade IQP with ...Nd5/...Nb6', '...Ba6 Karpov trading light bishop'],
+    pitfalls: ['Trading on c3 without compensation gifts bishop pair', 'Mechanical d5 cedes pawn structure'],
+    motifs: ['Doubled c-pawn structures', 'IQP attack vs blockade', '...Ba6 light-bishop trade'] },
+  { name: 'Nimzo-Indian Classical', eco: 'E32', parent: 'nimzo',
+    moves: ['d4','Nf6','c4','e6','Nc3','Bb4','Qc2'],
+    structure: 'White avoids doubled pawns by recapturing Qxc3; slow bishop-pair positions.',
+    whitePlans: ['Qxc3 keeping bishop pair', 'a3 after development', 'b3/Bb2 long diagonal'],
+    blackPlans: ['...O-O/...d5/...c5 active counterplay', '...Ne4 trade offer', '...b6/...Bb7 challenging diagonal'],
+    pitfalls: ['Delaying ...d5 lets White complete development', 'Queen on c2 walks into ...Ne4 or ...Nb4'],
+    motifs: ['Bishop pair pressure', '...Ne4 tempo trade', '...c5 central lever'] },
+  { name: "Queen's Indian Classical", eco: 'E15', parent: 'qid',
+    moves: ['d4','Nf6','c4','e6','Nf3','b6','g3','Bb7'],
+    structure: 'Two fianchettoed bishops fighting for long diagonal.',
+    whitePlans: ['Bg2/O-O/Nc3/Qc2 + e4', 'Nc3-a4 vs ...c5/...Bb4', 'Trade light bishops'],
+    blackPlans: ['...Ba6 pressuring c4', '...Be7/...O-O/...d6/...Nbd7', '...c5 or ...d5 central counter'],
+    pitfalls: ['...Bb4+ into c3 without plan loses tempo', 'Pushing e4 without guarding c4'],
+    motifs: ['Long-diagonal duel', '...Ba6 c4 pressure'] },
+  { name: 'Modern Benoni', eco: 'A70', parent: 'benoni',
+    moves: ['d4','Nf6','c4','c5','d5','e6','Nc3','exd5','cxd5','d6','e4','g6','Nf3','Bg7','Be2','O-O'],
+    structure: 'Classic Benoni e4/d5 vs c5/d6/e6→e5; queenside majority for Black.',
+    whitePlans: ['Nd2-c4 increasing d6 pressure', 'e5 breakthrough', 'Bf4/Bg5 blunting fianchetto'],
+    blackPlans: ['...b5 via ...a6/...Rb8 opening queenside', '...Nbd7-e5 + ...Re8 pressuring centre', '...Bxc3 + ...Ne5 long-diagonal tactics'],
+    pitfalls: ['...b5 without ...a6 allows Bxb5 sac', 'Forgetting e5 square ...Ne5 dominance'],
+    motifs: ['Minority attack ...b5', 'e4-e5 central lever'] },
+  { name: 'Benko Gambit', eco: 'A58', parent: 'benko',
+    moves: ['d4','Nf6','c4','c5','d5','b5','cxb5','a6','bxa6','Bxa6'],
+    structure: 'Black sacs queenside pawn for open a/b-files and long-diagonal pressure.',
+    whitePlans: ['Return pawn with e4/Nf3/Nbd2/g3/Bg2 consolidation', 'Nc4 + b3 neutralising files', 'KIA-style Nf3/Be2'],
+    blackPlans: ['Pile rooks on a- and b-files', '...Bg7/...O-O/...Nbd7-b6-d7-c5', 'Trade queens for endgame'],
+    pitfalls: ['White rushing Bxa6 without consolidation'],
+    motifs: ['Open a/b-files', 'Long diagonal Bg7'] },
+  { name: 'Dutch Leningrad', eco: 'A87', parent: 'dutch',
+    moves: ['d4','f5','g3','Nf6','Bg2','g6','Nf3','Bg7'],
+    structure: 'KID-Dutch hybrid with ...g6 fianchetto + ...f5 kingside space.',
+    whitePlans: ['c4/Nc3/d5 restricting ...e5', 'Rb1/b4 queenside expansion', 'Qb3 or Nd4 targeting e6'],
+    blackPlans: ['...Nc6/...e5 break', '...Qe8-h5 or ...g5 kingside attack', '...c6/...Na6-c7 solidifying'],
+    pitfalls: ['...e5 without prep losing control'],
+    motifs: ['Kingside ...g5 push', '...e5 break'] },
+
+  // ═════════════════════ ENGLISH / FLANK ═════════════════════
+  { name: 'English Symmetrical', eco: 'A30', parent: 'english',
+    moves: ['c4','c5','Nf3','Nf6','g3'],
+    structure: 'Symmetrical pawn skeleton; both fianchetto kingside before d-pawn commits.',
+    whitePlans: ['Bg2/O-O/d4 at favourable moment', 'Use c-file after d4', 'd5 outpost + Nc3 pressure'],
+    blackPlans: ['Mirror development then commit first', '...d5 if White hesitates', '...Nd4 or ...a6/...Rb8/...b5'],
+    pitfalls: ['Early Nxd5 trick if d5 loses defender', 'Symmetry one move too long'],
+    motifs: ['Long-diagonal pressure', 'c-file battery', 'd5 outpost'] },
+  { name: 'English Reversed Sicilian', eco: 'A22', parent: 'english',
+    moves: ['c4','e5','Nc3','Nf6','g3','d5'],
+    structure: 'Reversed Dragon with White tempo up; Black opens centre with ...d5.',
+    whitePlans: ['Fianchetto + queenside pressure', 'Nf3/O-O/d3/Be3 slow-build', 'Bc1/c-file plus Ne5 outposts'],
+    blackPlans: ['...Be7 or ...Bc5 + ...O-O', '...a5 queenside activation', 'Trade c8-bishop via ...Be6'],
+    pitfalls: ['Treating as pure Dragon ignoring tempo'],
+    motifs: ['Reversed Dragon tempo', 'b4-b5 minority attack'] },
+  { name: 'Réti Opening', eco: 'A09', parent: 'reti',
+    moves: ['Nf3','d5','c4'],
+    structure: 'White delays d4 attacking d5 from the flank.',
+    whitePlans: ['Fianchetto g3/Bg2 pressuring d5', 'cxd5 playing against d-pawn', 'b3/Bb2/Rc1 queenside expansion'],
+    blackPlans: ['Defend d5 with ...c6/...e6/...Bf5', '...dxc4 + ...b5 Slav-style', 'Transpose QGD/Slav'],
+    pitfalls: ['Over-extending ...d4 allowing Qb3/Nf3-e5'],
+    motifs: ['Flank pressure', 'Bg2 long diagonal', 'Ne5 outpost'] },
+  { name: 'London System', eco: 'D02', parent: 'london',
+    moves: ['d4','d5','Bf4'],
+    structure: 'Pyramid c3/d4/e3 with Bf4 outside the chain.',
+    whitePlans: ['Build triangle + Qb3 hitting b7/d5', 'Nbd2-f1-g3 or Ne5', 'Rook lift via h4-h3-g3'],
+    blackPlans: ['Challenge Bf4 with ...Bd6 or ...Nh5', '...c5 early questioning d4', '...a6/...b5 queenside space'],
+    pitfalls: ['Mechanical h3/Bh2 loses tempo', 'Early Qb3 meets ...Nc6-a5'],
+    motifs: ['Ne5 outpost + f2-f4', 'Bxh7+ sacrifice', 'Minority attack b2-b4-b5'] },
+  { name: 'Colle System', eco: 'D04', parent: 'colle',
+    moves: ['d4','d5','Nf3','Nf6','e3','e6','Bd3','c5','c3'],
+    structure: 'Closed centre d4/e3/c3 with Bd3 aiming for e3-e4.',
+    whitePlans: ['Prepare e3-e4 opening Bd3 lines', 'Kingside attack Ne5/f4/Qf3-h3', 'Greek-gift Bxh7+ Ng5+ Qh5'],
+    blackPlans: ['Develop ...Bg4 or ...Bf5 before ...e6', 'Trade bishops via ...Bd6/...Qc7', '...cxd4 + ...Nc6-b4 hitting Bd3'],
+    pitfalls: ['e3-e4 prematurely leaves d4 undefended'],
+    motifs: ['Ne5 + f2-f4', 'Bxh7+ Greek gift'] },
+  { name: 'Trompowsky Attack', eco: 'A45', parent: 'trompowsky',
+    moves: ['d4','Nf6','Bg5'],
+    structure: 'Early pin of Nf6 before c-pawn commits.',
+    whitePlans: ['Trade on f6 doubling pawns', 'After ...Ne4, choose Bf4/Bh4/Bc1', 'Castle long + g4/h4 attack'],
+    blackPlans: ['Chase bishop with ...c5 + ...Qb6', '...Ne4 questioning before developing', '...e6 + ...h6 + ...c5 French-like'],
+    pitfalls: ['Bg5 undefended — ...c5/...Qa5+ annoying if drifting'],
+    motifs: ['Bxf6 + e3/Qd2/O-O-O + pawn storm', '...Qb6xb2 counter-shot'] },
+  { name: 'Blackmar-Diemer Gambit', eco: 'D00', parent: 'bdg',
+    moves: ['d4','d5','e4','dxe4','Nc3','Nf6','f3','exf3','Nxf3'],
+    structure: 'White gives pawn for development + open f-file.',
+    whitePlans: ['Bg5/Qd2/O-O-O + g4-h4 storm', 'Bd3 + Ne5 Bxh7+ ideas', 'Double rooks on f-file'],
+    blackPlans: ['Return pawn with ...Nxe4 or ...e3', 'Develop ...Bf5 or ...Bg4', 'Trade queens neutralising'],
+    pitfalls: ['Without precise play White just down a pawn'],
+    motifs: ['Bxh7+ Greek gift', 'Sacrifice on f6'] },
+  { name: "King's Indian Attack", eco: 'A07', parent: 'kia',
+    moves: ['Nf3','d5','g3'],
+    structure: 'Reversed KID with pieces: Nf3/g3/Bg2/O-O/d3/Nbd2 and e4 push.',
+    whitePlans: ['e4-e5 clamping centre', 'Nf1-h2-g4 kingside', 'h4-h5-h6 attack after Re1/Nf1'],
+    blackPlans: ['...c5/...Nc6/...b5/...a5 queenside expansion', '...c4 clamp', '...f6 challenging e5'],
+    pitfalls: ['Allowing h4-h5-h6 unchecked', 'Over-passive letting e5 clamp'],
+    motifs: ['Opposite-wing race', 'e4-e5 clamp', 'h4-h5 lever'] },
+  { name: "Bird's Opening", eco: 'A02', parent: 'flank-1f4',
+    moves: ['f4'],
+    structure: 'Reversed Dutch; White aims at kingside space.',
+    whitePlans: ['Leningrad-style g3/Bg2/Nf3/O-O', 'Classical e3/d3/Bd3/Nf3/O-O/b3/Bb2', 'Ne5 + Qf3/Qh5'],
+    blackPlans: ["From's Gambit 1...e5!?", '...d5/...Nf6/...Bg4 pin', '...g6/...Bg7 fianchetto'],
+    pitfalls: ['From\'s Gambit unprepared', 'Holes on e-file from f4 overextensions'],
+    motifs: ['Ne5 outpost', 'Dutch-like kingside attack'] },
+  { name: 'Larsen Opening', eco: 'A01', parent: 'flank-1b3',
+    moves: ['b3'],
+    structure: 'Fianchetto-first; b2-bishop stares at long diagonal.',
+    whitePlans: ['Bb2/e3/Nf3 pressuring e5', 'c4/d4 when appropriate', 'f4 cementing Ne5 outpost'],
+    blackPlans: ['Claim centre with ...e5/...d5', '...b6/...Bb7 symmetrical', '...Nc6/...d5'],
+    pitfalls: ['Centre collapse before bishop pair developed'],
+    motifs: ['Bb2 vs centre', 'f4 + Ne5 attack', 'Hypermodern centre-later'] },
+];
+
+// Normalize by pre-computing move-count for prefix-match sorting
+for (const e of BOOK_RAW) e._len = (e.moves || []).length;
+// Sort longest-first so detectOpening returns the most-specific match
+BOOK_RAW.sort((a, b) => b._len - a._len);
+
+export const OPENINGS_BOOK = BOOK_RAW;
+
+/**
+ * Find the most-specific opening entry whose moves are a prefix of the
+ * played SAN history. Returns null if nothing matches.
+ *
+ * @param {string[]} sanHistory - array of SAN moves played so far
+ * @returns {object|null} the matching entry
+ */
+export function detectOpening(sanHistory) {
+  if (!sanHistory || !sanHistory.length) return null;
+  for (const entry of OPENINGS_BOOK) {
+    if (entry._len > sanHistory.length) continue;
+    let ok = true;
+    for (let i = 0; i < entry._len; i++) {
+      if (entry.moves[i] !== sanHistory[i]) { ok = false; break; }
+    }
+    if (ok) return entry;
+  }
+  return null;
+}
+
+/**
+ * Build an HTML block summarising the detected opening for the Coach
+ * panel. Safe for innerHTML — all content is original paraphrase.
+ */
+export function renderOpeningBlock(entry) {
+  if (!entry) return '';
+  const plans = (side, items) => (items || []).map(i => `<li>${escapeHtml(i)}</li>`).join('');
+  return `
+    <div class="coach-opening">
+      <h5 class="coach-section-h">📖 Opening — ${escapeHtml(entry.name)}
+        <span class="muted" style="font-weight: normal; margin-left: 6px; font-size: 10px;">${escapeHtml(entry.eco || '')}</span>
+      </h5>
+      <p class="muted" style="font-size: 12px; margin: 4px 0 8px;">${escapeHtml(entry.structure || '')}</p>
+      <div class="coach-opening-grid">
+        <div>
+          <strong>White plans</strong>
+          <ul class="coach-plans">${plans('w', entry.whitePlans)}</ul>
+        </div>
+        <div>
+          <strong>Black plans</strong>
+          <ul class="coach-plans">${plans('b', entry.blackPlans)}</ul>
+        </div>
+      </div>
+      ${entry.pitfalls && entry.pitfalls.length
+        ? `<div style="margin-top: 6px;"><strong>⚠ Watch out:</strong> <span style="font-size: 12px;">${entry.pitfalls.map(p => escapeHtml(p)).join(' · ')}</span></div>`
+        : ''}
+      ${entry.motifs && entry.motifs.length
+        ? `<div style="margin-top: 4px;"><strong>Motifs:</strong> <span style="font-size: 12px;">${entry.motifs.map(m => escapeHtml(m)).join(' · ')}</span></div>`
+        : ''}
+    </div>
+  `;
+}
+
+/** Build a compact text block for the AI prompt. */
+export function renderOpeningForAI(entry) {
+  if (!entry) return '';
+  const bullets = (items) => (items || []).map(i => `  - ${i}`).join('\n');
+  return `
+DETECTED OPENING
+Name: ${entry.name} (${entry.eco || '?'})
+Structure: ${entry.structure || ''}
+White plans:
+${bullets(entry.whitePlans)}
+Black plans:
+${bullets(entry.blackPlans)}
+${entry.pitfalls?.length ? 'Pitfalls:\n' + bullets(entry.pitfalls) : ''}
+${entry.motifs?.length ? 'Motifs:\n' + bullets(entry.motifs) : ''}
+`;
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;',
+  }[c]));
+}

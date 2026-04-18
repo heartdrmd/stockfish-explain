@@ -21,6 +21,7 @@
 import { Chess } from '../vendor/chess.js/chess.js';
 import { detectArchetype } from './archetype.js';
 import { detectTraps } from './traps.js';
+import { detectOpening } from './openings_book.js';
 
 // ─── constants ──────────────────────────────────────────────────────
 const PIECE_CP = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
@@ -66,6 +67,10 @@ export function coachReport(fen, engineData = null) {
 
   // Pawn-structure archetype (IQP / Carlsbad / Hanging / Maroczy)
   const archetype = detectArchetype(fen);
+
+  // Opening book lookup — caller may pass sanHistory via engineData
+  const sanHistory = (engineData && engineData.sanHistory) || [];
+  const opening = detectOpening(sanHistory);
 
   // Tactical traps + common tactical-pattern warnings
   const trapWarnings = detectTraps(fen, [], engineData ? {
@@ -115,6 +120,7 @@ export function coachReport(fen, engineData = null) {
     strategy,
     imbalance,
     archetype,
+    opening,
     trapWarnings,
     contextNotes,
     mode:       { white: modeW, black: modeB },

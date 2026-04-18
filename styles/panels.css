@@ -1939,3 +1939,45 @@ body.practice-mode.practice-thinking .ceval::after {
   color: #ccc;
   font-weight: 500;
 }
+
+/* ─── Opening-book block inside the Coach panel ──────────────── */
+.coach-opening {
+  background: rgba(168, 85, 247, 0.08);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-left: 3px solid #a855f7;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin: 10px 0;
+}
+.coach-opening .coach-section-h { margin-top: 0 !important; color: #c084fc !important; }
+.coach-opening-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 6px;
+}
+.coach-opening-grid strong {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--c-font-dim);
+  display: block;
+  margin-bottom: 3px;
+}
+.coach-opening .coach-plans {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.coach-opening .coach-plans li {
+  padding: 3px 0 3px 10px;
+  position: relative;
+}
+.coach-opening .coach-plans li::before {
+  content: '•';
+  color: #a855f7;
+  position: absolute;
+  left: 0;
+}

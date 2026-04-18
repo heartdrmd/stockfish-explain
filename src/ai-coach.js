@@ -465,6 +465,10 @@ function buildCoachV2Block(rep) {
     ? `\n• Trap / tactical warnings (static detection):\n${rep.trapWarnings.map(w => `  - [${w.severity}] ${w.message}`).join('\n')}`
     : '';
 
+  const openingBlock = rep.opening
+    ? `\n• Opening identified: ${rep.opening.name} (${rep.opening.eco || '?'})\n  Structure: ${rep.opening.structure || ''}\n  White plans: ${(rep.opening.whitePlans || []).join(' / ')}\n  Black plans: ${(rep.opening.blackPlans || []).join(' / ')}${rep.opening.pitfalls?.length ? '\n  Pitfalls: ' + rep.opening.pitfalls.join(' / ') : ''}${rep.opening.motifs?.length ? '\n  Motifs: ' + rep.opening.motifs.join(' / ') : ''}`
+    : '';
+
   return `
 POSITIONAL COACH (synthesised from Dorfman method + Silman imbalances + Nimzowitsch/Aagaard/Capablanca/Dvoretsky/Watson concepts + AlphaZero observations):
   Verdict: ${verdictSide} is statically better.
@@ -473,7 +477,7 @@ POSITIONAL COACH (synthesised from Dorfman method + Silman imbalances + Nimzowit
   Phase: ${rep.phase}
   Mode (White): ${rep.mode?.white || 'n/a'}
   Mode (Black): ${rep.mode?.black || 'n/a'}
-${factorLines}${archBlock}${imbBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${trapBlock}
+${factorLines}${openingBlock}${archBlock}${imbBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${trapBlock}
 `;
 }
 
