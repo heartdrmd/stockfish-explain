@@ -213,10 +213,26 @@
   padding: 14px;
   font-size: 13.5px;
   line-height: 1.55;
-  max-height: 480px;
+  max-height: 720px;
   overflow-y: auto;
 }
 .tab-panel[hidden] { display: none; }
+
+/* ==================== Unified Position + Coach sections ==================== */
+.unified-section {
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+.unified-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.unified-section-h {
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 10px 0;
+  color: var(--c-font-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 
 /* ==================== Dissect content ==================== */
 .dissect-group {
