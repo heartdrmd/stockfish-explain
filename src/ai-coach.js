@@ -430,22 +430,59 @@ Write the explanation now. Rich, specific, and grounded in every piece of resear
     // With extended thinking enabled, Anthropic requires temperature = 1.
     body.temperature = 1;
   }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    credentials: PROXY_MODE ? 'include' : 'omit',
-    body: JSON.stringify(body),
-  });
+  // ─── Fetch with retry on transient errors ────────────────────────
+  // Retry up to 2 times on: network failures, 429 (rate limit),
+  // 500/502/503/504 (server hiccups), 529 (Anthropic overload).
+  // Do NOT retry on 400 (bad request), 401 (auth), 402 (premium gate),
+  // 403 (forbidden), 404 — those are hard client-side errors that
+  // won't improve on retry.
+  const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504, 529]);
+  const MAX_ATTEMPTS = 3;
+  let response = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        credentials: PROXY_MODE ? 'include' : 'omit',
+        body: JSON.stringify(body),
+      });
+      // Hard errors → throw immediately, no retry
+      if (response.status === 401) throw new Error('SITE_LOCKED');
+      if (response.status === 402) throw new Error('PREMIUM_REQUIRED');
+      // Transient → retry with backoff (unless this was the last attempt)
+      if (TRANSIENT_STATUSES.has(response.status) && attempt < MAX_ATTEMPTS) {
+        const backoffMs = 1500 * attempt; // 1.5s, 3s
+        console.warn(`[ai-coach] API ${response.status} on attempt ${attempt}/${MAX_ATTEMPTS}, retrying in ${backoffMs}ms`);
+        await new Promise(r => setTimeout(r, backoffMs));
+        continue;
+      }
+      // Non-transient failure or final attempt → break and let the
+      // ok-check below throw the actual error with body text.
+      break;
+    } catch (err) {
+      // Network error / fetch threw. Retry unless this is a hard
+      // error we already unwrapped above.
+      if (err.message === 'SITE_LOCKED' || err.message === 'PREMIUM_REQUIRED') throw err;
+      lastError = err;
+      if (attempt < MAX_ATTEMPTS) {
+        const backoffMs = 1500 * attempt;
+        console.warn(`[ai-coach] Network error on attempt ${attempt}/${MAX_ATTEMPTS}: ${err.message}, retrying in ${backoffMs}ms`);
+        await new Promise(r => setTimeout(r, backoffMs));
+        continue;
+      }
+      throw new Error(`Network failure after ${MAX_ATTEMPTS} attempts: ${err.message}`);
+    }
+  }
+  if (!response) {
+    throw new Error(`Network failure after ${MAX_ATTEMPTS} attempts${lastError ? ': ' + lastError.message : ''}`);
+  }
 
   if (!response.ok) {
     const errText = await response.text();
-    // Special case 402 → premium password required
-    if (response.status === 402) {
-      throw new Error('PREMIUM_REQUIRED');
-    }
-    if (response.status === 401) {
-      throw new Error('SITE_LOCKED');
-    }
+    if (response.status === 402) throw new Error('PREMIUM_REQUIRED');
+    if (response.status === 401) throw new Error('SITE_LOCKED');
     throw new Error(`Anthropic API ${response.status}: ${errText.slice(0, 300)}`);
   }
 

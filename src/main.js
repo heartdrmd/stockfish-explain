@@ -1956,6 +1956,9 @@ async function main() {
         } catch (_) { return null; }
       };
 
+      // Track last-cycle failure so we can surface a warning banner
+      // without aborting the partial output.
+      let failureWarning = null;
       for (let cycle = 1; cycle <= maxCycles; cycle++) {
         const cycleDepth = 18 + (cycle - 1) * 2;         // 18, 20, 22, 24, 26
         const cycleMultiPV = cycle === 1 ? 5 : 3;
@@ -1966,14 +1969,24 @@ async function main() {
           ⏳ <strong>Cycle ${cycle}/${maxCycles}</strong><br>
           Stockfish depth ${cycleDepth} · MultiPV ${cycleMultiPV} · ${probeLabel}.
         </div>`;
-        const probe = await AICoach.probeEngine(engine, probeFen, cycleDepth, cycleMultiPV);
+        // Per-cycle try/catch — if any cycle fails, we keep the
+        // prior cycles' results and render what we have. Only cycle 1
+        // failure is fatal (nothing to salvage).
+        let probe;
+        try {
+          probe = await AICoach.probeEngine(engine, probeFen, cycleDepth, cycleMultiPV);
+        } catch (err) {
+          if (cycle === 1) throw err; // let outer catch render the error
+          failureWarning = `Stockfish failed on cycle ${cycle} (${err.message}). Showing the last successful cycle's analysis.`;
+          console.warn('[askAI] probeEngine failed on cycle', cycle, err);
+          break;
+        }
         if (!probe.lines.length) {
-          // If cycle 1 itself failed, abort. Otherwise keep the last
-          // successful analysis.
           if (cycle === 1) {
             outputEl.innerHTML = '<p style="color:var(--c-bad)">Stockfish returned no candidates. Try ♻ Restart.</p>';
             return;
           }
+          failureWarning = `Stockfish returned no candidates on cycle ${cycle}. Showing the last successful cycle's analysis.`;
           break;
         }
         // Cycle 1 establishes the canonical engine lines — these are
@@ -2037,12 +2050,28 @@ async function main() {
               },
             }
           : null;
-        result = await AICoach.askCoach({
-          fen: fenStart, coachReport: rpt, engineLines: canonicalLines,
-          recentMoves: recent, mode,
-          coachV2Report, tablebase, openingExplorer, refinementContext,
-          thinkingTier,
-        });
+        // askCoach has its own retry on transient API errors (5xx,
+        // 429, 529, network). If it still fails after retries and
+        // we've already completed at least one cycle, preserve that
+        // partial result and stop. Cycle 1 failure is fatal.
+        let thisCycleResult;
+        try {
+          thisCycleResult = await AICoach.askCoach({
+            fen: fenStart, coachReport: rpt, engineLines: canonicalLines,
+            recentMoves: recent, mode,
+            coachV2Report, tablebase, openingExplorer, refinementContext,
+            thinkingTier,
+          });
+        } catch (err) {
+          // Hard gate errors (premium / site-lock) always bubble up —
+          // caller unwraps them to user-friendly handlers.
+          if (err.message === 'PREMIUM_REQUIRED' || err.message === 'SITE_LOCKED') throw err;
+          if (cycle === 1) throw err; // nothing to salvage — bubble
+          failureWarning = `AI call failed on cycle ${cycle} (${err.message}). Showing cycles 1–${cycle - 1}.`;
+          console.warn('[askAI] askCoach failed on cycle', cycle, err);
+          break;
+        }
+        result = thisCycleResult;
         cycleHistory.push({
           cycle,
           depth: cycle === 1 ? canonicalDepth : lookaheadDepth,
@@ -2133,7 +2162,11 @@ async function main() {
           </div>
         </div>`;
 
+      const warnBanner = failureWarning
+        ? `<div class="ai-status-msg warn" style="margin-bottom:10px;">⚠ ${failureWarning}</div>`
+        : '';
       outputEl.innerHTML = `
+        ${warnBanner}
         ${costBadge}
         ${enginePanel}
         <div class="ai-response">${renderMarkdown(result.text)}</div>`;
