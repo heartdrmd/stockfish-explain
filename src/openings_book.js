@@ -1671,7 +1671,70 @@ function boardToPlacement(chess) {
       }
     }
   }
-  return { pawns, pieces, material, wk, bk, stm: chess.turn() };
+  return { pawns, pieces, material, wk, bk, stm: chess.turn(), roles: computePawnRoles(b) };
+}
+
+// Classify each pawn by strategic role so two positions with the same
+// "functional" pawn picture (say, both having an IQP + one passed pawn
+// + two isolated pawns) match even when the raw squares differ. This
+// captures strategic similarity that square-by-square hamming misses.
+function computePawnRoles(board) {
+  const pawns = { w: [], b: [] };
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const sq = board[r][c];
+      if (sq && sq.type === 'p') pawns[sq.color].push({ r, c });
+    }
+  }
+  const rolesFor = (side) => {
+    const mine = pawns[side];
+    const opp  = pawns[side === 'w' ? 'b' : 'w'];
+    const perFile = new Array(8).fill(0);
+    for (const p of mine) perFile[p.c]++;
+    let passed = 0, isolated = 0, doubled = 0, backward = 0, chained = 0, advanced = 0;
+    for (const p of mine) {
+      // Advanced: for White rank <= 3 (5th rank or higher), mirror for Black
+      if ((side === 'w' && p.r <= 3) || (side === 'b' && p.r >= 4)) advanced++;
+      if (perFile[p.c] > 1) doubled++;
+      const hasNeighbor = (p.c > 0 && perFile[p.c - 1] > 0) || (p.c < 7 && perFile[p.c + 1] > 0);
+      if (!hasNeighbor) isolated++;
+      // Passed: no enemy pawns on same or adjacent files ahead
+      const isAhead = side === 'w' ? (op) => op.r < p.r : (op) => op.r > p.r;
+      const blocked = opp.some(op => isAhead(op) && Math.abs(op.c - p.c) <= 1);
+      if (!blocked) passed++;
+      // Chained: supported diagonally by a friendly pawn one rank behind
+      const supportedBy = mine.some(mp => {
+        if (mp === p) return false;
+        const dc = Math.abs(mp.c - p.c);
+        const dr = side === 'w' ? (mp.r - p.r) : (p.r - mp.r);
+        return dc === 1 && dr === 1;
+      });
+      if (supportedBy) chained++;
+      // Backward: unsupported AND sits behind its neighbour file's pawn
+      if (!supportedBy) {
+        const neighborRanks = mine
+          .filter(m => Math.abs(m.c - p.c) === 1)
+          .map(m => m.r);
+        if (neighborRanks.length) {
+          if (side === 'w' && p.r > Math.min(...neighborRanks)) backward++;
+          if (side === 'b' && p.r < Math.max(...neighborRanks)) backward++;
+        }
+      }
+    }
+    return { passed, isolated, doubled, backward, chained, advanced, total: mine.length };
+  };
+  return { w: rolesFor('w'), b: rolesFor('b') };
+}
+
+const ROLE_KEYS = ['passed','isolated','doubled','backward','chained','advanced'];
+function roleDistance(a, b) {
+  if (!a || !b || !a.w || !b.w) return 0;
+  let d = 0;
+  for (const k of ROLE_KEYS) {
+    d += Math.abs((a.w[k] || 0) - (b.w[k] || 0));
+    d += Math.abs((a.b[k] || 0) - (b.b[k] || 0));
+  }
+  return d;
 }
 
 for (const entry of BOOK_RAW) {
@@ -1738,10 +1801,17 @@ function signatureDistance(sigA, sigB) {
   // STM mismatch is a real strategic difference (whose move it is
   // changes initiative calc) but not worth 4 full distance units.
   const stmPenalty = sigA.stm !== sigB.stm ? 2 : 0;
+  // Functional pawn role distance — counts mismatches in passed /
+  // isolated / doubled / backward / chained / advanced pawns per side.
+  // Captures strategic similarity that raw-square hamming misses (an
+  // IQP is still an IQP whether the isolated pawn is on d5 or e5).
+  const roleDist = roleDistance(sigA.roles, sigB.roles);
   // Weights: pawn structure DOMINATES (×4 via the file-weighting above
   // peaks at 2×16=32), piece placement moderate (×1), material-shape
-  // dampened (×1 after the /2 above), king placement light (×0.5).
-  return pawnDist * 3 + pieceDist * 1 + matDiff * 1 + kingDist * 0.5 + stmPenalty;
+  // dampened (×1 after the /2 above), king placement light (×0.5),
+  // pawn-role structural similarity (×1.5).
+  return pawnDist * 3 + pieceDist * 1 + matDiff * 1 + kingDist * 0.5
+       + stmPenalty + roleDist * 1.5;
 }
 
 // Looser threshold — ~32 instead of ~22 catches genuine transpositions
@@ -1799,6 +1869,8 @@ function mirrorSignature(sig) {
     wk: flipRank(sig.bk),
     bk: flipRank(sig.wk),
     stm: sig.stm === 'w' ? 'b' : 'w',
+    // Pawn roles flip: what was Black's role-vector becomes White's.
+    roles: sig.roles ? { w: sig.roles.b, b: sig.roles.w } : null,
   };
 }
 
