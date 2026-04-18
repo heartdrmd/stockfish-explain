@@ -17,6 +17,7 @@ import * as Dorfman                from './dorfman.js';
 import * as CoachV2                from './coach_v2.js';
 import * as Tablebase              from './tablebase.js';
 import * as OpeningExplorer        from './opening_explorer.js';
+import                                './validation_harness.js';
 
 // ─── Diagnostic log capture ─────────────────────────────────────────
 // Tees every console.log/.warn/.error/.info into an in-memory ring
