@@ -327,11 +327,23 @@ function openPvContextMenu(e, pv, board) {
 
   const items = [
     { label: '📝 Add first move as variation', action: () => {
-      board.tree.addUciLine([pv[0]], board.tree.currentPath);
+      const beforePath = board.tree.currentPath;
+      console.log('[pv-menu] addFirst start', { currentPath: beforePath, uci: pv[0] });
+      const nodeAtCur = board.tree.nodeAtPath(beforePath);
+      console.log('[pv-menu] node at current path', {
+        exists: !!nodeAtCur,
+        fen: nodeAtCur?.fen,
+        existingChildren: nodeAtCur?.children.map(c => ({ uci: c.uci, san: c.san })),
+      });
+      const result = board.tree.addUciLine([pv[0]], beforePath);
+      console.log('[pv-menu] addFirst done', { resultPath: result, currentPathAfter: board.tree.currentPath });
       board.dispatchEvent(new CustomEvent('tree-changed'));
     }},
     { label: `📝 Add full line (${Math.min(pv.length, 8)} plies) as variation`, action: () => {
-      board.tree.addUciLine(pv.slice(0, 8), board.tree.currentPath);
+      const beforePath = board.tree.currentPath;
+      console.log('[pv-menu] addFull start', { currentPath: beforePath, pv: pv.slice(0, 8) });
+      const result = board.tree.addUciLine(pv.slice(0, 8), beforePath);
+      console.log('[pv-menu] addFull done', { resultPath: result });
       board.dispatchEvent(new CustomEvent('tree-changed'));
     }},
   ];

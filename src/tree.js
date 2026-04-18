@@ -80,9 +80,17 @@ export class GameTree {
    *  exists, return it (idempotent). Otherwise create a new child. */
   addNode({ uci, san, fen }, path = this.currentPath) {
     const parent = this.nodeAtPath(path);
-    if (!parent) return null;
+    if (!parent) {
+      console.warn('[tree] addNode: no parent at path', path);
+      return null;
+    }
     const existing = parent.children.find(c => c.uci === uci);
-    if (existing) return { node: existing, path: path + existing.id, created: false };
+    if (existing) {
+      console.log('[tree] addNode: merged into existing child', {
+        path, uci, existingId: existing.id, siblingCount: parent.children.length,
+      });
+      return { node: existing, path: path + existing.id, created: false };
+    }
     const id = this.idFromUci(uci, parent.children);
     const child = {
       id,
@@ -91,6 +99,11 @@ export class GameTree {
       children: [],
     };
     parent.children.push(child);
+    console.log('[tree] addNode: NEW branch', {
+      path, uci, san, newId: id,
+      siblingCountNow: parent.children.length,
+      isFirstChild: parent.children.length === 1,
+    });
     return { node: child, path: path + id, created: true };
   }
 

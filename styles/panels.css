@@ -561,41 +561,90 @@ details.dissect-details[open] summary {
   flex: 1;
 }
 
-/* Variation-tree move list (inline, lichess-style) */
+/* ──────────────────────────────────────────────────────────────── */
+/* Move list — lichess "column view" for mainline + inline variations */
+/* ──────────────────────────────────────────────────────────────── */
 .tview2-column {
-  display: block;
   font-family: var(--font-san);
-  font-size: 15px;
-  line-height: 1.7em;
-  padding: 4px 6px;
-  word-wrap: break-word;
+  font-size: 17px;
+  line-height: 1.35em;
+  padding: 2px 0;
 }
-.tview2-column .mv {
-  display: inline;
-  padding: 1px 4px;
-  margin-right: 2px;
+
+/* Each mainline ply-pair is a 3-column grid: [num.] [white] [black] */
+.mg-row {
+  display: grid;
+  grid-template-columns: 42px 1fr 1fr;
+  align-items: baseline;
+}
+.mg-row:nth-of-type(odd)  { background: rgba(255,255,255,0.015); }
+.mg-row:hover             { background: rgba(255,255,255,0.04); }
+.mg-num {
+  text-align: right;
+  padding: 4px 8px 4px 6px;
+  font-size: 13px;
+  color: var(--c-font-dim);
+  font-weight: 600;
+  user-select: none;
+}
+.mg-move {
+  padding: 4px 8px;
   cursor: pointer;
   border-radius: 3px;
-  transition: background 0.08s;
+  transition: background 0.08s, color 0.08s;
   white-space: nowrap;
 }
-.tview2-column .mv:hover { background: var(--c-bg-zebra2); }
-.tview2-column .mv.current {
+.mg-move:hover { background: var(--c-bg-zebra2); }
+.mg-move.current {
   background: var(--c-primary);
   color: white;
   font-weight: 700;
 }
-.tview2-column .mv-main { font-weight: 600; }
-.tview2-column .mv-side { font-weight: 400; color: var(--c-font-dim); }
-.tview2-column .mv-num { color: var(--c-font-dim); font-weight: 500; margin-right: 2px; }
-.tview2-column .mv.current .mv-num { color: rgba(255,255,255,0.8); }
-.tview2-column .variation {
+.mg-main { font-weight: 500; }
+.mg-empty { cursor: default; }
+.mg-empty:hover { background: transparent; }
+
+/* Variations live between mainline rows — left-accented block with a
+   subtle indent, different typography so the eye distinguishes them
+   from the main line instantly. */
+.mg-variations {
+  padding: 6px 10px 6px 42px;
+  border-left: 3px solid var(--c-accent);
+  background: rgba(0,0,0,0.12);
+  font-family: var(--font-san);
+  font-size: 14px;
+  line-height: 1.55em;
   color: var(--c-font-dim);
-  margin: 0 2px;
-  font-size: 13px;
-  font-style: italic;
 }
-.tview2-column .variation .mv-side { font-style: normal; }
+.mg-var {
+  display: inline;
+  margin-right: 6px;
+}
+.mg-var-num {
+  color: var(--c-accent);
+  font-weight: 600;
+  font-size: 12px;
+  margin-right: 2px;
+}
+.mg-var-move {
+  font-weight: 500;
+  padding: 1px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.08s;
+}
+.mg-var-move:hover  { background: rgba(255,255,255,0.08); color: var(--c-font-clear); }
+.mg-var-move.current {
+  background: var(--c-accent);
+  color: #111;
+  font-weight: 700;
+}
+.mg-var-nested {
+  color: var(--c-font-dim);
+  font-size: 13px;
+  margin: 0 3px;
+  opacity: 0.85;
+}
 
 /* Right-click context menu on a move */
 .move-context-menu {

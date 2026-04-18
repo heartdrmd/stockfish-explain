@@ -703,66 +703,118 @@ async function main() {
   // sidelines are rendered inline as "(…)" blocks after the ply they
   // branched from. Left-click a move navigates to it; right-click
   // opens a context menu (Promote / Delete / Copy PGN).
+  // lichess-style move list: mainline in a 3-column grid
+  //   [ N. ]  [ White move ]  [ Black move ]
+  // Variations render as full-width rows between ply rows, recursively.
   function renderMoveList() {
     const tree = board.tree;
     const currentPath = tree.currentPath;
-    const parts = [];
 
-    // Recursively render children at a node. Returns an HTML fragment.
-    function renderChildren(node, parentPath, depth, forceNumberOnNext) {
-      if (!node.children.length) return '';
-      const main = node.children[0];
-      const siblings = node.children.slice(1);
-      const mainPath = parentPath + main.id;
-      let out = '';
-
-      // Render mainline move: start a new row on every White move so that
-      // the move list wraps naturally. Black moves get appended to the
-      // current row via the flex container styling.
-      const white = node.ply % 2 === 0;
-      const full  = Math.floor(node.ply / 2) + 1;
-      const needsNum = white || forceNumberOnNext;
-      const numTxt = needsNum
-        ? (white ? `${full}. ` : `${full}... `)
-        : '';
-      const curClass = mainPath === currentPath ? ' current' : '';
-      out += `<span class="mv ${depth === 0 ? 'mv-main' : 'mv-side'}${curClass}" data-path="${mainPath}">`
-           + (numTxt ? `<span class="mv-num">${numTxt}</span>` : '')
-           + `<span class="mv-san">${main.san}</span>`
-           + `</span>`;
-
-      // Sidelines inline after the mainline move
-      for (const sib of siblings) {
-        const sibPath = parentPath + sib.id;
-        const sbWhite = node.ply % 2 === 0;
-        const sbFull  = Math.floor(node.ply / 2) + 1;
-        const sbNum   = sbWhite ? `${sbFull}. ` : `${sbFull}... `;
-        const sibCurrent = sibPath === currentPath ? ' current' : '';
-        out += `<span class="variation">(`
-             + `<span class="mv mv-side${sibCurrent}" data-path="${sibPath}">`
-             + `<span class="mv-num">${sbNum}</span>`
-             + `<span class="mv-san">${sib.san}</span>`
-             + `</span>`
-             + renderChildren(sib, sibPath, depth + 1, false)
-             + `)</span>`;
+    // Collect mainline nodes and remember each ply's siblings
+    const mainline = [];      // array of { node, path }
+    {
+      let cur = tree.root;
+      let path = '';
+      while (cur.children.length) {
+        const main = cur.children[0];
+        path += main.id;
+        mainline.push({ node: main, parentNode: cur, path, siblings: cur.children.slice(1) });
+        cur = main;
       }
-
-      // Recurse into mainline — force a number restatement if siblings pulled
-      // the reader away for a moment.
-      out += renderChildren(main, mainPath, depth, siblings.length > 0);
-      return out;
     }
 
-    const body = renderChildren(tree.root, '', 0, false);
-    ui.moveList.innerHTML = body || '<span class="muted">No moves yet.</span>';
+    // Render a single move cell
+    function mvCell(node, path, cls = '') {
+      const isCurrent = path === currentPath ? ' current' : '';
+      return `<span class="mg-move ${cls}${isCurrent}" data-path="${path}">${node.san}</span>`;
+    }
 
-    // Click → navigate to that node
-    ui.moveList.querySelectorAll('.mv').forEach(el => {
+    // Render a single variation (sibling + its continuation) inline.
+    // Walks the sibling's children[0] chain until it stops (no prefix
+    // numbering for follow-ups except after branch points).
+    function renderVariation(sibNode, sibParentNode, sibParentPath) {
+      const sibPath = sibParentPath + sibNode.id;
+      const parts = [];
+      // First move — always gets ply number (white "N." or black "N...")
+      {
+        const white = sibParentNode.ply % 2 === 0;
+        const full  = Math.floor(sibParentNode.ply / 2) + 1;
+        const num   = white ? `${full}. ` : `${full}... `;
+        const curCls = sibPath === currentPath ? ' current' : '';
+        parts.push(`<span class="mg-var-num">${num}</span>` +
+                   `<span class="mg-move mg-var-move${curCls}" data-path="${sibPath}">${sibNode.san}</span>`);
+      }
+      // Continue down this branch's mainline (children[0] chain), re-stating
+      // ply when a nested sub-variation exists or at every new full-move.
+      let node = sibNode;
+      let path = sibPath;
+      let pendingRestate = false;
+      while (node.children.length) {
+        const next = node.children[0];
+        const npath = path + next.id;
+        const white = node.ply % 2 === 0;
+        const full  = Math.floor(node.ply / 2) + 1;
+        let num = '';
+        if (white)                      num = `${full}. `;
+        else if (pendingRestate)        num = `${full}... `;
+        const curCls = npath === currentPath ? ' current' : '';
+        if (num) parts.push(`<span class="mg-var-num">${num}</span>`);
+        parts.push(`<span class="mg-move mg-var-move${curCls}" data-path="${npath}">${next.san}</span>`);
+        // Render nested sub-variations of `next` inline (rare — we cap at 2 deep)
+        if (node.children.length > 1) {
+          for (const nested of node.children.slice(1)) {
+            parts.push(`<span class="mg-var-nested">(${renderVariation(nested, node, path)})</span>`);
+          }
+        }
+        pendingRestate = node.children.length > 1;
+        node = next;
+        path = npath;
+      }
+      return parts.join(' ');
+    }
+
+    // Build the grid
+    const rows = [];
+    for (let i = 0; i < mainline.length; i += 2) {
+      const whiteEntry = mainline[i];
+      const blackEntry = mainline[i + 1];
+      const fullmove = Math.floor(whiteEntry.node.ply / 2) + 1;   // whiteEntry is a white move since i is even
+
+      // The row itself
+      let row = `<div class="mg-num">${fullmove}.</div>`;
+      row += mvCell(whiteEntry.node, whiteEntry.path, 'mg-main');
+      if (blackEntry) row += mvCell(blackEntry.node, blackEntry.path, 'mg-main');
+      else            row += `<div class="mg-move mg-empty"></div>`;
+      rows.push(`<div class="mg-row">${row}</div>`);
+
+      // Variations — any siblings from white's or black's parent node
+      // (sibling = "if that ply had been played differently").
+      const varsHtml = [];
+      if (whiteEntry.siblings.length) {
+        for (const sib of whiteEntry.siblings) {
+          varsHtml.push(`<span class="mg-var">(${renderVariation(sib, whiteEntry.parentNode, whiteEntry.path.slice(0, -2))})</span>`);
+        }
+      }
+      if (blackEntry && blackEntry.siblings.length) {
+        for (const sib of blackEntry.siblings) {
+          varsHtml.push(`<span class="mg-var">(${renderVariation(sib, blackEntry.parentNode, blackEntry.path.slice(0, -2))})</span>`);
+        }
+      }
+      if (varsHtml.length) {
+        rows.push(`<div class="mg-variations">${varsHtml.join(' ')}</div>`);
+      }
+    }
+
+    ui.moveList.innerHTML = rows.length
+      ? rows.join('')
+      : '<div class="muted" style="padding: 8px 10px">No moves yet.</div>';
+
+    // Click / right-click handlers on every move cell
+    ui.moveList.querySelectorAll('.mg-move').forEach(el => {
+      if (!el.dataset.path && el.dataset.path !== '') return;
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        const path = el.dataset.path;
-        if (path == null) return;
-        navigateToTreePath(path);
+        navigateToTreePath(el.dataset.path);
       });
       el.addEventListener('contextmenu', (e) => {
         e.preventDefault();
