@@ -23,6 +23,7 @@ import { detectArchetype } from './archetype.js';
 import { detectTraps } from './traps.js';
 import { detectOpening } from './openings_book.js';
 import { detectLevers } from './pawn_levers.js';
+import { detectKingAttack } from './king_attack.js';
 
 // ─── constants ──────────────────────────────────────────────────────
 const PIECE_CP = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
@@ -78,6 +79,11 @@ export function coachReport(fen, engineData = null) {
   // about? Ranked by readiness (live + supporters − blockers).
   const levers = detectLevers(fen);
 
+  // King-attack geometry detector — which canonical attacking patterns
+  // (Greek gift, knight outpost, h-file pry, opposite castling race,
+  // back-rank pressure) are loaded against the enemy king right now?
+  const kingAttack = detectKingAttack(fen);
+
   // Tactical traps + common tactical-pattern warnings
   const trapWarnings = detectTraps(fen, [], engineData ? {
     score: engineData.topMoves?.[0]?.scoreKind === 'cp' ? engineData.topMoves[0].score : 0,
@@ -128,6 +134,7 @@ export function coachReport(fen, engineData = null) {
     archetype,
     opening,
     levers,
+    kingAttack,
     trapWarnings,
     contextNotes,
     mode:       { white: modeW, black: modeB },

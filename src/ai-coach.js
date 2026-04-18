@@ -531,6 +531,15 @@ function buildCoachV2Block(rep) {
       }`
     : '';
 
+  const kingAttackBlock = (rep.kingAttack && rep.kingAttack.length)
+    ? `\n• King-attack geometry loaded (canonical attacking patterns currently on the board):\n${
+        rep.kingAttack.slice(0, 3).map(r => {
+          const sideLabel = r.side ? (r.side === 'w' ? 'White' : 'Black') : '—';
+          return `  - ${r.pattern} [${sideLabel}] — readiness ${r.readiness}\n      ${r.plan}\n      Ingredients: ${r.ingredients.join(' · ')}`;
+        }).join('\n')
+      }`
+    : '';
+
   return `
 POSITIONAL COACH (synthesised from Dorfman method + Silman imbalances + Nimzowitsch/Aagaard/Capablanca/Dvoretsky/Watson concepts + AlphaZero observations):
   Verdict: ${verdictSide} is statically better.
@@ -541,7 +550,7 @@ POSITIONAL COACH (synthesised from Dorfman method + Silman imbalances + Nimzowit
   Mode (Black): ${rep.mode?.black || 'n/a'}${topFactorsBlock}
 
   Full factor scan (for reference only — the TOP 3 above are the load-bearing ones):
-${factorLines}${openingBlock}${leversBlock}${archBlock}${imbBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${trapBlock}
+${factorLines}${openingBlock}${leversBlock}${kingAttackBlock}${archBlock}${imbBlock}${planBlock('white', 'White')}${planBlock('black', 'Black')}${strategyBlock}${prophyBlock}${trapBlock}
 `;
 }
 
