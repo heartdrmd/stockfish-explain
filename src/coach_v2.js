@@ -19,6 +19,7 @@
 // scores are in centipawns-ish units for readability, NOT a real eval.
 
 import { Chess } from '../vendor/chess.js/chess.js';
+import { detectArchetype } from './archetype.js';
 
 // ─── constants ──────────────────────────────────────────────────────
 const PIECE_CP = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
@@ -62,6 +63,25 @@ export function coachReport(fen, engineData = null) {
   const modeW = recommendedMode(verdict, phase, 'w');
   const modeB = recommendedMode(verdict, phase, 'b');
 
+  // Pawn-structure archetype (IQP / Carlsbad / Hanging / Maroczy)
+  const archetype = detectArchetype(fen);
+  if (archetype && archetype.plans) {
+    // Merge archetype-specific plans at top priority
+    if (archetype.plans.w) plansW = [...archetype.plans.w.map(p => ({ ...p, source: archetype.archetype })), ...plansW];
+    if (archetype.plans.b) plansB = [...archetype.plans.b.map(p => ({ ...p, source: archetype.archetype })), ...plansB];
+    plansW = plansW.sort((a,b) => a.pri - b.pri).slice(0, 6);
+    plansB = plansB.sort((a,b) => a.pri - b.pri).slice(0, 6);
+  }
+
+  // Imbalance analysis — Kaufman/Avrukh-style material nuances
+  const imbalance = analyzeImbalance(features);
+
+  // High-level STRATEGY narrative per side
+  const strategy = {
+    white: generateStrategyNarrative(features, factors, phase, verdict, archetype, imbalance, 'w'),
+    black: generateStrategyNarrative(features, factors, phase, verdict, archetype, imbalance, 'b'),
+  };
+
   // ─── Engine-aware combination ────────────────────────────────────
   // If the caller passed engine data, validate each plan against the
   // engine's top moves and apply concrete-priority overrides so the
@@ -86,10 +106,184 @@ export function coachReport(fen, engineData = null) {
     prophylaxis,
     worstPiece: { white: worstW, black: worstB },
     plans:      { white: plansW, black: plansB },
+    strategy,
+    imbalance,
+    archetype,
     contextNotes,
     mode:       { white: modeW, black: modeB },
-    engineOverrides,     // null if no engine data; else { concretePriority, validations, summary }
+    engineOverrides,
   };
+}
+
+// ─── Kaufman / Avrukh-style imbalance analysis ──────────────────────
+// Synthesized from publicly-documented chess-piece-value research.
+// Reports notable material configurations and who they favour.
+
+function analyzeImbalance(f) {
+  const notes = [];
+
+  // Bishop pair (Kaufman ~0.5 pawn open, less in closed positions; Avrukh
+  // refines this — open/semi-open position + flexible pawn structure = +0.5)
+  if (f.hasBishopPair.w && !f.hasBishopPair.b) {
+    const bonus = f.openness === 'open' ? 0.50 : f.openness === 'semi-open' ? 0.35 : 0.20;
+    notes.push({
+      kind: 'bishop-pair',
+      side: 'w',
+      text: `White has the bishop pair (≈ +${bonus.toFixed(2)} in ${f.openness} position). Active value grows as more lines open.`,
+      weight: bonus,
+    });
+  } else if (f.hasBishopPair.b && !f.hasBishopPair.w) {
+    const bonus = f.openness === 'open' ? 0.50 : f.openness === 'semi-open' ? 0.35 : 0.20;
+    notes.push({
+      kind: 'bishop-pair',
+      side: 'b',
+      text: `Black has the bishop pair (≈ +${bonus.toFixed(2)} in ${f.openness} position). Active value grows as more lines open.`,
+      weight: bonus,
+    });
+  }
+
+  // Two minors vs rook + pawn(s) — Kaufman/Avrukh: two minors usually better
+  // in the middlegame with queens on; rook gains ground in the endgame
+  // and when open files exist without blockader minors.
+  const wMinors = f.piece.w.n + f.piece.w.b;
+  const bMinors = f.piece.b.n + f.piece.b.b;
+  const wRooks = f.piece.w.r;
+  const bRooks = f.piece.b.r;
+  // Crude asymmetry check: |minors_w - minors_b| vs |rooks_w - rooks_b|
+  const minorDiff = wMinors - bMinors;
+  const rookDiff  = wRooks  - bRooks;
+  if (Math.abs(minorDiff + 2 * rookDiff) < 1 && minorDiff !== 0 && rookDiff !== 0 && minorDiff * rookDiff < 0) {
+    // Something like +2 minors −1 rook: one side trades a rook + pawn for two minors
+    const minorSide = minorDiff > 0 ? 'White' : 'Black';
+    const rookSide  = rookDiff  > 0 ? 'White' : 'Black';
+    notes.push({
+      kind: 'minors-vs-rook',
+      text: `Material imbalance: ${minorSide} has two minor pieces while ${rookSide} has the extra rook. Two minors usually outperform R+P in a middlegame with queens on; the rook gains ground in the endgame.`,
+      weight: 0.2,
+    });
+  }
+
+  // Knight-vs-bishop character call — closed position favours N, open favours B
+  const wN = f.piece.w.n, bN = f.piece.b.n;
+  const wB = f.piece.w.b, bB = f.piece.b.b;
+  if (wN > bN && bB > wB) {
+    notes.push({
+      kind: 'n-vs-b',
+      text: `White has an extra knight vs Black's extra bishop. ${f.openness === 'closed' ? 'The closed position favours the knight' : f.openness === 'open' ? 'The open position favours the bishop — White needs to close lines' : 'Structure is balanced; piece placement decides'}.`,
+      weight: 0.1,
+    });
+  } else if (bN > wN && wB > bB) {
+    notes.push({
+      kind: 'n-vs-b',
+      text: `Black has an extra knight vs White's extra bishop. ${f.openness === 'closed' ? 'The closed position favours the knight' : f.openness === 'open' ? 'The open position favours the bishop — Black needs to close lines' : 'Structure is balanced; piece placement decides'}.`,
+      weight: 0.1,
+    });
+  }
+
+  // Queen vs two rooks (only diagnostic; standard Kaufman value: roughly equal)
+  if (f.piece.w.q === 1 && f.piece.b.q === 0 && bRooks >= wRooks + 1) {
+    notes.push({
+      kind: 'q-vs-2r',
+      text: `Queen vs extra rook(s). Queen thrives with open lines + weak king; rook pair prefers simplified positions with pawn weaknesses to target.`,
+      weight: 0,
+    });
+  } else if (f.piece.b.q === 1 && f.piece.w.q === 0 && wRooks >= bRooks + 1) {
+    notes.push({
+      kind: 'q-vs-2r',
+      text: `Queen vs extra rook(s). Queen thrives with open lines + weak king; rook pair prefers simplified positions with pawn weaknesses to target.`,
+      weight: 0,
+    });
+  }
+
+  // Bad bishop flag (Silman/Avrukh both emphasize)
+  if (f.bishopsBad.w) notes.push({ kind: 'bad-bishop', side: 'w', text: `White's bishop is blocked by its own pawns — find a way to trade it or break the pawn chain.`, weight: -0.15 });
+  if (f.bishopsBad.b) notes.push({ kind: 'bad-bishop', side: 'b', text: `Black's bishop is blocked by its own pawns — find a way to trade it or break the pawn chain.`, weight: -0.15 });
+
+  // Opposite-coloured bishops — endgame draw tendency
+  const wBs = f.bishopColours.w, bBs = f.bishopColours.b;
+  const wOneColour = (wBs.light ? 1 : 0) + (wBs.dark ? 1 : 0);
+  const bOneColour = (bBs.light ? 1 : 0) + (bBs.dark ? 1 : 0);
+  if (wOneColour === 1 && bOneColour === 1) {
+    // Each side has exactly one bishop; are they on opposite colours?
+    const wIsLight = wBs.light > 0;
+    const bIsLight = bBs.light > 0;
+    if (wIsLight !== bIsLight) {
+      notes.push({
+        kind: 'ocb',
+        text: `Opposite-coloured bishops — famously drawish in pure bishop endings; in the middlegame they usually favour the attacker (the defender cannot contest the attacker's colour complex).`,
+        weight: 0,
+      });
+    }
+  }
+
+  return notes;
+}
+
+// ─── High-level strategy narrative per side ─────────────────────────
+// A single-paragraph "what should you be doing here" summary that
+// integrates the phase, archetype, imbalances, and Dorfman verdict.
+
+function generateStrategyNarrative(features, factors, phase, verdict, archetype, imbalance, side) {
+  const mySign = side === 'w' ? +1 : -1;
+  const enemy = side === 'w' ? 'b' : 'w';
+  const mySide = side === 'w' ? 'White' : 'Black';
+  const parts = [];
+
+  // 1. Static verdict framing
+  if (verdict.sign === 0) {
+    parts.push(`The position is statically balanced — principled moves win the day.`);
+  } else if (verdict.sign === mySign) {
+    parts.push(`You stand better statically (${verdict.dominant || 'mixed factors'}). Convert cautiously — improve pieces, trade when ahead in material.`);
+  } else {
+    parts.push(`You are statically worse (${verdict.dominant || 'mixed factors'}). Seek dynamic counterplay: forcing moves, pawn breaks, piece activity over material.`);
+  }
+
+  // 2. Archetype framing
+  if (archetype) {
+    if (archetype.archetype === 'iqp') {
+      const iAmOwner = archetype.ownerSide === side;
+      if (iAmOwner) {
+        parts.push(`You own the IQP — attack before structural play takes over. Keep minors on the board; aim for Ne5/Ne4 outpost and light-squared bishop battery on h7.`);
+      } else {
+        parts.push(`Your opponent owns the IQP — blockade on d4/d5 with a knight, trade queens, target the pawn in the endgame.`);
+      }
+    }
+    if (archetype.archetype === 'carlsbad') {
+      if (archetype.attackerSide === side) {
+        const v = archetype.minorityViability.verdict;
+        parts.push(`Carlsbad structure — minority attack is ${v === 'execute' ? 'ready (Rb1 / b4 / a4 / b5)' : v === 'prepare' ? 'still being prepared — finish development first' : 'blocked — switch to kingside storm (f3, e4)'}.`);
+      } else {
+        parts.push(`Carlsbad as defender — prepare the ...e5 break (Re8, Nd7, Bd6/Bf8), or freeze the queenside with ...a5.`);
+      }
+    }
+    if (archetype.archetype === 'hanging') {
+      const iAmOwner = archetype.ownerSide === side;
+      parts.push(iAmOwner
+        ? `Hanging pawns — they need energy. Prepare the d-break, keep minor pieces active, don't drift into a static endgame.`
+        : `Blockade the hanging pawns — knight on the blockade square, then target whichever pawn becomes isolated after they push.`);
+    }
+    if (archetype.archetype === 'maroczy') {
+      const iAmBinder = side === 'w';   // module assumes White holds the bind
+      parts.push(iAmBinder
+        ? `Maroczy bind — restrict patiently, prevent ...b5, aim for the d5 outpost, steer to an endgame.`
+        : `Against the Maroczy — fight for ...b5 with ...a6 preparation; consider ...Nc6-d4 jump and ...f5 break in KID-style.`);
+    }
+  }
+
+  // 3. Imbalance flavor
+  const myBP = imbalance.find(x => x.kind === 'bishop-pair' && x.side === side);
+  if (myBP) parts.push(`You have the bishop pair — open lines to activate it.`);
+  const badB = imbalance.find(x => x.kind === 'bad-bishop' && x.side === side);
+  if (badB) parts.push(`Your bishop is bad — trade it or break the pawn chain to free it.`);
+
+  // 4. Mode directive
+  if (phase === 'endgame') {
+    parts.push(`Endgame: centralize the king; activate rooks behind passed pawns; don't rush.`);
+  } else if (phase === 'opening') {
+    parts.push(`Opening: complete development, contest the centre, castle, connect rooks before committing to a concrete plan.`);
+  }
+
+  return parts.join(' ');
 }
 
 // ─── feature extraction ─────────────────────────────────────────────

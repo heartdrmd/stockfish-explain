@@ -278,15 +278,40 @@ async function main() {
               : ''
             }
 
+            ${rep.archetype ? `
+              <div class="coach-archetype">
+                <h5 class="coach-section-h">📐 Structure: ${rep.archetype.label}</h5>
+                ${rep.archetype.signals?.length
+                  ? `<ul class="coach-signals">${rep.archetype.signals.map(s => `<li>${s}</li>`).join('')}</ul>`
+                  : ''}
+                ${rep.archetype.minorityViability
+                  ? `<p class="muted" style="font-size:12px">Minority attack verdict: <strong>${rep.archetype.minorityViability.verdict}</strong> (score ${rep.archetype.minorityViability.score})</p>`
+                  : ''}
+              </div>
+            ` : ''}
+
+            ${rep.imbalance && rep.imbalance.length ? `
+              <div class="coach-imbalance">
+                <h5 class="coach-section-h">⚖ Imbalances (Kaufman / Avrukh style)</h5>
+                <ul class="coach-imb-list">
+                  ${rep.imbalance.map(i => `<li>${i.text}</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
+
             <div class="coach-side-grid">
               <div class="coach-side coach-side-w">
-                <h5>White</h5>
+                <h5>♙ STRATEGY — White</h5>
+                <p class="coach-strategy">${rep.strategy.white}</p>
+                <h5 style="margin-top:8px">📋 PLAN — White</h5>
                 <div class="coach-worst"><em>Worst piece:</em> ${worstLine('white')}</div>
                 <div class="coach-mode"><em>Mode:</em> ${rep.mode.white}</div>
                 <ul class="coach-plans">${plansList('white')}</ul>
               </div>
               <div class="coach-side coach-side-b">
-                <h5>Black</h5>
+                <h5>♟ STRATEGY — Black</h5>
+                <p class="coach-strategy">${rep.strategy.black}</p>
+                <h5 style="margin-top:8px">📋 PLAN — Black</h5>
                 <div class="coach-worst"><em>Worst piece:</em> ${worstLine('black')}</div>
                 <div class="coach-mode"><em>Mode:</em> ${rep.mode.black}</div>
                 <ul class="coach-plans">${plansList('black')}</ul>
@@ -297,6 +322,19 @@ async function main() {
               ? `<p class="muted" style="font-size:11px;margin-top:6px"><strong>Context:</strong> ${rep.contextNotes.join(' · ')}</p>`
               : ''
             }
+
+            <!-- Deep Analysis trigger — user picks time budget, engine
+                 searches that long on the current position, then the
+                 coach re-renders with deeper / more trusted validation. -->
+            <div class="coach-deep-row">
+              <label class="coach-deep-label">🔬 Deep analysis:</label>
+              <button class="coach-deep-btn" data-seconds="30">30s</button>
+              <button class="coach-deep-btn" data-seconds="60">1 min</button>
+              <button class="coach-deep-btn" data-seconds="120">2 min</button>
+              <button class="coach-deep-btn" data-seconds="180">3 min</button>
+              <button class="coach-deep-btn" data-seconds="300">5 min</button>
+              <span id="coach-deep-status" class="muted" style="font-size:11px;margin-left:6px"></span>
+            </div>
           </div>
         `;
       } catch (err) {
@@ -346,6 +384,62 @@ async function main() {
   }
 
   renderDissection(board.fen());
+
+  // Deep-analysis buttons inside the Coach panel. Clicking one tells the
+  // engine to spend N seconds searching the CURRENT position with a long
+  // movetime limit; when that completes (or is aborted by a new move),
+  // the coach panel re-renders with fresher / more-validated engine data.
+  // Uses event delegation because the buttons are re-rendered on every
+  // move inside the Position tab's HTML.
+  if (ui.dissectStrategy && !ui.dissectStrategy._deepWired) {
+    ui.dissectStrategy._deepWired = true;
+    ui.dissectStrategy.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.coach-deep-btn');
+      if (!btn) return;
+      const secs = +btn.dataset.seconds || 60;
+      const statusEl = document.getElementById('coach-deep-status');
+      if (!engineReady) {
+        if (statusEl) statusEl.textContent = 'Engine not ready yet.';
+        return;
+      }
+      if (locked || paused) {
+        if (statusEl) statusEl.textContent = 'Engine is locked/paused — resume first.';
+        return;
+      }
+      console.log('[coach-deep] starting', { seconds: secs, fen: board.fen() });
+      // Disable all deep buttons while search runs
+      ui.dissectStrategy.querySelectorAll('.coach-deep-btn').forEach(b => b.disabled = true);
+      if (statusEl) statusEl.textContent = `Searching ${secs}s…`;
+      const startedAt = Date.now();
+      // Bump MultiPV to 5 for richer plan validation during deep analysis
+      const originalMultiPV = engine.multipv;
+      engine.setMultiPV(Math.max(5, originalMultiPV));
+      engine.stop();
+      explainer.setFen(board.fen());
+      const done = new Promise(resolve => {
+        const onBest = () => { engine.removeEventListener('bestmove', onBest); resolve(); };
+        engine.addEventListener('bestmove', onBest);
+      });
+      engine.start(board.fen(), { movetime: secs * 1000 });
+      // Live countdown
+      const tick = setInterval(() => {
+        if (!statusEl) return;
+        const elapsed = Math.round((Date.now() - startedAt) / 1000);
+        statusEl.textContent = `Searching ${elapsed}/${secs}s…`;
+      }, 500);
+      await done;
+      clearInterval(tick);
+      // Restore MultiPV, re-render coach with the fresh engine data
+      engine.setMultiPV(originalMultiPV);
+      ui.dissectStrategy.querySelectorAll('.coach-deep-btn').forEach(b => b.disabled = false);
+      if (statusEl) statusEl.textContent = `Done (${secs}s) — coach refreshed`;
+      console.log('[coach-deep] finished', { seconds: secs });
+      // Re-render the Position panel with the deeper engine snapshot
+      renderDissection(board.fen());
+      // Then resume normal analysis of the real position
+      setTimeout(() => fireAnalysis(), 50);
+    });
+  }
 
   // Engine — choose flavor based on environment; default to "lite" when threaded,
   // else "lite-single". User can override via settings drawer.

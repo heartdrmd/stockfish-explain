@@ -1758,3 +1758,86 @@ body.practice-mode.practice-thinking .ceval::after {
 .pv-tag-fragile  { background: rgba(234,179,8,0.20);  color: #ca8a04; }
 .pv-tag-spec     { background: rgba(156,163,175,0.18); color: #9ca3af; }
 .pv-tag-crit     { background: rgba(239,68,68,0.20);  color: #ef4444; }
+
+/* ─── Coach v2 extended — archetype + imbalance + strategy + deep ── */
+.coach-section-h {
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin: 10px 0 4px !important;
+  color: var(--c-accent) !important;
+}
+.coach-archetype, .coach-imbalance {
+  background: rgba(59, 130, 246, 0.06);
+  border-left: 3px solid #3b82f6;
+  padding: 6px 10px;
+  border-radius: 0 4px 4px 0;
+  margin-top: 10px;
+}
+.coach-signals, .coach-imb-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.coach-signals li, .coach-imb-list li {
+  padding: 3px 0 3px 14px;
+  border-bottom: 1px dashed rgba(255,255,255,0.07);
+  position: relative;
+}
+.coach-signals li:last-child, .coach-imb-list li:last-child { border-bottom: none; }
+.coach-signals li::before, .coach-imb-list li::before {
+  content: '▸';
+  color: var(--c-accent);
+  position: absolute;
+  left: 0;
+  font-size: 10px;
+  top: 3px;
+}
+.coach-strategy {
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 3px;
+  border-left: 2px solid var(--c-accent);
+}
+.coach-deep-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--c-border);
+  flex-wrap: wrap;
+}
+.coach-deep-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--c-font-dim);
+  font-weight: 600;
+}
+.coach-deep-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-surface);
+  color: var(--c-text);
+  cursor: pointer;
+  transition: background 0.1s, transform 0.06s;
+}
+.coach-deep-btn:hover:not(:disabled) {
+  background: var(--c-accent);
+  color: white;
+  border-color: var(--c-accent);
+}
+.coach-deep-btn:active:not(:disabled) { transform: translateY(1px); }
+.coach-deep-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
