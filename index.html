@@ -242,7 +242,8 @@
           </p>
           <div class="practice-btn-row">
             <button id="btn-practice-save"  class="practice-btn save-btn" title="Download this game as PGN">💾 Save PGN</button>
-            <button id="btn-practice-again" class="practice-btn again-btn" title="Start a new practice game">🔁 New game</button>
+            <button id="btn-practice-next-fav" class="practice-btn again-btn" title="Start another practice game with a random favourite opening (using your last settings)" hidden>⏭ Next random favourite</button>
+            <button id="btn-practice-again" class="practice-btn again-btn" title="Open practice modal to pick new settings">⚙ New game</button>
           </div>
         </div>
       </div>
@@ -491,7 +492,8 @@
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;">
             <small class="muted" id="practice-opening-search-count" style="font-size: 11px; flex:1;"></small>
             <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="practice-opening-favs-only"> ⭐ Favourites only</label>
-            <button type="button" id="practice-pick-random" class="btn" style="font-size:11px;padding:3px 8px;" title="Pick a random opening from your favourites">🎲 Random favourite</button>
+            <button type="button" id="practice-pick-random" class="btn" style="font-size:11px;padding:3px 8px;" title="Pick a random opening from your favourites (single game)">🎲 Random</button>
+            <button type="button" id="practice-start-queue" class="btn" style="font-size:11px;padding:3px 8px;background:rgba(255,193,7,0.2);border-color:#ffc107;" title="Start a rotation — every game will play a fresh random favourite. Tick the boxes below to use a subset.">🔀 Queue mode</button>
           </div>
           <!-- Tree-view with collapsible parent families. Replaces the
                flat <select> — the full 3,950-entry list is unreadable

@@ -2439,62 +2439,103 @@ async function main() {
 
     const pTree = document.getElementById('practice-opening-tree');
 
-    // Build a tree from the flat opening list using the Lichess
-    // naming convention "Family Name: Subfamily, Variation" (also
-    // works for our curated entries that follow the same pattern).
-    // Example tree depth:
-    //   Sicilian Defense
-    //     Najdorf Variation
-    //       English Attack
-    //       Polugaevsky Variation
-    //     Dragon Variation
-    //       Yugoslav Attack, 9.Bc4
-    //       Yugoslav Attack, 9.Bc4 Soltis
+    // Tree design (per user feedback):
+    //   1. Preserve the ORIGINAL curated groups from src/openings.js as
+    //      the primary flat list — each group becomes a <details> with
+    //      its items as direct leaves. No deep nesting here — quick to
+    //      scan and pick from.
+    //   2. A separate "⚗ More variations (Lichess DB)" branch sits at
+    //      the bottom, collapsed by default, containing the 3,690
+    //      Lichess sub-variations grouped by family name (parsed from
+    //      "Family Name: Variation" format). Only visible when the user
+    //      wants obscure sub-lines — doesn't clutter the main list.
+    //   3. Custom user-saved openings show up in their own group as
+    //      they did before.
     //
-    // We parse each name by splitting on ": " for family/subfamily
-    // separation, then ", " for sibling sub-variations.
-    const parseNameToPath = (name) => {
-      const colonSplit = name.split(/:\s*/);
-      const family = colonSplit[0] || name;
-      const tail = colonSplit.slice(1).join(': ');
-      const parts = [family];
-      if (tail) {
-        for (const piece of tail.split(/,\s*/)) parts.push(piece);
-      }
-      return parts.map(s => s.trim()).filter(Boolean);
+    // Keys preserve the "Group//index" format; Lichess entries are
+    // stored under a synthetic group "⚗ Lichess · <Family>" so the
+    // pSel value + pickedPracticeOpening resolution still work.
+
+    // Parse "Sicilian Defense: Najdorf Variation" → "Sicilian Defense"
+    const lichessFamily = (name) => {
+      const colon = name.indexOf(':');
+      return (colon > 0 ? name.slice(0, colon) : name).trim();
     };
 
-    // Collect all (key, opening, group, path) tuples from merged
-    // sources. Each entry keeps its original key so the hidden
-    // <select> and downstream code still work.
-    const collectAllEntries = () => {
-      const out = [];
-      for (const grp of mergedOpenings()) {
-        grp.items.forEach((o, i) => {
-          const key = `${grp.group}//${i}`;
-          out.push({ key, o, group: grp.group, path: parseNameToPath(o.name) });
+    // Merged list: curated groups + synthetic Lichess-family groups.
+    const allGroupsForTree = () => {
+      const groups = [...mergedOpenings()];
+      // Synthetic Lichess groups — one per family, sorted by family
+      // name for predictable layout.
+      const byFamily = new Map();
+      for (const o of LICHESS_OPENINGS) {
+        const fam = lichessFamily(o.name);
+        if (!byFamily.has(fam)) byFamily.set(fam, []);
+        byFamily.get(fam).push(o);
+      }
+      const lichessGroups = [];
+      for (const [fam, items] of byFamily) {
+        lichessGroups.push({
+          group: `⚗ Lichess · ${fam}`,
+          items: items.map(i => ({ ...i, _source: 'lichess' })),
+          _isLichess: true,
+          _family: fam,
         });
       }
-      return out;
+      lichessGroups.sort((a, b) => a._family.localeCompare(b._family));
+      return { curated: groups, lichess: lichessGroups };
     };
 
-    // Build a nested map from path → leaves. Each node has:
-    //   { children: Map<string, node>, leaves: [] }
-    const buildTree = (entries) => {
-      const root = { children: new Map(), leaves: [], count: 0 };
-      for (const entry of entries) {
-        let node = root;
-        node.count++;
-        for (let i = 0; i < entry.path.length - 1; i++) {
-          const seg = entry.path[i];
-          if (!node.children.has(seg)) node.children.set(seg, { children: new Map(), leaves: [], count: 0 });
-          node = node.children.get(seg);
-          node.count++;
+    // Simple fuzzy match — tolerant of typos and partial words.
+    // Returns a score 0-100; 0 = no match. Order of tests:
+    //   1. Exact case-insensitive substring  → 100
+    //   2. "Starts with"                      → 85
+    //   3. Levenshtein-bounded approximate
+    //      (distance ≤ 2 on the best matching word of the target
+    //       when query length ≥ 4)            → 70 - distance*10
+    //   4. Subsequence match (all query chars
+    //      appear in order, gaps allowed)     → 50
+    // Cheap enough to run across thousands of entries per keystroke.
+    function levenshtein(a, b) {
+      const n = a.length, m = b.length;
+      if (!n) return m; if (!m) return n;
+      const prev = new Array(m + 1).fill(0);
+      for (let j = 0; j <= m; j++) prev[j] = j;
+      for (let i = 1; i <= n; i++) {
+        let last = prev[0]; prev[0] = i;
+        for (let j = 1; j <= m; j++) {
+          const temp = prev[j];
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, last + cost);
+          last = temp;
         }
-        node.leaves.push(entry);
       }
-      return root;
-    };
+      return prev[m];
+    }
+    function fuzzyScore(query, target) {
+      if (!query) return 100;
+      const q = query.toLowerCase();
+      const t = target.toLowerCase();
+      if (t.includes(q)) return t.startsWith(q) ? 95 : 100; // substring wins
+      if (q.length >= 4) {
+        // Try Levenshtein against each whitespace-or-punctuation token.
+        const tokens = t.split(/[\s,.:;()-]+/);
+        let best = Infinity;
+        for (const tok of tokens) {
+          if (!tok) continue;
+          const d = levenshtein(q, tok);
+          if (d < best) best = d;
+        }
+        if (best <= 2) return 70 - best * 10;  // tight typo tolerance
+      }
+      // Subsequence check (all query chars appear in order in target)
+      let i = 0;
+      for (const ch of t) {
+        if (ch === q[i]) i++;
+        if (i >= q.length) return 50;
+      }
+      return 0;
+    }
 
     const renderTree = () => {
       if (!pTree) return;
@@ -2503,38 +2544,48 @@ async function main() {
       const favs = loadFavs();
       const selected = pSel.value;
 
-      let entries = collectAllEntries();
-      const total = entries.length;
-      // Filter.
-      if (f) {
-        entries = entries.filter(e =>
-          e.o.name.toLowerCase().includes(f) ||
-          e.group.toLowerCase().includes(f) ||
-          (e.o.eco && e.o.eco.toLowerCase().includes(f))
-        );
-      }
-      if (favsOnly) {
-        entries = entries.filter(e => favs[e.key]);
-      }
-
-      // Also mirror every entry into the hidden <select> so the form
-      // contract stays intact (pickedPracticeOpening and last-settings
-      // restore all read from pSel.value).
+      // Populate the hidden <select> with EVERY entry (curated +
+      // Lichess) so pickedPracticeOpening + last-settings restore
+      // still work. It's hidden so visual size doesn't matter.
+      const { curated, lichess } = allGroupsForTree();
       pSel.innerHTML = '';
-      for (const e of collectAllEntries()) {
-        const opt = document.createElement('option');
-        opt.value = e.key;
-        opt.textContent = e.o.name;
-        pSel.appendChild(opt);
-      }
+      const mkOptgroup = (grp) => {
+        const og = document.createElement('optgroup');
+        og.label = grp.group;
+        grp.items.forEach((o, i) => {
+          const opt = document.createElement('option');
+          opt.value = `${grp.group}//${i}`;
+          opt.textContent = o.name;
+          og.appendChild(opt);
+        });
+        return og;
+      };
+      for (const grp of curated)  pSel.appendChild(mkOptgroup(grp));
+      for (const grp of lichess)  pSel.appendChild(mkOptgroup(grp));
       if (selected) pSel.value = selected;
 
-      // Show favourites as a collapsible "⭐ Favourites" group at the top.
       const container = document.createDocumentFragment();
-      const favEntries = collectAllEntries().filter(e => favs[e.key])
-        .filter(e => !f || e.o.name.toLowerCase().includes(f) ||
-                          e.group.toLowerCase().includes(f) ||
-                          (e.o.eco && e.o.eco.toLowerCase().includes(f)));
+      // Filter matcher now uses the fuzzy scorer instead of plain
+      // substring, so "najdrf" still finds Najdorf etc.
+      const matchesFilter = (name, groupName, eco) => {
+        if (!f) return true;
+        const nameScore = fuzzyScore(f, name);
+        if (nameScore > 0) return true;
+        if (groupName && fuzzyScore(f, groupName) > 0) return true;
+        if (eco && (eco || '').toLowerCase().includes(f)) return true;
+        return false;
+      };
+
+      // ── ⭐ Favourites pinned group at the top ──
+      const favEntries = [];
+      for (const grp of [...curated, ...lichess]) {
+        grp.items.forEach((o, i) => {
+          const key = `${grp.group}//${i}`;
+          if (favs[key] && matchesFilter(o.name, grp.group, o.eco)) {
+            favEntries.push({ key, o, group: grp.group });
+          }
+        });
+      }
       if (favEntries.length) {
         const favDetails = document.createElement('details');
         favDetails.open = true;
@@ -2547,7 +2598,7 @@ async function main() {
         if (!favEntries.length) {
           const empty = document.createElement('div');
           empty.className = 'tree-empty';
-          empty.textContent = 'No favourites yet — browse the tree and click a ☆ to star one.';
+          empty.textContent = 'No favourites yet — browse the tree and click ☆ to star one.';
           container.appendChild(empty);
         }
         pTree.innerHTML = '';
@@ -2557,43 +2608,67 @@ async function main() {
         return;
       }
 
-      const tree = buildTree(entries);
-      // Auto-expand first level when filtering (user wants to see the
-      // matches); keep it collapsed by default otherwise.
-      const autoExpand = !!f;
-      // Top-level nodes sorted by count desc so big families are first.
-      const topNodes = Array.from(tree.children.entries())
-        .sort((a, b) => b[1].count - a[1].count);
-      for (const [name, node] of topNodes) {
-        container.appendChild(renderNode(name, node, favs, selected, autoExpand));
+      // ── Curated groups (flat, each group collapsible) ──
+      let curatedShown = 0;
+      for (const grp of curated) {
+        const matching = grp.items
+          .map((o, i) => ({ key: `${grp.group}//${i}`, o, group: grp.group }))
+          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco));
+        if (!matching.length) continue;
+        curatedShown += matching.length;
+        const details = document.createElement('details');
+        if (f) details.open = true;   // auto-expand when filtering
+        details.innerHTML = `<summary>${escapeHtml(grp.group)} <span class="tree-family-count">${matching.length}/${grp.items.length}</span></summary>`;
+        for (const e of matching) details.appendChild(renderLeaf(e, favs, selected));
+        container.appendChild(details);
+      }
+
+      // ── ⚗ Lichess DB (3,690 more lines) — collapsed by default ──
+      const lichessMatches = [];
+      for (const grp of lichess) {
+        const items = grp.items
+          .map((o, i) => ({ key: `${grp.group}//${i}`, o, group: grp.group }))
+          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco));
+        if (items.length) lichessMatches.push({ grp, items });
+      }
+      const lichessCount = lichessMatches.reduce((s, x) => s + x.items.length, 0);
+      if (lichessCount) {
+        const outer = document.createElement('details');
+        if (f) outer.open = true;     // auto-expand on search
+        outer.innerHTML = `<summary>⚗ More variations (Lichess DB) <span class="tree-family-count">${lichessCount}</span></summary>`;
+        for (const { grp, items } of lichessMatches) {
+          const inner = document.createElement('details');
+          if (f) inner.open = true;
+          inner.innerHTML = `<summary>${escapeHtml(grp._family)} <span class="tree-family-count">${items.length}</span></summary>`;
+          for (const e of items) inner.appendChild(renderLeaf(e, favs, selected));
+          outer.appendChild(inner);
+        }
+        container.appendChild(outer);
       }
 
       pTree.innerHTML = '';
       pTree.appendChild(container);
 
+      const totalCount = curated.reduce((s, g) => s + g.items.length, 0)
+                       + lichess.reduce((s, g) => s + g.items.length, 0);
+      const shownCount = curatedShown + lichessCount;
       if (pSearchCount) {
         pSearchCount.textContent = f
-          ? `${entries.length} of ${total} match`
-          : `${total} openings · ${Object.keys(favs).length} starred`;
+          ? `${shownCount} of ${totalCount} match`
+          : `${totalCount} openings · ${Object.keys(favs).length} starred`;
       }
       refreshToggleFavButton();
     };
 
-    const renderNode = (name, node, favs, selected, autoExpand) => {
-      const details = document.createElement('details');
-      if (autoExpand) details.open = true;
-      const summary = document.createElement('summary');
-      summary.innerHTML = `<span>${escapeHtml(name)}</span><span class="tree-family-count">${node.count}</span>`;
-      details.appendChild(summary);
-      // First render any direct leaves at this level.
-      for (const e of node.leaves) details.appendChild(renderLeaf(e, favs, selected));
-      // Then recurse into children.
-      const childNodes = Array.from(node.children.entries())
-        .sort((a, b) => b[1].count - a[1].count);
-      for (const [childName, childNode] of childNodes) {
-        details.appendChild(renderNode(childName, childNode, favs, selected, autoExpand));
-      }
-      return details;
+    // Queue-subset state: which starred openings the user has chosen
+    // to INCLUDE in rotation. Empty set = use all favourites.
+    const QUEUE_SET_KEY = 'stockfish-explain.practice-queue-set';
+    const loadQueueSet = () => {
+      try { return new Set(JSON.parse(localStorage.getItem(QUEUE_SET_KEY) || '[]')); }
+      catch { return new Set(); }
+    };
+    const saveQueueSet = (set) => {
+      try { localStorage.setItem(QUEUE_SET_KEY, JSON.stringify([...set])); } catch {}
     };
 
     const renderLeaf = (entry, favs, selected) => {
@@ -2601,11 +2676,20 @@ async function main() {
       leaf.className = 'tree-leaf' + (entry.key === selected ? ' selected' : '');
       leaf.dataset.key = entry.key;
       const starred = !!favs[entry.key];
+      const queueSet = loadQueueSet();
       const badge = entry.o._source === 'lichess' ? '<span class="tree-lichess-badge">DB</span>' : '';
       const custom = entry.o._custom ? '<span class="tree-lichess-badge">custom</span>' : '';
       const leafName = entry.path[entry.path.length - 1] || entry.o.name;
+      // Queue checkbox — only visible for starred entries. When
+      // checked, this favourite is included in the random rotation
+      // queue. Default = included (any fav auto-joins rotation).
+      const inQueue = !starred || queueSet.size === 0 || queueSet.has(entry.key);
+      const queueCb = starred
+        ? `<input type="checkbox" class="tree-leaf-queue" data-queue="${entry.key}" ${inQueue ? 'checked' : ''} title="Include in queue rotation" onclick="event.stopPropagation()">`
+        : '';
       leaf.innerHTML =
         `<span class="tree-leaf-fav${starred ? ' starred' : ''}" data-fav="${entry.key}" title="${starred ? 'Unstar' : 'Star as favourite'}">${starred ? '★' : '☆'}</span>` +
+        queueCb +
         `<span class="tree-leaf-name">${escapeHtml(leafName)}</span>` +
         `<span class="tree-leaf-eco">${escapeHtml(entry.o.eco || '')}</span>` +
         badge + custom;
@@ -2670,20 +2754,32 @@ async function main() {
         populateOpeningSelect(pSearch ? pSearch.value : '');
       });
     }
+    // Helper: effective queue pool — either the user's subset (if
+    // any checkboxes are ticked) or all favourites. Returns an array
+    // of keys. Exposed on window so the post-game "Next random"
+    // button can reach it without duplicating logic.
+    const effectiveQueuePool = () => {
+      const favs = loadFavs();
+      const favKeys = Object.keys(favs);
+      const set = loadQueueSet();
+      if (set.size === 0) return favKeys;              // no subset → all favs
+      const subset = favKeys.filter(k => set.has(k));
+      return subset.length ? subset : favKeys;         // if subset becomes empty, fall back
+    };
+    window.__practiceQueuePool = effectiveQueuePool;
+
     if (pPickRandom) {
       pPickRandom.addEventListener('click', () => {
-        const favs = loadFavs();
-        const keys = Object.keys(favs);
-        if (!keys.length) {
-          alert('No starred openings yet. Click ⭐ Star on an opening first.');
+        const pool = effectiveQueuePool();
+        if (!pool.length) {
+          alert('No starred openings yet. Click ☆ on an opening first.');
           return;
         }
-        const pickedKey = keys[Math.floor(Math.random() * keys.length)];
-        // Ensure the option exists in the current list — clear search
-        // + favsOnly so everything is populated, then select.
+        const pickedKey = pool[Math.floor(Math.random() * pool.length)];
+        const favs = loadFavs();
         if (pSearch) pSearch.value = '';
         if (pFavsOnly) pFavsOnly.checked = false;
-        populateOpeningSelect('');
+        renderTree();
         pSel.value = pickedKey;
         pColor.value = favs[pickedKey] || 'white';
         updatePMoves();
@@ -2691,9 +2787,45 @@ async function main() {
       });
     }
 
+    // Queue mode = "pick random + enable auto-advance in post-game".
+    // Stores a flag window.__practiceQueueActive so finishPracticeGame
+    // can surface the "Next random favourite" button automatically.
+    const pStartQueue = document.getElementById('practice-start-queue');
+    if (pStartQueue) pStartQueue.addEventListener('click', () => {
+      const pool = effectiveQueuePool();
+      if (pool.length < 2) {
+        alert('Queue mode needs at least 2 starred openings. Star a few first, then try again.');
+        return;
+      }
+      const pickedKey = pool[Math.floor(Math.random() * pool.length)];
+      const favs = loadFavs();
+      pSel.value = pickedKey;
+      pColor.value = favs[pickedKey] || 'white';
+      updatePMoves();
+      window.__practiceQueueActive = true;
+      // Press Start programmatically so the user doesn't have to.
+      const startBtn = document.getElementById('practice-start');
+      if (startBtn) startBtn.click();
+    });
+
+    // Queue checkbox listener — tick/untick a favourite's "included
+    // in queue rotation" state. Persists to localStorage.
+    if (pTree) {
+      pTree.addEventListener('change', (ev) => {
+        const cb = ev.target.closest('.tree-leaf-queue');
+        if (!cb) return;
+        const key = cb.dataset.queue;
+        const set = loadQueueSet();
+        if (cb.checked) set.add(key); else set.delete(key);
+        saveQueueSet(set);
+      });
+    }
+
     const pickedPracticeOpening = () => {
       const [gn, idxStr] = (pSel.value || '//0').split('//');
-      const grp = mergedOpenings().find(g => g.group === gn);
+      // Look in curated groups first, then Lichess synthetic groups.
+      const { curated, lichess } = allGroupsForTree();
+      const grp = curated.find(g => g.group === gn) || lichess.find(g => g.group === gn);
       return grp ? grp.items[+idxStr] : OPENINGS[0].items[0];
     };
     const updatePMoves = () => {
@@ -2987,6 +3119,15 @@ async function main() {
     const pOver = document.getElementById('practice-over');
     if (pLive) pLive.hidden = true;
     if (pOver) pOver.hidden = false;
+    // Show "Next random favourite" when:
+    //   - queue mode is active (user clicked 🔀 Queue mode earlier), OR
+    //   - the pool has at least 2 favourites (so the button is meaningful).
+    const nextFavBtn = document.getElementById('btn-practice-next-fav');
+    if (nextFavBtn) {
+      const pool = window.__practiceQueuePool ? window.__practiceQueuePool() : [];
+      const show = !!window.__practiceQueueActive || pool.length >= 2;
+      nextFavBtn.hidden = !show;
+    }
     const banner = document.getElementById('practice-result-banner');
     if (banner) banner.textContent = `Result: ${resultTag} — ${narrative}`;
     ui.narrationText.innerHTML =
@@ -3095,6 +3236,31 @@ async function main() {
   if (btnPracticeAgain) btnPracticeAgain.addEventListener('click', () => {
     const practiceBtn = document.getElementById('btn-practice');
     if (practiceBtn) practiceBtn.click();
+  });
+
+  // "⏭ Next random favourite" — rotates to a new random favourite
+  // opening without opening the practice modal. Uses the last
+  // practice settings (skill, clock, style, side) except the colour
+  // is overridden to whatever the user starred that opening with.
+  const btnPracticeNextFav = document.getElementById('btn-practice-next-fav');
+  if (btnPracticeNextFav) btnPracticeNextFav.addEventListener('click', () => {
+    // Reach into the practice-modal's queue-pool helper — expose via
+    // window so we don't have to duplicate the logic here.
+    const pool = window.__practiceQueuePool ? window.__practiceQueuePool() : [];
+    if (pool.length < 1) { alert('No starred openings.'); return; }
+    const favs = JSON.parse(localStorage.getItem('stockfish-explain.practice-favourites') || '{}');
+    const pickedKey = pool[Math.floor(Math.random() * pool.length)];
+    const pSel   = document.getElementById('practice-opening');
+    const pColor = document.getElementById('practice-color');
+    if (pSel)   pSel.value   = pickedKey;
+    if (pColor) pColor.value = favs[pickedKey] || 'white';
+    // Programmatically click Start — reuses the full start handler
+    // including settings save, clock start, and analysis-kick.
+    const startBtn = document.getElementById('practice-start');
+    if (startBtn) {
+      window.__practiceQueueActive = true;
+      startBtn.click();
+    }
   });
 
   // ────────── My Games archive browser ──────────
