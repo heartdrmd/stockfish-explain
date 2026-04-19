@@ -355,6 +355,18 @@
         <svg id="eval-timeline-svg" class="eval-timeline-svg" viewBox="0 0 600 100" preserveAspectRatio="none"></svg>
       </div>
 
+      <!-- King-safety timeline (#6) — two overlaid lines (W/B) showing
+           king-attack readiness per ply. Spikes when Greek gift / h-file
+           pry / back-rank / outpost patterns are loaded. Hidden until
+           a non-trivial game exists. -->
+      <div id="king-safety-timeline" class="eval-timeline" hidden>
+        <div class="eval-timeline-header">
+          <span class="eval-timeline-title">👑 King-safety pressure</span>
+          <span class="eval-timeline-stats" id="king-safety-stats"></span>
+        </div>
+        <svg id="king-safety-svg" class="eval-timeline-svg" viewBox="0 0 600 80" preserveAspectRatio="none" style="background:linear-gradient(180deg,rgba(200,200,200,0.1) 0%,rgba(100,100,100,0.3) 100%);height:60px;"></svg>
+      </div>
+
       <!-- Pawn-structure evolution strip (#5) — each cell is a tiny 8×8
            pawn-only snapshot, sampled every N plies. Transitions to a
            new detected archetype are highlighted. Hidden until the

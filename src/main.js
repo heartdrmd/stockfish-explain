@@ -1257,6 +1257,107 @@ async function main() {
   board.addEventListener('new-game', schedulePawnStripRender);
   board.addEventListener('nav',      schedulePawnStripRender);
   setTimeout(renderPawnStrip, 250);
+
+  // ─── King-safety timeline (#6) ────────────────────────────────
+  // Two lines (White / Black) showing how loaded each king is against
+  // attack patterns, read from king_attack.detectKingAttack at each
+  // sampled ply. Spikes highlight Greek-gift / open-h / back-rank /
+  // outpost moments. Cached per-FEN to avoid recomputing the detector.
+  const kingAttackCache = new Map();
+  function detectKingAttackCached(fen) {
+    if (kingAttackCache.has(fen)) return kingAttackCache.get(fen);
+    let out = null;
+    try {
+      // Pull from coach_v2's pipeline which runs the detector.
+      const ar = CoachV2.coachReport(fen, { topMoves: [] });
+      out = ar && ar.kingAttack ? ar.kingAttack : [];
+    } catch {}
+    if (kingAttackCache.size > 200) {
+      kingAttackCache.delete(kingAttackCache.keys().next().value);
+    }
+    kingAttackCache.set(fen, out);
+    return out;
+  }
+  // For each king-attack entry, sum readiness per side. Range ~0-10 per
+  // side in extreme cases; most positions are 0.
+  function kingSafetyAt(fen) {
+    const entries = detectKingAttackCached(fen) || [];
+    let w = 0, b = 0;
+    for (const e of entries) {
+      const r = Math.max(0, e.readiness || 0);
+      if (e.side === 'w') w += r;
+      else if (e.side === 'b') b += r;
+      else { w += r / 2; b += r / 2; } // "both" (opposite-side castling)
+    }
+    return { w, b };
+  }
+  function renderKingSafetyTimeline() {
+    const root = document.getElementById('king-safety-timeline');
+    const svg  = document.getElementById('king-safety-svg');
+    const stats = document.getElementById('king-safety-stats');
+    if (!root || !svg) return;
+    const plies = collectTimelinePlies();
+    if (plies.length < 4) { root.hidden = true; return; }
+    root.hidden = false;
+
+    const W = 600, H = 80;
+    const pad = 6;
+    const span = W - 2 * pad;
+    const stepX = plies.length > 1 ? span / (plies.length - 1) : span;
+    // Find the max observed pressure so we scale adaptively.
+    let maxP = 2;
+    const series = plies.map((p, i) => {
+      const s = kingSafetyAt(p.fen);
+      if (s.w > maxP) maxP = s.w;
+      if (s.b > maxP) maxP = s.b;
+      return { x: pad + i * stepX, w: s.w, b: s.b, p };
+    });
+    // Pressure ON white king comes from Black's attackers → plot on Black-colour
+    // line; vice versa. So our lines really show "pressure against the king of
+    // that colour". Y=0 = top (higher = more pressure).
+    const yFor = (pressure) => Math.max(4, H - pad - (pressure / maxP) * (H - 2 * pad - 4));
+    const wLinePts = series.map(pt => `${pt.x.toFixed(1)},${yFor(pt.w).toFixed(1)}`).join(' ');
+    const bLinePts = series.map(pt => `${pt.x.toFixed(1)},${yFor(pt.b).toFixed(1)}`).join(' ');
+    // Mark spikes where pressure >= 5 (geometry genuinely loaded).
+    let spikes = '';
+    for (const pt of series) {
+      if (pt.w >= 5) spikes += `<circle cx="${pt.x.toFixed(1)}" cy="${yFor(pt.w).toFixed(1)}" r="3" fill="#dc3545"><title>White king under pressure (${pt.w.toFixed(0)}) at ply ${pt.p.ply}</title></circle>`;
+      if (pt.b >= 5) spikes += `<circle cx="${pt.x.toFixed(1)}" cy="${yFor(pt.b).toFixed(1)}" r="3" fill="#5865f2"><title>Black king under pressure (${pt.b.toFixed(0)}) at ply ${pt.p.ply}</title></circle>`;
+    }
+    // Cursor at current ply
+    const curIdx = board.viewPly == null ? series.length - 1 : Math.min(series.length - 1, board.viewPly);
+    const cx = series[curIdx]?.x;
+    const cursor = cx != null ? `<line stroke="#ffc107" stroke-width="2" stroke-opacity="0.7" x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="4" y2="${H-4}"/>` : '';
+    svg.innerHTML =
+      `<polyline points="${wLinePts}" fill="none" stroke="#dc3545" stroke-width="1.5" stroke-opacity="0.8"/>` +
+      `<polyline points="${bLinePts}" fill="none" stroke="#5865f2" stroke-width="1.5" stroke-opacity="0.8"/>` +
+      spikes + cursor;
+
+    const peakW = Math.max(0, ...series.map(s => s.w));
+    const peakB = Math.max(0, ...series.map(s => s.b));
+    stats.textContent = `${plies.length - 1} plies · peak pressure on White king ${peakW.toFixed(0)} · on Black king ${peakB.toFixed(0)}`;
+
+    svg.onclick = (ev) => {
+      const rect = svg.getBoundingClientRect();
+      const x = (ev.clientX - rect.left) / rect.width * W;
+      let bestI = 0, bestDist = Infinity;
+      for (let i = 0; i < series.length; i++) {
+        const d = Math.abs(series[i].x - x);
+        if (d < bestDist) { bestDist = d; bestI = i; }
+      }
+      const targetPly = series[bestI].p.ply;
+      if (board.goToPly) board.goToPly(targetPly === 0 ? 0 : targetPly);
+    };
+  }
+  let kingSafetyTimer = 0;
+  function scheduleKingSafetyRender() {
+    if (kingSafetyTimer) return;
+    kingSafetyTimer = setTimeout(() => { kingSafetyTimer = 0; renderKingSafetyTimeline(); }, 180);
+  }
+  board.addEventListener('move',     scheduleKingSafetyRender);
+  board.addEventListener('new-game', scheduleKingSafetyRender);
+  board.addEventListener('nav',      scheduleKingSafetyRender);
+  setTimeout(renderKingSafetyTimeline, 300);
   // Initial render in case a draft was restored.
   setTimeout(scheduleTimelineRender, 200);
 
