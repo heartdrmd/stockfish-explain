@@ -1072,20 +1072,24 @@ async function main() {
   // without needing to re-analyse the whole game.
   const fenEvalCache = new Map(); // FEN → { cpWhite, mate, depth }
   function captureEngineThinkingEval() {
-    // Called from Explainer's info handler (wired below). We just read
-    // the engine's latest top line.
     try {
       const live = engine && engine.history && engine.history.length
         ? engine.history[engine.history.length - 1] : null;
       if (!live) return;
-      const fen = board.chess.fen();
-      // Convert STM-POV score to White POV for consistent storage.
+      // CRITICAL: use the FEN the engine is actually searching, NOT the
+      // live board FEN. Otherwise when the user moves mid-search, we
+      // pair a position-A eval with position-B's FEN and the timeline
+      // goes wild. engine.currentFen is set when the search starts.
+      const fen = engine.currentFen || board.chess.fen();
       const stm = fen.split(' ')[1] === 'w' ? 1 : -1;
       const cpWhite = live.scoreKind === 'cp' ? stm * live.score : null;
       const mate    = live.scoreKind === 'mate' ? stm * live.score : null;
+      const existing = fenEvalCache.get(fen);
+      // Only overwrite if this event is from a deeper (or equal) depth.
+      // Protects the cache from being clobbered by a shallow probe
+      // immediately after a deep analysis.
+      if (existing && existing.depth != null && live.depth < existing.depth) return;
       fenEvalCache.set(fen, { cpWhite, mate, depth: live.depth });
-      // Cap the map to 500 entries to avoid unbounded growth during
-      // long sessions.
       if (fenEvalCache.size > 500) {
         const first = fenEvalCache.keys().next().value;
         fenEvalCache.delete(first);
@@ -1653,6 +1657,56 @@ async function main() {
   // Initial render in case a draft was restored.
   setTimeout(scheduleTimelineRender, 200);
 
+  // ─── Retrospective sweep ─────────────────────────────────────────
+  // Walks the mainline and probes any ply whose fenEvalCache entry
+  // is missing OR shallower than `minDepth`. Populates the cache so
+  // deriveMistakes() can classify swings on every move — the key fix
+  // for the empty-mistake-bank bug: user moves in practice were
+  // never evaluated before, so every other ply had cpWhite: null.
+  let sweepRunning = false;
+  async function retrospectiveSweep({ minDepth = 12, onProgress } = {}) {
+    if (sweepRunning) return false;
+    sweepRunning = true;
+    // Snapshot the live engine state + mute flag so we can restore.
+    const wasMuted = window.__engineMuted === true;
+    window.__engineMuted = true;          // silence UI during sweep
+    try { engine.stop(); } catch {}
+    try {
+      const history = board.chess.history({ verbose: true });
+      if (!history.length) return false;
+      const replay = new Chess(board.startingFen);
+      const targets = [];
+      // Starting position + every post-move FEN
+      targets.push({ fen: board.startingFen, label: 'start' });
+      for (const mv of history) {
+        const res = replay.move(mv.san, { sloppy: true });
+        if (!res) break;
+        targets.push({ fen: replay.fen(), label: mv.san });
+      }
+      let done = 0;
+      for (const t of targets) {
+        const existing = fenEvalCache.get(t.fen);
+        if (existing && existing.depth != null && existing.depth >= minDepth) {
+          done++;
+          if (onProgress) onProgress(done, targets.length);
+          continue;
+        }
+        // Quick probe at minDepth. AICoach.probeEngine returns { lines },
+        // and our piggybacked 'thinking' listener will populate the cache.
+        try { await AICoach.probeEngine(engine, t.fen, minDepth, 1); }
+        catch (err) { console.warn('[sweep] probe failed', t.fen, err); }
+        done++;
+        if (onProgress) onProgress(done, targets.length);
+      }
+      return true;
+    } finally {
+      sweepRunning = false;
+      window.__engineMuted = wasMuted;
+      // Resume live analysis (user is looking at the current position).
+      try { fireAnalysis(); } catch {}
+    }
+  }
+
   // ─── Archive a completed game ─────────────────────────────────────
   // Replays the game tree to harvest each ply's FEN + cached engine
   // eval from fenEvalCache. Tolerates missing cache entries (stores
@@ -1760,10 +1814,14 @@ async function main() {
         if (practiceColor && !document.body.classList.contains('practice-finished')) {
           finishPracticeGame(resultTag, narrative);
         } else if (!practiceColor && !document.body.classList.contains('analysis-archived')) {
-          // Analysis-mode game that ended naturally — still worth
-          // archiving once. Use a class as an idempotency guard.
+          // Analysis-mode game that ended naturally — sweep + archive.
           document.body.classList.add('analysis-archived');
-          try { archiveCurrentGame({ result: resultTag, ending: narrative, mode: 'analysis' }); } catch {}
+          (async () => {
+            try {
+              await retrospectiveSweep({ minDepth: 12 });
+              archiveCurrentGame({ result: resultTag, ending: narrative, mode: 'analysis' });
+            } catch {}
+          })();
           clearDraft();
         }
       } else {
@@ -2486,13 +2544,37 @@ async function main() {
     practiceSearchToken++;
     practiceResultTag = resultTag;
     practiceResultText = narrative;
-    // Archive the completed game for later review / mistake bank.
-    try { archiveCurrentGame({ result: resultTag, ending: narrative, mode: 'practice' }); }
-    catch (err) { console.warn('[archive] failed to archive practice game', err); }
     // Stop the chess clock if it was running.
     try { stopClock(); } catch {}
     // Draft is no longer needed.
     clearDraft();
+    // Run a retrospective sweep — fills in per-move evals for all
+    // plies the engine didn't evaluate live (critical for practice
+    // where the user's turns were never searched). THEN archive, so
+    // mistake-bank classification has the full data.
+    (async () => {
+      ui.narrationText.innerHTML =
+        `🏁 Game over — <strong>${resultTag}</strong> — ${narrative}. ⏳ Analysing each move for the mistake bank…`;
+      try {
+        await retrospectiveSweep({
+          minDepth: 12,
+          onProgress: (d, t) => {
+            if (ui.narrationText) {
+              ui.narrationText.innerHTML =
+                `🏁 <strong>Game over: ${resultTag}</strong> — analysing move ${d}/${t} for mistake bank…`;
+            }
+          },
+        });
+      } catch (err) { console.warn('[sweep] failed', err); }
+      try {
+        archiveCurrentGame({ result: resultTag, ending: narrative, mode: 'practice' });
+        ui.narrationText.innerHTML =
+          `🏁 <strong>Game over: ${resultTag}</strong> — ${narrative}. Archived to 📚 My Games. ` +
+          `Mistakes added to 🎓 Mistake Bank. Use ⏮◀▶⏭ to review.`;
+      } catch (err) {
+        console.warn('[archive] failed to archive practice game', err);
+      }
+    })();
     // Swap the card UI into post-game state
     const pLive = document.getElementById('practice-live');
     const pOver = document.getElementById('practice-over');
@@ -3137,6 +3219,50 @@ async function main() {
         console.error('[gif] export failed', err);
         alert('Export failed: ' + err.message);
       });
+    });
+  })();
+
+  // ────────── Manual "Analyse & archive" (fix for analysis-mode never ends) ──
+  // Lets the user deliberately push the current game into the archive
+  // whenever they want, regardless of whether chess.js considers the
+  // game "over". Runs the retrospective sweep first so every ply has
+  // a solid cpWhite eval → mistake bank gets real data.
+  (() => {
+    const btn = document.getElementById('btn-archive-now');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const history = board.chess.history();
+      if (!history.length) {
+        flashPill(ui.engineMode, 'No moves to archive', 1500);
+        return;
+      }
+      btn.disabled = true;
+      const originalLabel = btn.textContent;
+      btn.textContent = '⏳ Analysing…';
+      try {
+        await retrospectiveSweep({
+          minDepth: 12,
+          onProgress: (d, t) => { btn.textContent = `⏳ Move ${d}/${t}…`; },
+        });
+        // Use whatever result tag the board currently shows (if mate),
+        // else '*' for an incomplete game.
+        let resultTag = '*', ending = 'Archived mid-game';
+        if (board.chess.isCheckmate()) {
+          const loser = board.chess.turn();
+          resultTag = loser === 'w' ? '0-1' : '1-0';
+          ending = loser === 'w' ? 'Black wins by checkmate' : 'White wins by checkmate';
+        } else if (board.chess.isStalemate()) { resultTag = '1/2-1/2'; ending = 'Stalemate'; }
+        else if (board.chess.isDraw())        { resultTag = '1/2-1/2'; ending = 'Draw'; }
+        archiveCurrentGame({ result: resultTag, ending, mode: practiceColor ? 'practice' : 'analysis' });
+        ui.narrationText.innerHTML =
+          `✅ Archived. ${history.length}-ply game saved to 📚 My Games · any mistakes added to 🎓 Mistake Bank.`;
+      } catch (err) {
+        console.error('[archive-now]', err);
+        alert('Archive failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
     });
   })();
 

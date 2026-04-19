@@ -279,6 +279,10 @@ export class Engine extends EventTarget {
     this.history  = [];
     this.topMoves = new Map();
     this.searching = true;
+    // Track the FEN currently under search so downstream consumers
+    // (eval cache, explainers) can pair events with the right position
+    // even if the live board moves on while we're searching.
+    this.currentFen = fen;
 
     this._send(`position fen ${fen}`);
 
