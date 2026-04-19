@@ -782,12 +782,15 @@ async function main() {
     editor.open(board.fen());
   });
 
-  // Practice state AND explainer must be constructed BEFORE bootEngine
-  // awaits — once the engine boots it calls fireAnalysis() which
-  // references these. If declared later, fireAnalysis throws (TDZ
-  // for let bindings; undefined for var hoisted but not yet assigned).
+  // State that fireAnalysis() references must exist BEFORE bootEngine
+  // awaits — once the engine boots it fires analysis immediately. Any
+  // `let` binding declared later throws a TDZ ReferenceError; any `var`
+  // declared later is hoisted but still undefined.
   let practiceColor       = null;
   let practiceSearchToken = 0;
+  let paused              = false;
+  let locked              = localStorage.getItem('stockfish-explain.engine-locked') === '1';
+  window.__engineMuted    = locked;
   var explainer = new Explainer({ engine, board, ui });
   explainer.wire();
   explainer.setFen(board.fen());
@@ -959,15 +962,9 @@ async function main() {
 
   // ────────── Board ↔ engine loop ──────────
 
-  // Pause state — when true, engine.start() is suppressed.
-  // "locked" is a harder state: engine is pinned off until user explicitly
-  // unlocks.
-  let paused = false;
-  let locked = localStorage.getItem('stockfish-explain.engine-locked') === '1';
-  // Sync the instant-mute flag with persisted lock state so that if the
-  // engine was locked on a previous session, the UI gate is already
-  // closed before the first info event arrives.
-  window.__engineMuted = locked;
+  // paused / locked / __engineMuted are declared ABOVE bootEngine so
+  // that fireAnalysis (which fires during the bootEngine await) sees
+  // them without hitting TDZ.
 
   // Practice mode state:
   //   practiceColor: which color the user plays ('white' | 'black' | null = off)
