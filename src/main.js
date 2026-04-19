@@ -782,21 +782,17 @@ async function main() {
     editor.open(board.fen());
   });
 
-  // Practice state must be declared BEFORE bootEngine awaits — once
-  // the engine boots it calls fireAnalysis() which references these.
-  // If declared later, fireAnalysis throws a TDZ ReferenceError.
+  // Practice state AND explainer must be constructed BEFORE bootEngine
+  // awaits — once the engine boots it calls fireAnalysis() which
+  // references these. If declared later, fireAnalysis throws (TDZ
+  // for let bindings; undefined for var hoisted but not yet assigned).
   let practiceColor       = null;
   let practiceSearchToken = 0;
-
-  await bootEngine(currentFlavor);
-
-  // Explainer
-  // `explainer` is referenced from inside renderDissection earlier, but we
-  // actually construct it here. Use `var` so the name is hoisted (and `try`
-  // catches the TDZ during initial render before this line runs).
   var explainer = new Explainer({ engine, board, ui });
   explainer.wire();
   explainer.setFen(board.fen());
+
+  await bootEngine(currentFlavor);
 
   // ────────── Engine control <-> UI ──────────
 
@@ -5083,8 +5079,8 @@ async function main() {
     const keyBtn     = document.getElementById('global-ai-key');   // for references below
 
     function renderHeuristic() {
+      if (!coachHeuristic) return;  // element removed in unified-panel refactor
       const fen = board.isAtLive() ? board.fen() : rebuildFenAtPly(board.chess, board.viewPly);
-      // Use the latest engine top if we have it
       const engineTop = engine && engine.history && engine.history.length
         ? engine.history[engine.history.length - 1]
         : null;
