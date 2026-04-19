@@ -858,6 +858,88 @@ async function main() {
     }, 160);
   }
 
+  // ─── Auto-save draft ─────────────────────────────────────────────
+  // Persist the current in-progress game (practice OR analysis) on every
+  // move so a closed tab / refresh doesn't wipe it out. Throttled to
+  // once per 800ms. Saves: FEN + full PGN + starting FEN + practice
+  // metadata. Restored with a prompt on next page load if present.
+  const DRAFT_KEY = 'stockfish-explain.draft-game';
+  let draftSaveTimer = 0;
+  function scheduleDraftSave() {
+    if (draftSaveTimer) clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(() => {
+      draftSaveTimer = 0;
+      try {
+        // Only save if there's actual content to save.
+        const hist = board.chess.history();
+        if (!hist.length) { localStorage.removeItem(DRAFT_KEY); return; }
+        const draft = {
+          savedAt:      Date.now(),
+          pgn:          board.tree.pgn(),
+          startingFen:  board.startingFen,
+          fen:          board.fen(),
+          orientation:  board.orientation,
+          practiceColor,
+          practiceFinished: document.body.classList.contains('practice-finished'),
+        };
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } catch (err) { console.warn('[draft] save failed', err); }
+    }, 800);
+  }
+  function clearDraft() {
+    if (draftSaveTimer) clearTimeout(draftSaveTimer);
+    try { localStorage.removeItem(DRAFT_KEY); } catch {}
+  }
+  function maybeRestoreDraft() {
+    let draft;
+    try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { return; }
+    if (!draft || !draft.pgn) return;
+    const age = Math.max(0, Date.now() - (draft.savedAt || 0));
+    const ageMins = Math.round(age / 60000);
+    const ageLabel = ageMins < 1 ? 'just now' : ageMins < 60 ? `${ageMins} min ago` : `${Math.round(ageMins / 60)} h ago`;
+    if (!confirm(`Resume the game in progress (saved ${ageLabel})?\n\nClick Cancel to discard it and start fresh.`)) {
+      clearDraft();
+      return;
+    }
+    try {
+      board.newGame();
+      if (draft.startingFen && draft.startingFen !== board.startingFen) {
+        board.chess.load(draft.startingFen);
+        board.startingFen = draft.startingFen;
+      }
+      // Replay the moves from the PGN body — tree.pgn() writes SAN moves
+      // after the tag block. Parse the move text and play each.
+      const pgnBody = (draft.pgn.split('\n\n').slice(-1)[0] || '').replace(/\{[^}]*\}/g, '').replace(/\([^)]*\)/g, '').trim();
+      const sanTokens = pgnBody
+        .split(/\s+/)
+        .filter(t => t && !/^\d+\.+$/.test(t) && !/^(1-0|0-1|1\/2-1\/2|\*)$/.test(t));
+      for (const san of sanTokens) {
+        try { board.chess.move(san, { sloppy: true }); } catch {}
+      }
+      // Hard re-render
+      board.cg.set({ fen: board.chess.fen(), turnColor: board.chess.turn() === 'w' ? 'white' : 'black' });
+      if (draft.orientation && draft.orientation !== board.orientation) board.flipBoard();
+      if (draft.practiceColor) {
+        practiceColor = draft.practiceColor;
+        document.body.classList.add('practice-mode');
+        if (draft.practiceFinished) document.body.classList.add('practice-finished');
+        const pActions = document.getElementById('practice-actions');
+        if (pActions) pActions.hidden = false;
+        const pLive = document.getElementById('practice-live');
+        const pOver = document.getElementById('practice-over');
+        if (pLive) pLive.hidden = !!draft.practiceFinished;
+        if (pOver) pOver.hidden = !draft.practiceFinished;
+      }
+      board.dispatchEvent(new CustomEvent('move'));
+    } catch (err) {
+      console.warn('[draft] restore failed', err);
+      clearDraft();
+    }
+  }
+  // Restore on first paint, after the main() setup has finished
+  // populating board + UI.
+  setTimeout(maybeRestoreDraft, 150);
+
   function fireAnalysis() {
     // Invalidate any practice-mode bestmove listener that's still waiting
     // on the previous position — when engine.stop() below triggers, the
@@ -975,6 +1057,7 @@ async function main() {
   board.addEventListener('move',     () => {
     if (window.__threatMode) window.__exitThreatMode({ silent: true });
     renderMoveList(); fireAnalysis();
+    scheduleDraftSave();
   });
   // Non-move tree mutations (adding a Stockfish PV as a variation via
   // right-click, promoting, deleting) still need the move list to
@@ -990,6 +1073,7 @@ async function main() {
     document.body.classList.remove('practice-mode', 'practice-thinking', 'practice-finished');
     const pActions = document.getElementById('practice-actions');
     if (pActions) pActions.hidden = true;
+    clearDraft();
     renderMoveList(); fireAnalysis();
   });
   board.addEventListener('undo',     () => {
