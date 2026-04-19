@@ -889,16 +889,18 @@ async function main() {
   };
   function formatClockTime(ms) {
     if (ms == null || ms < 0) ms = 0;
-    const total = Math.round(ms / 1000);
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
+    const totalFloor = Math.floor(ms / 1000);
+    const h = Math.floor(totalFloor / 3600);
+    const m = Math.floor((totalFloor % 3600) / 60);
+    const s = totalFloor % 60;
     if (h > 0) return `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-    // Show tenths-of-a-second only in count-DOWN critical time. In
-    // count-up mode, tenths make the clock feel frantic — keep whole
-    // seconds always.
-    if (clock.mode === 'down' && ms < 20_000) {
-      return `${m}:${s.toString().padStart(2,'0')}.${Math.floor((ms % 1000) / 100)}`;
+    // Under 30 seconds in count-DOWN mode: show centiseconds (SS.ms)
+    // so the user can track the last frantic moments. Above that, whole
+    // seconds only — count-up mode never shows ms since it's not
+    // conceptually tied to running out of time.
+    if (clock.mode === 'down' && ms < 30_000) {
+      const cs = Math.floor((ms % 1000) / 10).toString().padStart(2,'0');
+      return `${m}:${s.toString().padStart(2,'0')}.${cs}`;
     }
     return `${m}:${s.toString().padStart(2,'0')}`;
   }
