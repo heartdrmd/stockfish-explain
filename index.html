@@ -262,11 +262,11 @@
              flex order so the user's own clock is always on the bottom. -->
         <div class="clock-display" id="clock-digital" data-user-color="white">
           <div class="clock-side" id="clock-black">
-            <div class="clock-piece">♚</div>
+            <span class="clock-piece clock-letter">B</span>
             <span class="clock-time" id="clock-time-b">—</span>
           </div>
           <div class="clock-side" id="clock-white">
-            <div class="clock-piece">♚</div>
+            <span class="clock-piece clock-letter">W</span>
             <span class="clock-time" id="clock-time-w">—</span>
           </div>
         </div>
@@ -600,18 +600,23 @@
           <small class="muted">Style biases the engine toward a specific type of move from its top candidates. Skill still controls raw strength.</small>
         </div>
         <div class="setting" style="grid-column: 1 / -1;">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
-            <input type="checkbox" id="practice-use-clock">
-            ⏱ Use chess clock (timed game)
-          </label>
-          <small class="muted">Off = <strong>untimed</strong> game — the clock counts <strong>UP</strong> showing time used per move and total. On = real chess clock counting DOWN with bullet/blitz/rapid presets and optional increment.</small>
-          <div style="margin-top:6px;">
+          <label for="practice-clock-mode" style="font-weight:600;">⏱ Clock mode</label>
+          <select id="practice-clock-mode">
+            <option value="none" selected>No clock — hide the clock card entirely</option>
+            <option value="untimed">Untimed — clock counts UP showing time used</option>
+            <option value="timed">Timed — real chess clock counting DOWN (preset or custom)</option>
+          </select>
+          <small class="muted" id="practice-clock-mode-hint">No clock will be shown during this game. Switch to Timed to enable a real chess clock.</small>
+          <div style="margin-top:6px;" id="practice-untimed-inc-wrap" hidden>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
               <input type="checkbox" id="practice-untimed-increment-on">
               Untimed mode: add increment per move (seconds)
               <input id="practice-untimed-increment" type="number" min="0" max="60" value="0" style="width:60px;padding:2px 6px;" disabled>
             </label>
           </div>
+          <!-- Legacy hidden checkbox kept so any code/localStorage-draft that
+               still reads it doesn't break. Derived from the new dropdown. -->
+          <input type="checkbox" id="practice-use-clock" hidden>
         </div>
         <div class="setting" id="practice-limit-row">
           <label for="practice-limit">Engine think time / move</label>

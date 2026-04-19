@@ -3258,16 +3258,33 @@ async function main() {
       if (pMode.value === 'depth')    pVal.value = 14;
       if (pMode.value === 'movetime') pVal.value = 1500;
     });
-    // ⏱ Use chess clock checkbox — master toggle for clock mode.
-    const pUseClock   = document.getElementById('practice-use-clock');
+    // Clock-mode 3-way dropdown: 'none' | 'untimed' | 'timed'
+    const pUseClock   = document.getElementById('practice-use-clock');  // legacy hidden
+    const pClockMode  = document.getElementById('practice-clock-mode');
     const pLimitRow   = document.getElementById('practice-limit-row');
     const pClockRow   = document.getElementById('practice-clock-row');
+    const pClockHint  = document.getElementById('practice-clock-mode-hint');
+    const pUntimedInc = document.getElementById('practice-untimed-inc-wrap');
     const applyClockToggle = () => {
-      const on = pUseClock && pUseClock.checked;
-      if (pClockRow) pClockRow.style.display = on ? 'block' : 'none';
-      if (pLimitRow) pLimitRow.style.display = on ? 'none' : 'block';
+      const mode = pClockMode?.value || 'none';
+      const isTimed   = mode === 'timed';
+      const isUntimed = mode === 'untimed';
+      // Preset row only for timed; limit-by-depth/movetime row always visible.
+      if (pClockRow)   pClockRow.style.display   = isTimed ? 'block' : 'none';
+      if (pLimitRow)   pLimitRow.style.display   = 'block';
+      if (pUntimedInc) pUntimedInc.hidden        = !isUntimed;
+      if (pClockHint) {
+        pClockHint.textContent = isTimed
+          ? 'Real chess clock — ticks down from your preset, flag falls at 0, loses on time.'
+          : isUntimed
+            ? 'Untimed — clock counts up showing time used per move + total. Increment optional.'
+            : 'No clock will be shown during this game. Switch to Timed to enable a real chess clock.';
+      }
+      // Keep legacy checkbox in sync for any caller still reading it.
+      if (pUseClock) pUseClock.checked = isTimed;
     };
-    if (pUseClock) pUseClock.addEventListener('change', applyClockToggle);
+    if (pClockMode) pClockMode.addEventListener('change', applyClockToggle);
+    if (pUseClock)  pUseClock.addEventListener('change', applyClockToggle);
     applyClockToggle();
     const pClockPreset = document.getElementById('practice-clock-preset');
     const pClockCustom = document.getElementById('practice-clock-custom');
@@ -3334,7 +3351,11 @@ async function main() {
       const op = pickedPracticeOpening();
       const color = pColor.value;       // 'white' | 'black'
       const skill = +pStren.value;
-      const useClock  = pUseClock && pUseClock.checked;
+      // Derive useClock / limitMode from the new 3-way dropdown. Legacy
+      // checkbox kept in sync for any other code still reading it.
+      const clockModeEarly = document.getElementById('practice-clock-mode')?.value || 'none';
+      const useClock  = clockModeEarly === 'timed';
+      if (pUseClock) pUseClock.checked = useClock;
       const limitMode = useClock ? 'clock' : pMode.value;
       const limitVal  = +pVal.value;
       const style     = document.getElementById('practice-style')?.value || 'default';
@@ -3420,7 +3441,18 @@ async function main() {
       //                                              move with increment
       //   - useClock = false + no increment → count-UP clock just
       //                                       showing time used
-      if (limitMode === 'clock') {
+      // Clock mode is driven by the 3-way dropdown:
+      //   'none'    — no clock card at all (hide it)
+      //   'untimed' — clock counts UP tracking time used (+ optional inc)
+      //   'timed'   — real chess clock counting DOWN (preset or custom)
+      const clockModeEl = document.getElementById('practice-clock-mode');
+      const clockMode = clockModeEl?.value || 'none';
+      const clockCard = document.getElementById('practice-clock');
+      if (clockMode === 'none') {
+        if (clockCard) clockCard.hidden = true;
+        try { stopClock(); } catch {}
+      } else if (clockMode === 'timed') {
+        if (clockCard) clockCard.hidden = false;
         let minutes = 5, inc = 3;
         const preset = document.getElementById('practice-clock-preset')?.value;
         if (preset === 'custom') {
@@ -3433,6 +3465,7 @@ async function main() {
         startClock(minutes, inc, 'down');
       } else {
         // Untimed — count UP to show time used. Increment optional.
+        if (clockCard) clockCard.hidden = false;
         const useUntimedInc = document.getElementById('practice-untimed-increment-on')?.checked;
         const incSec = useUntimedInc
           ? (+document.getElementById('practice-untimed-increment')?.value || 0)
