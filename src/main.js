@@ -4453,13 +4453,22 @@ async function main() {
       btnPreload.textContent = '⬇ 0 / ' + ALL_ENGINE_URLS.length;
       const onMsg = (ev) => {
         const m = ev.data || {};
-        if (m.type === 'preload-progress') {
-          btnPreload.textContent = `⬇ ${m.done} / ${m.total}`;
+        if (m.type === 'preload-start') {
+          const fname = String(m.url || '').split('/').pop();
+          btnPreload.title = `Downloading ${fname}…`;
+        } else if (m.type === 'preload-progress') {
+          const failPart = m.failed ? ` (${m.failed} skipped)` : '';
+          btnPreload.textContent = `⬇ ${m.done} / ${m.total}${failPart}`;
         } else if (m.type === 'preload-done') {
-          btnPreload.textContent = '✓ Engines cached';
+          btnPreload.textContent = m.failed
+            ? `✓ Cached (${m.total - m.failed}/${m.total})`
+            : '✓ Engines cached';
           btnPreload.disabled = false;
+          btnPreload.title = m.failed
+            ? `${m.failed} files unavailable on the server — those variants fall back to lite`
+            : 'All engines cached permanently in this browser';
           navigator.serviceWorker.removeEventListener('message', onMsg);
-          setTimeout(() => { btnPreload.textContent = orig; }, 4000);
+          setTimeout(() => { btnPreload.textContent = orig; }, 6000);
         }
       };
       navigator.serviceWorker.addEventListener('message', onMsg);

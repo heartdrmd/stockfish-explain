@@ -49,25 +49,57 @@ self.addEventListener('message', async (event) => {
 
   if (msg.type === 'preload' && Array.isArray(msg.urls)) {
     const cache = await caches.open(CACHE);
+    const total = msg.urls.length;
     let done = 0;
-    for (const url of msg.urls) {
-      try {
-        const existing = await cache.match(url);
-        if (existing) {
-          done++;
-          reply({ type: 'preload-progress', url, done, total: msg.urls.length, skipped: true });
-          continue;
-        }
-        const resp = await fetch(url);
-        if (resp.ok) await cache.put(url, resp.clone());
-        done++;
-        reply({ type: 'preload-progress', url, done, total: msg.urls.length, ok: resp.ok });
-      } catch (err) {
-        done++;
-        reply({ type: 'preload-progress', url, done, total: msg.urls.length, error: String(err) });
+    let failed = 0;
+
+    // Per-file timeout so one stalled download can't hang the whole
+    // queue. Big NNUE WASMs (~108 MB) need a generous budget.
+    const FETCH_TIMEOUT_MS = 4 * 60 * 1000; // 4 min
+    // Parallel workers — keeps total wall-clock low without saturating
+    // the user's connection. CDN tends to throttle past ~4 parallel.
+    const CONCURRENCY = 4;
+
+    const fetchOne = async (url) => {
+      const existing = await cache.match(url);
+      if (existing) {
+        return { ok: true, skipped: true };
       }
-    }
-    reply({ type: 'preload-done', total: msg.urls.length });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort('timeout'), FETCH_TIMEOUT_MS);
+      try {
+        const resp = await fetch(url, { signal: ctrl.signal });
+        if (resp.ok) {
+          await cache.put(url, resp.clone());
+          return { ok: true };
+        }
+        return { ok: false, status: resp.status };
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    const queue = msg.urls.slice();
+    const worker = async () => {
+      while (queue.length) {
+        const url = queue.shift();
+        if (!url) break;
+        reply({ type: 'preload-start', url, total });
+        try {
+          const r = await fetchOne(url);
+          done++;
+          if (!r.ok) failed++;
+          reply({ type: 'preload-progress', url, done, total, failed, ok: r.ok, skipped: r.skipped, status: r.status });
+        } catch (err) {
+          done++; failed++;
+          reply({ type: 'preload-progress', url, done, total, failed, error: String(err) });
+        }
+      }
+    };
+
+    const workers = Array.from({ length: CONCURRENCY }, () => worker());
+    await Promise.all(workers);
+    reply({ type: 'preload-done', total, failed });
   }
 
   if (msg.type === 'clear') {
