@@ -434,6 +434,13 @@ export class BoardController extends EventTarget {
   flipBoard() {
     this.orientation = this.orientation === 'white' ? 'black' : 'white';
     this.cg.set({ orientation: this.orientation });
+    // Let listeners (eval gauge, any orientation-aware UI) know so
+    // they can flip along with the board. Without this the eval bar
+    // shows white-at-bottom regardless of which side the user is
+    // playing — confusing when playing Black from the bottom.
+    this.dispatchEvent(new CustomEvent('orientation-change', {
+      detail: { orientation: this.orientation },
+    }));
   }
 
   newGame() {

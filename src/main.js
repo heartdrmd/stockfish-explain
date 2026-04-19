@@ -1412,6 +1412,19 @@ async function main() {
   const boardNavFlip = document.getElementById('board-nav-flip');
   if (boardNavFlip) boardNavFlip.addEventListener('click', () => board.flipBoard());
 
+  // Sync eval-gauge orientation with the chessboard. When the user
+  // flips to play Black from the bottom, the gauge also flips so the
+  // "side at the bottom" corresponds on both the board and the bar.
+  const evalGauge = document.getElementById('eval-gauge');
+  const applyGaugeOrientation = (orientation) => {
+    if (!evalGauge) return;
+    evalGauge.classList.toggle('flipped', orientation === 'black');
+  };
+  applyGaugeOrientation(board.orientation);
+  board.addEventListener('orientation-change', (ev) => {
+    applyGaugeOrientation(ev.detail.orientation);
+  });
+
   // 📄 Log — download the captured console output so the user can send
   // it to me without having to open devtools.
   const btnDownloadLog = document.getElementById('btn-download-log');

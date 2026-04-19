@@ -8,6 +8,14 @@
   box-shadow: inset 0 0 5px rgba(0,0,0,0.5);
   overflow: hidden;
   min-height: 200px;
+  transition: transform 0.25s ease;
+}
+/* When the board is flipped to Black-at-bottom, the gauge flips with
+   it so the advantaged side always fills toward its own end of the
+   visual board. Rotated 180deg is simpler than swapping which edge
+   gauge-black is pinned to — all child positioning keeps working. */
+.eval-gauge.flipped {
+  transform: rotate(180deg);
 }
 
 .gauge-black {
