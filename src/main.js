@@ -4553,9 +4553,17 @@ async function main() {
   if (btnPreload) {
     const ALL_ENGINE_URLS = (() => {
       const urls = [];
+      const nnueSeen = new Set();
       for (const spec of Object.values(ENGINE_FLAVORS)) {
         urls.push('/' + spec.js);
         urls.push('/' + spec.js.replace(/\.js$/, '.wasm'));
+        if (spec.externalNnue) {
+          for (const path of Object.values(spec.externalNnue)) {
+            if (nnueSeen.has(path)) continue;
+            nnueSeen.add(path);
+            urls.push('/' + path);
+          }
+        }
       }
       return urls;
     })();
