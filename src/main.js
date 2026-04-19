@@ -735,6 +735,21 @@ async function main() {
     ui.engineMode.textContent = 'booting…';
     ui.engineMode.classList.remove('threaded');
     ui.narrationText.textContent = `Loading ${ENGINE_FLAVORS[flavor].label} (${ENGINE_FLAVORS[flavor].size})…`;
+
+    // Pre-boot hygiene: proactively nuke any lingering service worker
+    // + sf-engines-* caches before asking the engine to boot. Prevents
+    // a stuck/legacy SW from intercepting the WASM fetch and wedging
+    // boot forever. Runs in parallel with engine.boot() below so it
+    // doesn't add to the boot wall-clock when everything is clean.
+    (async () => {
+      try {
+        const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+        await Promise.all(regs.map(r => r.unregister()));
+        const keys = await caches.keys();
+        await Promise.all(keys.filter(k => k.startsWith('sf-engines-')).map(k => caches.delete(k)));
+      } catch {}
+    })();
+
     try {
       // Race boot against a size-aware timeout so users see an error
       // instead of an infinite "booting…" when something upstream (stuck
