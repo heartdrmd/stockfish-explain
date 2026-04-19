@@ -1951,6 +1951,42 @@ body.practice-mode .practice-card { display: block; }
   stroke: rgba(255, 255, 255, 0.45);
   stroke-width: 1;
 }
+
+/* Accuracy pills — one per ply, coloured by move quality. */
+.accuracy-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 4px 0;
+}
+.accuracy-pills .acc-pill {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.08s;
+  border: 1px solid rgba(0,0,0,0.3);
+}
+.accuracy-pills .acc-pill:hover { transform: scale(1.4); z-index: 2; }
+.accuracy-pills .acc-pill.current { outline: 2px solid #ffc107; outline-offset: 1px; }
+/* Quality colours — green → red gradient via six bins */
+.accuracy-pills .acc-best       { background: #22c55e; }  /* best or near-best */
+.accuracy-pills .acc-good       { background: #84cc16; }  /* within 30 cp */
+.accuracy-pills .acc-ok         { background: #facc15; }  /* within 80 cp  */
+.accuracy-pills .acc-inaccuracy { background: #f59e0b; }  /* 50-100 cp drop (mover POV) */
+.accuracy-pills .acc-mistake    { background: #fb7185; }  /* 100-200 cp drop */
+.accuracy-pills .acc-blunder    { background: #dc2626; }  /* 200+ cp drop */
+.accuracy-pills .acc-unknown    { background: #555;    }  /* eval unavailable */
+.accuracy-pills .acc-move-label {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  font-size: 7px;
+  color: rgba(255,255,255,0.7);
+  font-weight: 700;
+  pointer-events: none;
+}
 .eval-timeline-svg .eval-dot {
   cursor: pointer;
   transition: r 0.1s;

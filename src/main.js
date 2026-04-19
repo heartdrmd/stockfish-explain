@@ -1482,112 +1482,90 @@ async function main() {
   board.addEventListener('nav',      schedulePawnStripRender);
   setTimeout(renderPawnStrip, 250);
 
-  // ─── King-safety timeline (#6) ────────────────────────────────
-  // Two lines (White / Black) showing how loaded each king is against
-  // attack patterns, read from king_attack.detectKingAttack at each
-  // sampled ply. Spikes highlight Greek-gift / open-h / back-rank /
-  // outpost moments. Cached per-FEN to avoid recomputing the detector.
-  const kingAttackCache = new Map();
-  function detectKingAttackCached(fen) {
-    if (kingAttackCache.has(fen)) return kingAttackCache.get(fen);
-    let out = null;
-    try {
-      // Pull from coach_v2's pipeline which runs the detector.
-      const ar = CoachV2.coachReport(fen, { topMoves: [] });
-      out = ar && ar.kingAttack ? ar.kingAttack : [];
-    } catch {}
-    if (kingAttackCache.size > 200) {
-      kingAttackCache.delete(kingAttackCache.keys().next().value);
-    }
-    kingAttackCache.set(fen, out);
-    return out;
+  // ─── Per-ply accuracy pills (replaces the old king-safety chart) ───
+  // One tiny coloured square per move, graded by how much the mover
+  // dropped in eval (from their own POV). Six bins:
+  //   blunder  — drop ≥ 200 cp       (red)
+  //   mistake  — drop 100-199        (rose)
+  //   inacc    — drop 50-99          (orange)
+  //   ok       — drop 20-49          (yellow)
+  //   good     — drop 0-19           (lime)
+  //   best     — drop ≤ 0 (SF agrees or improved)  (green)
+  // More compact and actionable than the king-safety SVG — matches
+  // Lichess's move-classification vocabulary.
+  function classifyAccuracy(prev, cur) {
+    if (!prev || prev.cpWhite == null || cur.cpWhite == null) return 'unknown';
+    // POV of the side that moved = opposite of side-to-move AFTER.
+    const stmAfter = cur.fen.split(' ')[1] || 'w';
+    const moverSign = stmAfter === 'w' ? -1 : 1;
+    const cpBeforeMover = moverSign * prev.cpWhite;
+    const cpAfterMover  = moverSign * cur.cpWhite;
+    const drop = cpBeforeMover - cpAfterMover;
+    if (drop >= 200) return 'blunder';
+    if (drop >= 100) return 'mistake';
+    if (drop >=  50) return 'inaccuracy';
+    if (drop >=  20) return 'ok';
+    if (drop >=   0) return 'good';
+    return 'best';
   }
-  // For each king-attack entry, sum readiness per side. Range ~0-10 per
-  // side in extreme cases; most positions are 0.
-  function kingSafetyAt(fen) {
-    const entries = detectKingAttackCached(fen) || [];
-    let w = 0, b = 0;
-    for (const e of entries) {
-      const r = Math.max(0, e.readiness || 0);
-      if (e.side === 'w') w += r;
-      else if (e.side === 'b') b += r;
-      else { w += r / 2; b += r / 2; } // "both" (opposite-side castling)
-    }
-    return { w, b };
-  }
-  function renderKingSafetyTimeline() {
-    const root = document.getElementById('king-safety-timeline');
-    const svg  = document.getElementById('king-safety-svg');
-    const stats = document.getElementById('king-safety-stats');
-    if (!root || !svg) return;
+  function renderAccuracyStrip() {
+    const root = document.getElementById('accuracy-strip');
+    const container = document.getElementById('accuracy-pills');
+    const stats = document.getElementById('accuracy-stats');
+    if (!root || !container) return;
     if (root.dataset.userHidden) { root.hidden = true; return; }
     const plies = collectTimelinePlies();
-    if (plies.length < 4) { root.hidden = true; return; }
+    if (plies.length < 3) { root.hidden = true; return; }
     root.hidden = false;
 
-    const W = 600, H = 80;
-    const pad = 6;
-    const span = W - 2 * pad;
-    const stepX = plies.length > 1 ? span / (plies.length - 1) : span;
-    // Fixed-ceiling scaling so a score of 5+ already consumes most of
-    // the vertical space — this matches the user's expectation that
-    // "loaded king geometry" (Greek gift, open h-file, back rank, etc.)
-    // should produce a dramatic spike, not a small bump.
-    const CEILING = 8;
-    const series = plies.map((p, i) => {
-      const s = kingSafetyAt(p.fen);
-      return { x: pad + i * stepX, w: s.w, b: s.b, p };
-    });
-    // Power curve: y = (pressure / ceiling)^0.6 hits 50% at pressure
-    // ~2, 80% at 5, 95% at 7. Matches "even a small attacking idea
-    // registers; a full geometry nearly maxes the chart".
-    const yFor = (pressure) => {
-      const clamped = Math.max(0, Math.min(CEILING, pressure));
-      const t = Math.pow(clamped / CEILING, 0.6);
-      return Math.max(4, H - pad - t * (H - 2 * pad - 4));
-    };
-    const wLinePts = series.map(pt => `${pt.x.toFixed(1)},${yFor(pt.w).toFixed(1)}`).join(' ');
-    const bLinePts = series.map(pt => `${pt.x.toFixed(1)},${yFor(pt.b).toFixed(1)}`).join(' ');
-    // Mark spikes where pressure >= 5 (geometry genuinely loaded).
-    let spikes = '';
-    for (const pt of series) {
-      if (pt.w >= 5) spikes += `<circle cx="${pt.x.toFixed(1)}" cy="${yFor(pt.w).toFixed(1)}" r="3" fill="#dc3545"><title>White king under pressure (${pt.w.toFixed(0)}) at ply ${pt.p.ply}</title></circle>`;
-      if (pt.b >= 5) spikes += `<circle cx="${pt.x.toFixed(1)}" cy="${yFor(pt.b).toFixed(1)}" r="3" fill="#5865f2"><title>Black king under pressure (${pt.b.toFixed(0)}) at ply ${pt.p.ply}</title></circle>`;
+    const pills = [];
+    const counts = { best: 0, good: 0, ok: 0, inaccuracy: 0, mistake: 0, blunder: 0, unknown: 0 };
+    const curViewPly = board.viewPly == null ? plies.length - 1 : Math.min(plies.length - 1, board.viewPly);
+    for (let i = 1; i < plies.length; i++) {
+      const prev = plies[i - 1], cur = plies[i];
+      const q = classifyAccuracy(prev, cur);
+      counts[q] = (counts[q] || 0) + 1;
+      const stmAfter = cur.fen.split(' ')[1] || 'w';
+      const moverIsWhite = stmAfter === 'b';
+      const isCurrent = i === curViewPly;
+      const move = `${Math.ceil(cur.ply/2)}${cur.ply%2===1?'.':'...'} ${cur.san}`;
+      const evalStr = prev.cpWhite != null && cur.cpWhite != null
+        ? `${((prev.cpWhite ?? 0) / 100).toFixed(2)} → ${((cur.cpWhite ?? 0) / 100).toFixed(2)}`
+        : 'eval unavailable';
+      pills.push(
+        `<div class="acc-pill acc-${q}${isCurrent ? ' current' : ''}" data-ply="${cur.ply}"` +
+        ` title="${move} · ${moverIsWhite ? 'White' : 'Black'} · ${q} · ${evalStr} (White POV)"></div>`
+      );
     }
-    // Cursor at current ply
-    const curIdx = board.viewPly == null ? series.length - 1 : Math.min(series.length - 1, board.viewPly);
-    const cx = series[curIdx]?.x;
-    const cursor = cx != null ? `<line stroke="#ffc107" stroke-width="2" stroke-opacity="0.7" x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="4" y2="${H-4}"/>` : '';
-    svg.innerHTML =
-      `<polyline points="${wLinePts}" fill="none" stroke="#dc3545" stroke-width="1.5" stroke-opacity="0.8"/>` +
-      `<polyline points="${bLinePts}" fill="none" stroke="#5865f2" stroke-width="1.5" stroke-opacity="0.8"/>` +
-      spikes + cursor;
+    container.innerHTML = pills.join('');
+    const decisiveCount = counts.blunder + counts.mistake;
+    stats.textContent =
+      `${plies.length - 1} moves · ${counts.best + counts.good} best/good · ` +
+      `${counts.inaccuracy} inaccuracies · ${counts.mistake} mistakes · ${counts.blunder} blunders` +
+      (counts.unknown ? ` · ${counts.unknown} unanalysed` : '');
 
-    const peakW = Math.max(0, ...series.map(s => s.w));
-    const peakB = Math.max(0, ...series.map(s => s.b));
-    stats.textContent = `${plies.length - 1} plies · peak pressure on White king ${peakW.toFixed(0)} · on Black king ${peakB.toFixed(0)}`;
-
-    svg.onclick = (ev) => {
-      const rect = svg.getBoundingClientRect();
-      const x = (ev.clientX - rect.left) / rect.width * W;
-      let bestI = 0, bestDist = Infinity;
-      for (let i = 0; i < series.length; i++) {
-        const d = Math.abs(series[i].x - x);
-        if (d < bestDist) { bestDist = d; bestI = i; }
-      }
-      const targetPly = series[bestI].p.ply;
-      if (board.goToPly) board.goToPly(targetPly === 0 ? 0 : targetPly);
+    // Click a pill → jump to that ply.
+    container.onclick = (ev) => {
+      const pill = ev.target.closest('.acc-pill');
+      if (!pill) return;
+      const ply = +pill.dataset.ply;
+      if (board.goToPly) board.goToPly(ply);
     };
   }
-  let kingSafetyTimer = 0;
-  function scheduleKingSafetyRender() {
-    if (kingSafetyTimer) return;
-    kingSafetyTimer = setTimeout(() => { kingSafetyTimer = 0; renderKingSafetyTimeline(); }, 180);
+  let accuracyTimer = 0;
+  function scheduleAccuracyRender() {
+    if (accuracyTimer) return;
+    accuracyTimer = setTimeout(() => { accuracyTimer = 0; renderAccuracyStrip(); }, 120);
   }
-  board.addEventListener('move',     scheduleKingSafetyRender);
-  board.addEventListener('new-game', scheduleKingSafetyRender);
-  board.addEventListener('nav',      scheduleKingSafetyRender);
-  setTimeout(renderKingSafetyTimeline, 300);
+  board.addEventListener('move',     scheduleAccuracyRender);
+  board.addEventListener('new-game', scheduleAccuracyRender);
+  board.addEventListener('nav',      scheduleAccuracyRender);
+  setTimeout(renderAccuracyStrip, 300);
+
+  // Back-compat stub so the panel-toggle code that references the old
+  // king-safety scheduler doesn't crash. Renamed callers will still
+  // fire this alongside the accuracy renderer.
+  function scheduleKingSafetyRender() { scheduleAccuracyRender(); }
 
   // ─── Panel hide/show (per-panel ✕ + header 👁 Panels menu) ─────────
   const PANEL_HIDE_KEY = 'stockfish-explain.panel-hidden';
@@ -1600,7 +1578,7 @@ async function main() {
   };
   const applyHiddenPanels = () => {
     const hidden = loadHiddenPanels();
-    for (const id of ['eval-timeline', 'king-safety-timeline', 'pawn-strip']) {
+    for (const id of ['eval-timeline', 'accuracy-strip', 'pawn-strip']) {
       const el = document.getElementById(id);
       if (!el) continue;
       if (hidden[id]) { el.dataset.userHidden = '1'; el.hidden = true; }
@@ -1630,9 +1608,9 @@ async function main() {
     const hidden = loadHiddenPanels();
     const hiddenIds = Object.keys(hidden).filter(k => hidden[k]);
     const all = [
-      { id: 'eval-timeline',         label: '📈 Eval timeline' },
-      { id: 'king-safety-timeline',  label: '👑 King-safety pressure' },
-      { id: 'pawn-strip',            label: '♟ Pawn structure' },
+      { id: 'eval-timeline',     label: '📈 Eval timeline' },
+      { id: 'accuracy-strip',    label: '🎯 Move accuracy' },
+      { id: 'pawn-strip',        label: '♟ Pawn structure' },
     ];
     const popup = document.createElement('div');
     popup.className = 'modal';

@@ -371,14 +371,18 @@
         <svg id="eval-timeline-svg" class="eval-timeline-svg" viewBox="0 0 600 100" preserveAspectRatio="none"></svg>
       </div>
 
-      <!-- King-safety timeline (#6) -->
-      <div id="king-safety-timeline" class="eval-timeline" hidden>
+      <!-- Per-ply accuracy pills — one coloured dot per move, graded
+           by how close to Stockfish's #1 pick it was. Replaces the
+           old king-safety graph which was too binary/noisy to be
+           useful. Green = best/good, yellow = inaccuracy, orange =
+           mistake, red = blunder. -->
+      <div id="accuracy-strip" class="eval-timeline" hidden>
         <div class="eval-timeline-header">
-          <span class="eval-timeline-title">👑 King-safety pressure</span>
-          <span class="eval-timeline-stats" id="king-safety-stats"></span>
-          <button class="panel-hide-btn" data-panel="king-safety-timeline" title="Hide this panel">✕</button>
+          <span class="eval-timeline-title">🎯 Move accuracy</span>
+          <span class="eval-timeline-stats" id="accuracy-stats"></span>
+          <button class="panel-hide-btn" data-panel="accuracy-strip" title="Hide this panel">✕</button>
         </div>
-        <svg id="king-safety-svg" class="eval-timeline-svg" viewBox="0 0 600 80" preserveAspectRatio="none" style="background:linear-gradient(180deg,rgba(200,200,200,0.1) 0%,rgba(100,100,100,0.3) 100%);height:60px;"></svg>
+        <div id="accuracy-pills" class="accuracy-pills"></div>
       </div>
 
       <!-- Pawn-structure evolution strip (#5) -->
