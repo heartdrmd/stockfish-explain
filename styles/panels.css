@@ -2187,6 +2187,119 @@ body.practice-mode .practice-card { display: block; }
     0 0 14px rgba(232,216,117,0.35);
 }
 
+/* ─── digital-chronos — Chronos GX tournament clock (blue) ───
+   Iconic elongated charcoal case with two side-by-side blue 7-segment
+   displays. Lays out horizontally (row) instead of the default column
+   so it reads like the real unit on a tournament table. The column-
+   reverse trick for user-color matching is swapped to row-reverse. */
+.clock-display[data-style="digital-chronos"] {
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 18px 10px;
+  background:
+    linear-gradient(180deg, #1b1d22 0%, #0d0e11 50%, #1b1d22 100%);
+  border-radius: 16px;
+  border: 1px solid #2a2d33;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -2px 6px rgba(0,0,0,0.6),
+    0 4px 14px rgba(0,0,0,0.45);
+  position: relative;
+}
+.clock-display[data-style="digital-chronos"]::before {
+  /* CHRONOS GX brand plate */
+  content: 'CHRONOS GX';
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.42em;
+  color: #4b6fb5;
+  text-shadow: 0 0 4px rgba(75,111,181,0.6);
+}
+.clock-display[data-style="digital-chronos"][data-user-color="black"] {
+  flex-direction: row-reverse;
+}
+.clock-display[data-style="digital-chronos"] .clock-side {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 10px 10px;
+  background:
+    radial-gradient(ellipse at top, #0a0f1c 0%, #05080f 70%);
+  border-radius: 10px;
+  border: 1px solid #1a2238;
+  box-shadow:
+    inset 0 2px 6px rgba(0,0,0,0.8),
+    inset 0 0 18px rgba(20,60,160,0.12);
+  position: relative;
+}
+.clock-display[data-style="digital-chronos"] .clock-side::after {
+  /* small indicator LED that lights up for the ticking side */
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1a2232;
+  box-shadow: inset 0 0 2px rgba(0,0,0,0.8);
+}
+.clock-display[data-style="digital-chronos"] .clock-side.active::after {
+  background: #3b8bff;
+  box-shadow:
+    0 0 6px #3b8bff,
+    0 0 14px rgba(59,139,255,0.7);
+}
+.clock-display[data-style="digital-chronos"] .clock-piece {
+  font-size: 18px;
+  line-height: 1;
+  color: #5687e8;
+  text-shadow: 0 0 3px rgba(86,135,232,0.6);
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.clock-display[data-style="digital-chronos"] .clock-side#clock-white .clock-piece { color: #eaf2ff; text-shadow: 0 0 3px rgba(200,220,255,0.6); }
+.clock-display[data-style="digital-chronos"] .clock-side#clock-black .clock-piece { color: #3b5aa0; text-shadow: 0 0 3px rgba(59,90,160,0.6); }
+.clock-display[data-style="digital-chronos"] .clock-time {
+  font-family: 'DSEG7 Classic', 'Courier New', monospace;
+  font-weight: 700;
+  font-size: 36px;
+  letter-spacing: 0.04em;
+  color: #4fa0ff;
+  text-shadow:
+    0 0 2px #4fa0ff,
+    0 0 8px rgba(79,160,255,0.9),
+    0 0 22px rgba(59,139,255,0.55);
+  padding: 2px 8px;
+  background: transparent;
+}
+.clock-display[data-style="digital-chronos"] .clock-side.active .clock-time {
+  color: #87c5ff;
+  text-shadow:
+    0 0 2px #87c5ff,
+    0 0 10px #4fa0ff,
+    0 0 28px rgba(79,160,255,0.8);
+}
+.clock-display[data-style="digital-chronos"] .clock-side.low-time .clock-time {
+  color: #ffd04a;
+  text-shadow: 0 0 3px #ffd04a, 0 0 12px rgba(255,208,74,0.8);
+}
+.clock-display[data-style="digital-chronos"] .clock-side.critical-time .clock-time {
+  color: #ff5a4a;
+  text-shadow: 0 0 3px #ff5a4a, 0 0 14px rgba(255,90,74,0.9);
+}
+
 /* ─── Hierarchical opening tree (practice modal) ─── */
 .practice-opening-tree {
   max-height: 320px;
