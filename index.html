@@ -180,6 +180,11 @@
           <p class="confidence-reason muted">The engine hasn't thought yet.</p>
         </div>
       </div>
+      <div class="side-card">
+        <h3>Save position</h3>
+        <button id="btn-save-as-opening" class="practice-btn save-btn" style="width:100%;">💾 Save as practice opening</button>
+        <p class="muted" style="font-size:11px;margin:6px 0 0;">Capture the current line as a named variation. It'll appear in the practice opening list next time.</p>
+      </div>
 
       <!-- Practice game-flow controls — hidden unless a practice game is
            active. Splits into TWO states: in-progress (Resign / Offer
@@ -410,7 +415,9 @@
         </div>
         <div class="setting" id="practice-opening-row" style="grid-column: 1 / -1;">
           <label for="practice-opening">Opening</label>
-          <select id="practice-opening" class="tourn-select"></select>
+          <input id="practice-opening-search" type="search" placeholder="🔎 Search openings… (try 'Najdorf', 'London', 'Maroczy')" autocomplete="off" spellcheck="false">
+          <small class="muted" id="practice-opening-search-count" style="font-size: 11px;"></small>
+          <select id="practice-opening" class="tourn-select" size="8" style="min-height:180px;"></select>
           <small class="muted" id="practice-opening-moves" style="font-family: var(--font-mono); font-size: 11px;"></small>
         </div>
         <div class="setting">
@@ -442,6 +449,36 @@
 
       <div class="tournament-actions">
         <button id="practice-start" class="btn" style="background:var(--c-secondary);color:white">▶ Start practice</button>
+        <button id="practice-replay" class="btn" style="background:var(--c-accent,#7aa7ff);color:white" hidden>🔁 Replay last (<span id="practice-replay-name">—</span>)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save-as-practice-opening modal — small modal triggered from the
+       sidebar "Save as practice opening" button. Lets the user name
+       the custom variation and place it under an existing group or a
+       new one. -->
+  <div id="save-opening-modal" class="modal" hidden>
+    <div class="modal-card">
+      <button class="modal-close" id="save-opening-close">×</button>
+      <h3>💾 Save current position as a practice opening</h3>
+      <p class="muted">Captures the moves played so far. Next time you open Practice, this variation appears in the dropdown under the group you pick.</p>
+      <div class="tournament-setup">
+        <div class="setting" style="grid-column: 1 / -1;">
+          <label for="save-opening-name">Name</label>
+          <input id="save-opening-name" type="text" placeholder="e.g. 'My Najdorf trap line'" maxlength="80">
+        </div>
+        <div class="setting" style="grid-column: 1 / -1;">
+          <label for="save-opening-group">Place under</label>
+          <select id="save-opening-group" class="tourn-select"></select>
+          <input id="save-opening-new-group" type="text" placeholder="New group name (leave blank to reuse the one above)" style="margin-top:6px;" maxlength="60">
+        </div>
+        <div class="setting" style="grid-column: 1 / -1;">
+          <small class="muted" id="save-opening-preview" style="font-family:var(--font-mono);font-size:11px;display:block;"></small>
+        </div>
+      </div>
+      <div class="tournament-actions">
+        <button id="save-opening-submit" class="btn" style="background:var(--c-secondary);color:white">💾 Save</button>
       </div>
     </div>
   </div>

@@ -1289,21 +1289,83 @@ async function main() {
     const pVal   = document.getElementById('practice-limit-value');
     const pStart = document.getElementById('practice-start');
 
-    // Populate opening dropdown identically to tournament
-    for (const group of OPENINGS) {
-      const og = document.createElement('optgroup');
-      og.label = group.group;
-      for (let i = 0; i < group.items.length; i++) {
-        const o = document.createElement('option');
-        o.value = `${group.group}//${i}`;
-        o.textContent = group.items[i].name;
-        og.appendChild(o);
+    // ─── Custom (user-saved) practice openings ────────────────────
+    // Stored in localStorage as an array of { group, name, moves[] }.
+    // Merged into the OPENINGS list every time the modal is rebuilt so
+    // any saves from this session show up immediately next time.
+    const CUSTOM_STORAGE_KEY = 'stockfish-explain.practice-custom-openings';
+    const loadCustomOpenings = () => {
+      try {
+        const raw = localStorage.getItem(CUSTOM_STORAGE_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+      } catch { return []; }
+    };
+    const saveCustomOpenings = (arr) => {
+      try { localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(arr)); } catch {}
+    };
+    const mergedOpenings = () => {
+      // Start with a deep-copy of OPENINGS so we don't mutate imports,
+      // then fold in custom entries under their declared group. If the
+      // group doesn't exist yet, append it at the end.
+      const byGroup = new Map();
+      for (const g of OPENINGS) byGroup.set(g.group, { group: g.group, items: [...g.items] });
+      for (const co of loadCustomOpenings()) {
+        if (!byGroup.has(co.group)) byGroup.set(co.group, { group: co.group, items: [] });
+        byGroup.get(co.group).items.push({
+          name: co.name, moves: co.moves, _custom: true,
+        });
       }
-      pSel.appendChild(og);
+      return Array.from(byGroup.values());
+    };
+
+    const pSearch      = document.getElementById('practice-opening-search');
+    const pSearchCount = document.getElementById('practice-opening-search-count');
+
+    const populateOpeningSelect = (filter = '') => {
+      const f = (filter || '').trim().toLowerCase();
+      pSel.innerHTML = '';
+      let shown = 0, total = 0;
+      for (const group of mergedOpenings()) {
+        const matches = group.items
+          .map((o, i) => ({ o, i }))
+          .filter(({ o }) => !f || o.name.toLowerCase().includes(f) || group.group.toLowerCase().includes(f));
+        total += group.items.length;
+        if (!matches.length) continue;
+        const og = document.createElement('optgroup');
+        og.label = group.group;
+        for (const { o, i } of matches) {
+          const opt = document.createElement('option');
+          opt.value = `${group.group}//${i}`;
+          opt.textContent = o._custom ? `${o.name} ★` : o.name;
+          og.appendChild(opt);
+          shown++;
+        }
+        pSel.appendChild(og);
+      }
+      if (pSearchCount) {
+        pSearchCount.textContent = f
+          ? `${shown} of ${total} matches`
+          : `${total} openings`;
+      }
+      // If the filter hid the currently-selected option, pick the first
+      // visible one.
+      if (pSel.options.length && (!pSel.value || !pSel.querySelector(`option[value="${CSS.escape(pSel.value)}"]`))) {
+        pSel.selectedIndex = 0;
+      }
+    };
+    populateOpeningSelect();
+
+    if (pSearch) {
+      pSearch.addEventListener('input', () => {
+        populateOpeningSelect(pSearch.value);
+        updatePMoves();
+      });
     }
+
     const pickedPracticeOpening = () => {
-      const [gn, idxStr] = pSel.value.split('//');
-      const grp = OPENINGS.find(g => g.group === gn);
+      const [gn, idxStr] = (pSel.value || '//0').split('//');
+      const grp = mergedOpenings().find(g => g.group === gn);
       return grp ? grp.items[+idxStr] : OPENINGS[0].items[0];
     };
     const updatePMoves = () => {
@@ -1314,6 +1376,41 @@ async function main() {
     };
     pSel.addEventListener('change', updatePMoves);
     updatePMoves();
+
+    // ─── Last-settings persistence + Replay button ────────────────
+    const LAST_SETTINGS_KEY = 'stockfish-explain.practice-last-settings';
+    const loadLastSettings = () => {
+      try {
+        const raw = localStorage.getItem(LAST_SETTINGS_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    };
+    const saveLastSettings = (obj) => {
+      try { localStorage.setItem(LAST_SETTINGS_KEY, JSON.stringify(obj)); } catch {}
+    };
+    const applyLastSettingsToModal = () => {
+      const last = loadLastSettings();
+      if (!last) return;
+      // Restore dropdown selection if the opening is still in the list.
+      if (last.openingValue && pSel.querySelector(`option[value="${CSS.escape(last.openingValue)}"]`)) {
+        pSel.value = last.openingValue;
+        updatePMoves();
+      }
+      if (last.color)     pColor.value   = last.color;
+      if (last.skill)     { pStren.value = String(last.skill); pStrenV.textContent = String(last.skill); }
+      if (last.limitMode) pMode.value    = last.limitMode;
+      if (last.limitVal)  pVal.value     = String(last.limitVal);
+    };
+    // Update the replay button label so the user sees what they'll replay.
+    const pReplayBtn  = document.getElementById('practice-replay');
+    const pReplayName = document.getElementById('practice-replay-name');
+    const refreshReplayButton = () => {
+      const last = loadLastSettings();
+      if (!last || !pReplayBtn) { if (pReplayBtn) pReplayBtn.hidden = true; return; }
+      pReplayBtn.hidden = false;
+      if (pReplayName) pReplayName.textContent = `${last.openingName || '?'} · ${last.color || '?'} · Skill ${last.skill ?? '?'}`;
+    };
+    refreshReplayButton();
 
     pStren.addEventListener('input', () => { pStrenV.textContent = pStren.value; });
     pMode.addEventListener('change', () => {
@@ -1357,9 +1454,23 @@ async function main() {
     // current state at open time, not at page load time).
     pOpen.addEventListener('click', () => { refreshUseCurrent(); });
 
-    pOpen.addEventListener('click',  () => pModal.hidden = false);
+    pOpen.addEventListener('click',  () => {
+      // Each open: repopulate the list (may include new custom saves),
+      // restore last-used settings, refresh the replay button label.
+      populateOpeningSelect(pSearch ? pSearch.value : '');
+      applyLastSettingsToModal();
+      refreshReplayButton();
+      pModal.hidden = false;
+    });
     pClose.addEventListener('click', () => pModal.hidden = true);
     pModal.addEventListener('click', (e) => { if (e.target === pModal) pModal.hidden = true; });
+
+    // Replay — apply last settings + start immediately, skipping the rest
+    // of the modal UI. User can still cancel via ✕.
+    if (pReplayBtn) pReplayBtn.addEventListener('click', () => {
+      applyLastSettingsToModal();
+      pStart.click();
+    });
 
     pStart.addEventListener('click', () => {
       const useCurrent = pUseCurrent.checked;
@@ -1368,6 +1479,14 @@ async function main() {
       const skill = +pStren.value;
       const limitMode = pMode.value;
       const limitVal  = +pVal.value;
+
+      // Remember these settings so we can replay / pre-fill next time.
+      saveLastSettings({
+        openingValue: pSel.value,
+        openingName:  op.name,
+        color, skill, limitMode, limitVal,
+      });
+      refreshReplayButton();
 
       if (useCurrent) {
         // Keep the current board position as-is — don't newGame / reset.
@@ -1557,6 +1676,75 @@ async function main() {
     const practiceBtn = document.getElementById('btn-practice');
     if (practiceBtn) practiceBtn.click();
   });
+
+  // ────────── Save current position as a custom practice opening ──────
+  (() => {
+    const btnSave    = document.getElementById('btn-save-as-opening');
+    const sModal     = document.getElementById('save-opening-modal');
+    const sClose     = document.getElementById('save-opening-close');
+    const sName      = document.getElementById('save-opening-name');
+    const sGroup     = document.getElementById('save-opening-group');
+    const sNewGroup  = document.getElementById('save-opening-new-group');
+    const sPreview   = document.getElementById('save-opening-preview');
+    const sSubmit    = document.getElementById('save-opening-submit');
+    if (!btnSave || !sModal) return;
+
+    const CUSTOM_STORAGE_KEY = 'stockfish-explain.practice-custom-openings';
+    const loadCustoms = () => {
+      try { return JSON.parse(localStorage.getItem(CUSTOM_STORAGE_KEY) || '[]'); } catch { return []; }
+    };
+    const saveCustoms = (arr) => {
+      try { localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(arr)); } catch {}
+    };
+
+    const openSaveModal = () => {
+      const history = board.chess.history();
+      if (!history.length) {
+        alert('Play at least one move before saving — there is nothing to capture.');
+        return;
+      }
+      // Populate the Group dropdown from existing OPENINGS groups and
+      // any custom groups the user has already created.
+      const groupNames = new Set(OPENINGS.map(g => g.group));
+      for (const co of loadCustoms()) groupNames.add(co.group);
+      sGroup.innerHTML = '';
+      for (const g of groupNames) {
+        const opt = document.createElement('option');
+        opt.value = g; opt.textContent = g;
+        sGroup.appendChild(opt);
+      }
+      // Default name: last opening detected or "Custom line @ move N"
+      sName.value = `My line @ move ${Math.ceil(history.length / 2)}`;
+      sNewGroup.value = '';
+      sPreview.textContent = history.map((m, i) =>
+        i % 2 === 0 ? `${Math.floor(i/2)+1}.${m}` : m
+      ).join(' ');
+      sModal.hidden = false;
+      setTimeout(() => sName.focus(), 50);
+    };
+    btnSave.addEventListener('click', openSaveModal);
+    sClose.addEventListener('click', () => sModal.hidden = true);
+    sModal.addEventListener('click', (e) => { if (e.target === sModal) sModal.hidden = true; });
+
+    sSubmit.addEventListener('click', () => {
+      const name = (sName.value || '').trim();
+      if (!name) { alert('Please name this opening.'); return; }
+      const group = (sNewGroup.value.trim() || sGroup.value).trim();
+      if (!group) { alert('Please pick or enter a group.'); return; }
+      const moves = board.chess.history();
+      if (!moves.length) { alert('No moves on the board to save.'); return; }
+      const customs = loadCustoms();
+      customs.push({ group, name, moves, savedAt: Date.now() });
+      saveCustoms(customs);
+      sModal.hidden = true;
+      // Visual confirmation in the narration line.
+      if (ui.narrationText) {
+        ui.narrationText.innerHTML =
+          `✅ Saved <strong>${name}</strong> to group <strong>${group}</strong>. ` +
+          `Open Practice to pick it from the list.`;
+      }
+    });
+  })();
 
   // ────────── Tournament (engine vs engine) ──────────
   // The main analysis engine MUST be paused while a tournament runs —
