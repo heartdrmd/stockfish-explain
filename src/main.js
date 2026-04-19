@@ -1140,6 +1140,123 @@ async function main() {
   // Also re-render on nav (arrow keys / move-list clicks) so the cursor
   // line tracks the currently-viewed ply.
   board.addEventListener('nav', scheduleTimelineRender);
+
+  // ─── Pawn-structure evolution strip (#5) ────────────────────────
+  // Samples the mainline every N plies, extracts the pawn skeleton,
+  // and highlights archetype transitions (IQP / Carlsbad / Hanging /
+  // Maroczy detected via archetype.js). Click a cell to jump there.
+  function renderPawnStrip() {
+    const root  = document.getElementById('pawn-strip');
+    const rowEl = document.getElementById('pawn-strip-row');
+    const stats = document.getElementById('pawn-strip-stats');
+    if (!root || !rowEl) return;
+    const plies = collectTimelinePlies();
+    if (plies.length < 4) { root.hidden = true; return; }
+    root.hidden = false;
+
+    // Sample every 4 plies (so a 40-ply game gets 10 cells) and always
+    // include start + end for bookends.
+    const STEP = 4;
+    const sampleIndices = [];
+    for (let i = 0; i < plies.length; i += STEP) sampleIndices.push(i);
+    if (sampleIndices[sampleIndices.length - 1] !== plies.length - 1) {
+      sampleIndices.push(plies.length - 1);
+    }
+
+    // For each sampled ply: extract pawn-only grid + run archetype detector.
+    let lastArch = null;
+    let archTransitions = 0;
+    const cellsHtml = sampleIndices.map((idx) => {
+      const p = plies[idx];
+      const grid = pawnGridFromFen(p.fen);
+      let archLabel = '';
+      let archChanged = false;
+      try {
+        // Lazy-import via already-imported archetype.js would be nicer,
+        // but we already pull detectArchetype from coach_v2 context.
+        // Keep it simple: re-compute here with a local cache keyed by fen.
+        const a = detectArchetypeCached(p.fen);
+        if (a && a.label) archLabel = a.label;
+        if (archLabel !== lastArch) {
+          if (lastArch != null) archChanged = true;
+          archTransitions += lastArch != null ? 1 : 0;
+          lastArch = archLabel;
+        }
+      } catch {}
+      const currentPly = board.viewPly == null
+        ? plies.length - 1
+        : Math.min(plies.length - 1, board.viewPly);
+      const isCurrent = idx === currentPly;
+      const classes = ['pawn-strip-cell'];
+      if (archChanged)  classes.push('archetype-change');
+      if (isCurrent)    classes.push('current-ply');
+      return `<div class="${classes.join(' ')}" data-ply="${p.ply}" title="Ply ${p.ply}${archLabel ? ' — ' + archLabel : ''}">
+        <div class="pawn-grid">${grid}</div>
+        <div class="pawn-label">${p.ply === 0 ? 'start' : 'm' + Math.ceil(p.ply / 2)}</div>
+        <div class="pawn-arch">${archLabel || ''}</div>
+      </div>`;
+    }).join('');
+    rowEl.innerHTML = cellsHtml;
+    stats.textContent = archTransitions
+      ? `${sampleIndices.length} snapshots · ${archTransitions} archetype shift${archTransitions === 1 ? '' : 's'}`
+      : `${sampleIndices.length} snapshots`;
+    // Click → jump to that ply.
+    rowEl.onclick = (ev) => {
+      const cell = ev.target.closest('.pawn-strip-cell');
+      if (!cell) return;
+      const ply = +cell.dataset.ply;
+      if (board.goToPly) board.goToPly(ply === 0 ? 0 : ply);
+    };
+  }
+
+  // Helper — build an 8×8 HTML grid of pawn-only squares from a FEN.
+  function pawnGridFromFen(fen) {
+    const board64 = fen.split(' ')[0];
+    const rows = board64.split('/');
+    const cells = [];
+    for (const row of rows) {
+      let file = 0;
+      for (const ch of row) {
+        if (/\d/.test(ch)) { for (let k = 0; k < +ch; k++) cells.push('<div></div>'); file += +ch; continue; }
+        if (ch === 'P')       cells.push('<div class="pw"></div>');
+        else if (ch === 'p')  cells.push('<div class="pb"></div>');
+        else                  cells.push('<div></div>');
+        file++;
+      }
+    }
+    return cells.join('');
+  }
+
+  // Archetype cache — re-running detection per FEN on every move event
+  // is wasteful. Memoise here (bounded to 200 entries).
+  const archetypeCache = new Map();
+  function detectArchetypeCached(fen) {
+    if (archetypeCache.has(fen)) return archetypeCache.get(fen);
+    let a = null;
+    try {
+      // Use the positional-coach module which re-exports archetype.
+      const ar = CoachV2.coachReport(fen, { topMoves: [] });
+      a = ar && ar.archetype ? ar.archetype : null;
+    } catch {}
+    if (archetypeCache.size > 200) {
+      archetypeCache.delete(archetypeCache.keys().next().value);
+    }
+    archetypeCache.set(fen, a);
+    return a;
+  }
+
+  // Re-render pawn strip alongside the eval timeline on every move /
+  // nav / engine event. Using its own listeners avoids touching the
+  // function declaration of scheduleTimelineRender.
+  let pawnStripTimer = 0;
+  function schedulePawnStripRender() {
+    if (pawnStripTimer) return;
+    pawnStripTimer = setTimeout(() => { pawnStripTimer = 0; renderPawnStrip(); }, 150);
+  }
+  board.addEventListener('move',     schedulePawnStripRender);
+  board.addEventListener('new-game', schedulePawnStripRender);
+  board.addEventListener('nav',      schedulePawnStripRender);
+  setTimeout(renderPawnStrip, 250);
   // Initial render in case a draft was restored.
   setTimeout(scheduleTimelineRender, 200);
 

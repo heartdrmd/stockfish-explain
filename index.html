@@ -355,6 +355,18 @@
         <svg id="eval-timeline-svg" class="eval-timeline-svg" viewBox="0 0 600 100" preserveAspectRatio="none"></svg>
       </div>
 
+      <!-- Pawn-structure evolution strip (#5) — each cell is a tiny 8×8
+           pawn-only snapshot, sampled every N plies. Transitions to a
+           new detected archetype are highlighted. Hidden until the
+           game has enough moves to make it interesting. -->
+      <div id="pawn-strip" class="pawn-strip" hidden>
+        <div class="pawn-strip-header">
+          <span class="pawn-strip-title">♟ Pawn structure</span>
+          <span class="pawn-strip-stats" id="pawn-strip-stats"></span>
+        </div>
+        <div id="pawn-strip-row" class="pawn-strip-row"></div>
+      </div>
+
       <!-- Move list + nav -->
       <div class="move-list-wrap">
         <div class="move-list-header">
