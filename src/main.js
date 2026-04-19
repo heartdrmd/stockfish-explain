@@ -913,7 +913,7 @@ async function main() {
     // Apply style attribute so CSS variants kick in.
     if (digital) digital.dataset.style = clock.style;
     // Toggle digital vs analog visibility.
-    const isAnalog = clock.style === 'analog-garde';
+    const isAnalog = clock.style === 'analog-garde' || clock.style === 'analog-chrome';
     if (digital) digital.hidden = isAnalog;
     if (analog)  analog.hidden  = !isAnalog;
 
@@ -935,70 +935,133 @@ async function main() {
     }
   }
 
-  // ─── Analog Garde clock renderer ─────────────────────────────────
-  // Two round dials side-by-side. Black dial on the left, White on
-  // the right (mirror of the digital layout so the active side is
-  // always the one below the current player). Classic wooden / brass
-  // housing via CSS; the hands + ticks drawn by this SVG function.
+  // ─── Analog clock renderer (Garde classic + chrome modern) ───────
+  // Authentic mechanical-chess-clock behaviour:
+  //   - Count-DOWN (timed game): for a 5-minute game, the dial starts
+  //     at 11:55 (minute hand 5 ticks BEFORE 12). As the player's time
+  //     runs out, the minute hand rotates clockwise toward 12. When it
+  //     passes 12 the game is over. A red flag hangs on the minute
+  //     hand; it rises as the hand approaches 12 (last ~1 min) and
+  //     drops horizontally when time hits 0 ("flag fall").
+  //   - Count-UP (untimed): dial starts at 12:00 and the minute hand
+  //     sweeps clockwise showing elapsed minutes. No flag.
+  //
+  // The hour hand sits at 11 o'clock for count-down short games (it
+  // wouldn't realistically move in a 5-min game) and at 12 o'clock
+  // for count-up. Only the minute hand matters for chess clocks.
   function renderAnalogClock() {
     const svg = document.querySelector('.clock-analog-svg');
     if (!svg) return;
-    const dial = (cx, ms, activeSide, isActiveDial) => {
+    const isChrome = clock.style === 'analog-chrome';
+    const dial = (cx, ms, isActiveDial) => {
       const cy = 60;
       const r  = 48;
-      const totalMs = clock.mode === 'down'
-        ? (clock.initialMs || 60 * 60_000)
-        : Math.max(60_000, ms + 60_000);
-      // Map ms to an angle on a 60-minute dial. Count-down: 12 o'clock
-      // is full time, 6 o'clock is half, rotates clockwise toward 12
-      // again. Count-up: starts at 12 and sweeps CW as time grows.
-      const mins = ms / 60_000;
-      const angle = clock.mode === 'down'
-        ? (mins % 60) / 60 * 360
-        : (mins % 60) / 60 * 360;
-      // Hand rotated so 12-o-clock = 0, clockwise positive.
-      const rad = (angle - 90) * Math.PI / 180;
-      const hx = cx + r * 0.82 * Math.cos(rad);
-      const hy = cy + r * 0.82 * Math.sin(rad);
-      // Secondary (second hand) — faster rotation.
-      const seconds = (ms / 1000) % 60;
-      const sRad = (seconds * 6 - 90) * Math.PI / 180;
-      const sx = cx + r * 0.9 * Math.cos(sRad);
-      const sy = cy + r * 0.9 * Math.sin(sRad);
-      // Ticks
+
+      // ── Minute hand position ──
+      // Count-down: start at (60 - initialMinutes) — i.e., 55-minute
+      // mark for a 5-min game. Hand rotates CW toward 12 as time
+      // ticks down.
+      // Count-up: hand sweeps from 12 CW as elapsed minutes grow.
+      const totalInitialMins = (clock.initialMs || 5 * 60_000) / 60_000;
+      const elapsedMins = clock.mode === 'down'
+        ? (totalInitialMins - ms / 60_000)       // rises from 0 to totalInitialMins as time runs out
+        : (ms / 60_000);                          // rises naturally for count-up
+      // Starting offset: for count-down, the hand starts at
+      // (60 - totalInitialMins) and rotates toward 60 (= 12).
+      const scaleMinutes = 60;                    // full rotation = 60 min
+      const startMin = clock.mode === 'down' ? (scaleMinutes - totalInitialMins) : 0;
+      const currentMin = (startMin + elapsedMins) % scaleMinutes;
+      const minuteAngle = (currentMin / scaleMinutes) * 360;   // 0 = 12, CW positive
+      const mRad = (minuteAngle - 90) * Math.PI / 180;
+      const mhx = cx + r * 0.82 * Math.cos(mRad);
+      const mhy = cy + r * 0.82 * Math.sin(mRad);
+
+      // ── Hour hand ── at 11 o'clock (-30°) for count-down, 12 (0°) for count-up
+      const hourAngle = clock.mode === 'down' ? -30 : 0;
+      const hRad = (hourAngle - 90) * Math.PI / 180;
+      const hhx = cx + r * 0.5 * Math.cos(hRad);
+      const hhy = cy + r * 0.5 * Math.sin(hRad);
+
+      // ── Second hand (shows seconds; sweeps each minute) ──
+      const secs = (ms / 1000) % 60;
+      const sRad = (secs * 6 - 90) * Math.PI / 180;
+      const shx = cx + r * 0.88 * Math.cos(sRad);
+      const shy = cy + r * 0.88 * Math.sin(sRad);
+
+      // ── Flag (count-down only) ──
+      // Flag hangs perpendicular to the minute hand. As the hand gets
+      // within the last 60 seconds of total time, the flag rises; at
+      // 0 ms the flag is horizontal (fallen).
+      let flagSvg = '';
+      if (clock.mode === 'down') {
+        let flagRise = 0;
+        if (ms <= 0) flagRise = 1;
+        else if (ms < 60_000) flagRise = 1 - (ms / 60_000);     // 0..1 as ms goes 60_000→0
+        // Flag: small red rectangle, base at minute-hand tip, length 10px.
+        // Base direction perpendicular to hand (mRad + 90°). As flagRise
+        // increases, flag rotates toward hand-direction (mRad).
+        const flagLen = 10;
+        const flagDirRad = mRad + (Math.PI / 2) * (1 - flagRise);
+        const ftx = mhx + flagLen * Math.cos(flagDirRad);
+        const fty = mhy + flagLen * Math.sin(flagDirRad);
+        flagSvg = `<path d="M ${mhx.toFixed(1)} ${mhy.toFixed(1)} L ${ftx.toFixed(1)} ${fty.toFixed(1)} L ${(ftx - 1).toFixed(1)} ${(fty + 4).toFixed(1)} L ${(mhx - 1).toFixed(1)} ${(mhy + 4).toFixed(1)} Z" fill="#c0392b" stroke="#6a1d13" stroke-width="0.4"/>`;
+      }
+
+      // ── Tick marks ──
       let ticks = '';
       for (let i = 0; i < 60; i++) {
         const t = (i * 6 - 90) * Math.PI / 180;
         const isMajor = i % 5 === 0;
         const outR = r;
-        const inR  = isMajor ? r - 6 : r - 3;
+        const inR  = isMajor ? r - 5 : r - 2.5;
         const x1 = cx + outR * Math.cos(t), y1 = cy + outR * Math.sin(t);
         const x2 = cx + inR  * Math.cos(t), y2 = cy + inR  * Math.sin(t);
-        ticks += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#2a1e14" stroke-width="${isMajor ? 1.5 : 0.6}"/>`;
+        const strokeCol = isChrome ? '#222' : '#2a1e14';
+        ticks += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${strokeCol}" stroke-width="${isMajor ? 1.6 : 0.6}"/>`;
       }
-      const faceColor = isActiveDial ? '#f5e3be' : '#e8d4a7';
-      const handColor = '#1a0f08';
-      const secColor  = '#a33';
-      // Flag (red half-moon) — shows when time is critical in count-
-      // down mode. Suppressed in count-up.
-      const flag = (clock.mode === 'down' && ms <= 15_000)
-        ? `<path d="M ${(cx - 2).toFixed(1)} ${(cy - r + 2).toFixed(1)} L ${(cx + 6).toFixed(1)} ${(cy - r + 10).toFixed(1)} L ${(cx - 2).toFixed(1)} ${(cy - r + 10).toFixed(1)} Z" fill="#c0392b"/>`
+
+      // ── Roman numerals at 12/3/6/9 ──
+      let numerals = '';
+      const numList = [['XII', 0], ['III', 90], ['VI', 180], ['IX', 270]];
+      for (const [num, ang] of numList) {
+        const tr = (ang - 90) * Math.PI / 180;
+        const nx = cx + (r - 11) * Math.cos(tr);
+        const ny = cy + (r - 11) * Math.sin(tr) + 2.5;
+        const numCol = isChrome ? '#222' : '#2a1e14';
+        numerals += `<text x="${nx.toFixed(1)}" y="${ny.toFixed(1)}" text-anchor="middle" font-size="7" font-family="serif" fill="${numCol}">${num}</text>`;
+      }
+
+      // ── Face ──
+      const faceColor = isChrome
+        ? (isActiveDial ? '#f8f8f8' : '#e8e8ea')
+        : (isActiveDial ? '#f5e3be' : '#e8d4a7');
+      const rimColor  = isChrome ? '#888' : '#8c6a3a';
+      const rimOuter  = isChrome ? '#333' : '#3a2814';
+      const handColor = isChrome ? '#111' : '#1a0f08';
+      const secColor  = '#c83b2f';
+      // Optional inner ring (chrome gets a subtle inner bevel)
+      const bevel = isChrome
+        ? `<circle cx="${cx}" cy="${cy}" r="${r - 2}" fill="none" stroke="#bbb" stroke-width="0.6"/>`
         : '';
+
       return `
         <g>
-          <circle cx="${cx}" cy="${cy}" r="${r}" fill="${faceColor}" stroke="#8c6a3a" stroke-width="2.5"/>
-          <circle cx="${cx}" cy="${cy}" r="${r + 3}" fill="none" stroke="#3a2814" stroke-width="1.2"/>
+          <circle cx="${cx}" cy="${cy}" r="${r}" fill="${faceColor}" stroke="${rimColor}" stroke-width="2.5"/>
+          <circle cx="${cx}" cy="${cy}" r="${r + 3}" fill="none" stroke="${rimOuter}" stroke-width="1.2"/>
+          ${bevel}
           ${ticks}
-          ${flag}
-          <line x1="${cx}" y1="${cy}" x2="${hx.toFixed(1)}" y2="${hy.toFixed(1)}" stroke="${handColor}" stroke-width="3" stroke-linecap="round"/>
-          <line x1="${cx}" y1="${cy}" x2="${sx.toFixed(1)}" y2="${sy.toFixed(1)}" stroke="${secColor}" stroke-width="1.1" stroke-linecap="round"/>
-          <circle cx="${cx}" cy="${cy}" r="2.6" fill="${handColor}"/>
+          ${numerals}
+          <line x1="${cx}" y1="${cy}" x2="${hhx.toFixed(1)}" y2="${hhy.toFixed(1)}" stroke="${handColor}" stroke-width="3" stroke-linecap="round"/>
+          <line x1="${cx}" y1="${cy}" x2="${mhx.toFixed(1)}" y2="${mhy.toFixed(1)}" stroke="${handColor}" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="${cx}" y1="${cy}" x2="${shx.toFixed(1)}" y2="${shy.toFixed(1)}" stroke="${secColor}" stroke-width="1" stroke-linecap="round"/>
+          ${flagSvg}
+          <circle cx="${cx}" cy="${cy}" r="2.5" fill="${handColor}"/>
         </g>`;
     };
     const activeSide = clock.tickingFor;
     svg.innerHTML =
-      dial(60,  clock.msBlack, 'b', activeSide === 'b') +
-      dial(180, clock.msWhite, 'w', activeSide === 'w');
+      dial(60,  clock.msBlack, activeSide === 'b') +
+      dial(180, clock.msWhite, activeSide === 'w');
   }
   function startClock(minutes, incrementSec, mode = 'down') {
     clock.active = true;
@@ -1024,27 +1087,7 @@ async function main() {
       }
     }
     if (clock.timerId) clearInterval(clock.timerId);
-    clock.timerId = setInterval(() => {
-      if (!clock.active || !clock.tickingFor) return;
-      const now = Date.now();
-      const elapsed = now - clock.lastTickAt;
-      clock.lastTickAt = now;
-      if (mode === 'down') {
-        if (clock.tickingFor === 'w') clock.msWhite = Math.max(0, clock.msWhite - elapsed);
-        else                          clock.msBlack = Math.max(0, clock.msBlack - elapsed);
-        if (clock.msWhite === 0 || clock.msBlack === 0) {
-          const loser = clock.msWhite === 0 ? 'white' : 'black';
-          stopClock();
-          const resultTag = loser === 'white' ? '0-1' : '1-0';
-          const narrative = `${loser === 'white' ? 'White' : 'Black'} ran out of time.`;
-          try { finishPracticeGame(resultTag, narrative); } catch {}
-        }
-      } else {
-        if (clock.tickingFor === 'w') clock.msWhite += elapsed;
-        else                          clock.msBlack += elapsed;
-      }
-      renderClock();
-    }, 100);
+    clock.timerId = setInterval(() => { clockTick(); }, 100);
     renderClock();
   }
   function stopClock() {
@@ -1056,19 +1099,63 @@ async function main() {
   function switchClock() {
     if (!clock.active) return;
     const now = Date.now();
+    // Apply increment to the side that JUST moved (current tickingFor
+    // before flip). Works in both count-up and count-down modes.
     if (clock.incMs > 0 && clock.tickingFor) {
       if (clock.tickingFor === 'w') clock.msWhite += clock.incMs;
       else                          clock.msBlack += clock.incMs;
     }
     clock.tickingFor = clock.tickingFor === 'w' ? 'b' : 'w';
     clock.lastTickAt = now;
+    // Defensive: if the tick interval was cleared somewhere (should
+    // not happen but has been reported), restart it so the other
+    // side's clock actually ticks.
+    if (!clock.timerId) {
+      console.warn('[clock] timerId missing — restarting interval');
+      // Re-create interval without resetting clocks — easiest path is
+      // to call startClock with current state, but that would reset.
+      // Inline-restart using the same tick function shape.
+      clock.timerId = setInterval(() => { clockTick(); }, 100);
+    }
+    renderClock();
+  }
+  // Extracted tick function so it can be restarted if the interval
+  // ever gets cleared unexpectedly.
+  function clockTick() {
+    if (!clock.active || !clock.tickingFor) return;
+    const now = Date.now();
+    const elapsed = now - clock.lastTickAt;
+    clock.lastTickAt = now;
+    if (clock.mode === 'down') {
+      if (clock.tickingFor === 'w') clock.msWhite = Math.max(0, clock.msWhite - elapsed);
+      else                          clock.msBlack = Math.max(0, clock.msBlack - elapsed);
+      if (clock.msWhite === 0 || clock.msBlack === 0) {
+        const loser = clock.msWhite === 0 ? 'white' : 'black';
+        stopClock();
+        const resultTag = loser === 'white' ? '0-1' : '1-0';
+        const narrative = `${loser === 'white' ? 'White' : 'Black'} ran out of time.`;
+        try { finishPracticeGame(resultTag, narrative); } catch {}
+      }
+    } else {
+      if (clock.tickingFor === 'w') clock.msWhite += elapsed;
+      else                          clock.msBlack += elapsed;
+    }
     renderClock();
   }
   window.__clock         = clock;
   window.__clockStart    = startClock;
   window.__clockStop     = stopClock;
   window.__clockSwitch   = switchClock;
-  board.addEventListener('move', () => { if (clock.active) switchClock(); });
+  // Bind the move listener once; it fires for user moves (from
+  // board.play), engine moves (from playEngineMove), and bulk fen
+  // loads (from playUciMoves). We need to distinguish the last case
+  // — bulk fen loads should NOT flip the clock. Use the detail.bulk
+  // flag that board.js sets on those events.
+  board.addEventListener('move', (ev) => {
+    if (!clock.active) return;
+    if (ev?.detail?.bulk) return;  // position-replay event, not a real move
+    switchClock();
+  });
 
   // Clock style switcher — persists the choice to localStorage and
   // re-renders immediately so the user sees the chosen skin.
