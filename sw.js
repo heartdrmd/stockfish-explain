@@ -56,9 +56,12 @@ self.addEventListener('message', async (event) => {
     // Per-file timeout so one stalled download can't hang the whole
     // queue. Big NNUE WASMs (~108 MB) need a generous budget.
     const FETCH_TIMEOUT_MS = 4 * 60 * 1000; // 4 min
-    // Parallel workers — keeps total wall-clock low without saturating
-    // the user's connection. CDN tends to throttle past ~4 parallel.
-    const CONCURRENCY = 4;
+    // Concurrency is a memory/RAM tradeoff, not a speed knob: each
+    // in-flight 108 MB WASM is buffered by the browser before it can
+    // be written to Cache Storage. 4 parallel → ~400 MB in-flight, which
+    // tipped Chrome's renderer into "Aw Snap! Error 5" on a user's
+    // machine. 2 is safe and still saturates most home connections.
+    const CONCURRENCY = 2;
 
     const fetchOne = async (url) => {
       const existing = await cache.match(url);
@@ -69,11 +72,12 @@ self.addEventListener('message', async (event) => {
       const timer = setTimeout(() => ctrl.abort('timeout'), FETCH_TIMEOUT_MS);
       try {
         const resp = await fetch(url, { signal: ctrl.signal });
-        if (resp.ok) {
-          await cache.put(url, resp.clone());
-          return { ok: true };
-        }
-        return { ok: false, status: resp.status };
+        if (!resp.ok) return { ok: false, status: resp.status };
+        // Don't clone(): we only need resp.ok above, then the body is
+        // handed directly to cache.put. Cloning doubles peak memory
+        // for a 108 MB WASM, which is what caused the renderer OOM.
+        await cache.put(url, resp);
+        return { ok: true };
       } finally {
         clearTimeout(timer);
       }
