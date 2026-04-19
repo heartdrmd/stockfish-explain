@@ -4528,6 +4528,25 @@ async function main() {
   window.__moveClockAboveBoard = moveClockAboveBoard;
   window.__restoreClockToSide  = restoreClockToSide;
 
+  // Clear engine cache — escape hatch if a bad preload left corrupt
+  // WASM in the SW cache (symptoms: "Aw Snap! Error 5" on boot).
+  // One click wipes the cache + unregisters the SW, then reloads.
+  const btnClearCache = document.getElementById('btn-clear-engine-cache');
+  if (btnClearCache) {
+    btnClearCache.addEventListener('click', async () => {
+      if (!confirm('Wipe cached engine files and reload? Any preloaded engines will need to be re-downloaded.')) return;
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter(k => k.startsWith('sf-engines-')).map(k => caches.delete(k)));
+      } catch {}
+      try {
+        const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+        await Promise.all(regs.map(r => r.unregister()));
+      } catch {}
+      location.reload();
+    });
+  }
+
   // Lock button: hard-disable the engine until user explicitly unlocks.
   // While locked: no engine.start() is ever issued.
   const btnLock = document.getElementById('btn-lock');

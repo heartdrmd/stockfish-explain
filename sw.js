@@ -6,7 +6,11 @@
 // Only touches /assets/stockfish/* — everything else goes through
 // network as usual.
 
-const CACHE = 'sf-engines-v1';
+// v2: bumped after the v1 preload OOM may have left partially-downloaded
+// WASM blobs in the cache — serving those caused "Aw Snap 5" (renderer
+// access violation) on boot. Activating v2 wipes v1 entirely via the
+// activate handler's keys-cleanup below.
+const CACHE = 'sf-engines-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
