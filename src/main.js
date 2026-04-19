@@ -862,8 +862,14 @@ async function main() {
   // Piggyback on the engine's thinking events to capture evals for
   // the game archive. Runs regardless of __engineMuted so that even in
   // practice mode the per-move data is recorded silently.
-  engine.addEventListener('thinking', () => { captureEngineThinkingEval(); });
-  engine.addEventListener('bestmove', () => { captureEngineThinkingEval(); });
+  engine.addEventListener('thinking', () => {
+    captureEngineThinkingEval();
+    scheduleTimelineRender();
+  });
+  engine.addEventListener('bestmove', () => {
+    captureEngineThinkingEval();
+    scheduleTimelineRender();
+  });
 
   // ─── Per-ply eval capture (feeds the game archive) ────────────────
   // Whenever Stockfish reports info at the live FEN, cache the latest
@@ -975,6 +981,167 @@ async function main() {
   // Restore on first paint, after the main() setup has finished
   // populating board + UI.
   setTimeout(maybeRestoreDraft, 150);
+
+  // ─── Eval timeline (#1) ─────────────────────────────────────────
+  // Throttled SVG re-render whenever the game state or cached evals
+  // change. Draws one point per ply with click-to-navigate, colours
+  // blunders/mistakes/inaccuracies. Compact and always-visible below
+  // the board once at least one move has been played.
+  let timelineTimer = 0;
+  function scheduleTimelineRender() {
+    if (timelineTimer) return;
+    timelineTimer = setTimeout(() => {
+      timelineTimer = 0;
+      renderEvalTimeline();
+    }, 120);
+  }
+  function collectTimelinePlies() {
+    // Replay the mainline from startingFen, harvesting each ply's FEN
+    // and the cached engine eval for that FEN (if any).
+    const history = board.chess.history({ verbose: true });
+    if (!history.length) return [];
+    const replay = new Chess(board.startingFen);
+    // Starting position is ply 0 — record it so the line extends from
+    // the baseline rather than starting at move 1.
+    const plies = [];
+    const startEval = fenEvalCache.get(board.startingFen);
+    plies.push({
+      ply:     0,
+      san:     'start',
+      fen:     board.startingFen,
+      cpWhite: startEval?.cpWhite ?? 0,
+      mate:    startEval?.mate ?? null,
+    });
+    for (let i = 0; i < history.length; i++) {
+      const res = replay.move(history[i].san, { sloppy: true });
+      if (!res) break;
+      const fen = replay.fen();
+      const ev = fenEvalCache.get(fen);
+      plies.push({
+        ply:     i + 1,
+        san:     history[i].san,
+        fen,
+        cpWhite: ev?.cpWhite ?? null,
+        mate:    ev?.mate ?? null,
+      });
+    }
+    return plies;
+  }
+  function classifySeverityForPly(prev, cur) {
+    if (!prev || cur.cpWhite == null || prev.cpWhite == null) return null;
+    // POV of the side that just moved = opposite of side-to-move AFTER
+    // the move. fen.split(' ')[1] gives side to move after. Flip it.
+    const stmAfter = cur.fen.split(' ')[1] || 'w';
+    const moverSign = stmAfter === 'w' ? -1 : 1; // mover was black if stmAfter=w
+    const cpBeforeMover = moverSign * prev.cpWhite;
+    const cpAfterMover  = moverSign * cur.cpWhite;
+    const drop = cpBeforeMover - cpAfterMover;
+    if (drop >= 200) return 'blunder';
+    if (drop >= 100) return 'mistake';
+    if (drop >=  50) return 'inaccuracy';
+    return null;
+  }
+  // Map a cpWhite value to a y coordinate in the SVG (0 = top, 100 = bottom).
+  // Uses a sigmoid-like curve so small cp deltas are visible while extreme
+  // values (±mate) don't blow out the chart.
+  function cpToY(cpWhite, mate) {
+    let normalised;
+    if (mate != null) normalised = mate > 0 ? 1 : -1;
+    else if (cpWhite == null) return null;
+    else normalised = 2 / (1 + Math.exp(-cpWhite / 400)) - 1; // range (-1..+1)
+    // y=50 is centre (equal). White better → up (lower y).
+    return 50 - normalised * 45;
+  }
+  function renderEvalTimeline() {
+    const root = document.getElementById('eval-timeline');
+    const svg  = document.getElementById('eval-timeline-svg');
+    const stats = document.getElementById('eval-timeline-stats');
+    if (!root || !svg) return;
+    const plies = collectTimelinePlies();
+    if (plies.length < 2) { root.hidden = true; return; }
+    root.hidden = false;
+
+    const W = 600, H = 100;
+    const leftPad = 8, rightPad = 8;
+    const span = W - leftPad - rightPad;
+    const stepX = plies.length > 1 ? span / (plies.length - 1) : span;
+
+    // Build the area polyline (from bottom to path to bottom) and line
+    // polyline (just the path). Skip nulls by breaking into segments.
+    const pts = plies.map((p, i) => {
+      const y = cpToY(p.cpWhite, p.mate);
+      return { x: leftPad + i * stepX, y, p, i };
+    });
+
+    // Line string — treat nulls as gaps.
+    const segments = [];
+    let cur = [];
+    for (const pt of pts) {
+      if (pt.y == null) { if (cur.length) { segments.push(cur); cur = []; } continue; }
+      cur.push(pt);
+    }
+    if (cur.length) segments.push(cur);
+    const linePaths = segments.map(seg =>
+      `<polyline class="eval-line" points="${seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}"/>`
+    ).join('');
+    // Area fill below 50% for each segment.
+    const areaPaths = segments.map(seg => {
+      if (seg.length < 2) return '';
+      const first = seg[0], last = seg[seg.length - 1];
+      const pts2 = seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      return `<polygon class="eval-area" points="${first.x.toFixed(1)},50 ${pts2} ${last.x.toFixed(1)},50"/>`;
+    }).join('');
+
+    // Dots for blunders / mistakes / inaccuracies.
+    let dotsSvg = '';
+    let countB = 0, countM = 0, countI = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const prev = pts[i - 1].p, cur2 = pts[i].p;
+      const sev = classifySeverityForPly(prev, cur2);
+      if (!sev) continue;
+      if (sev === 'blunder') countB++; else if (sev === 'mistake') countM++; else countI++;
+      const pt = pts[i];
+      if (pt.y == null) continue;
+      dotsSvg += `<circle class="eval-dot ${sev}" cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="3.5" data-ply="${pt.p.ply}"><title>Ply ${pt.p.ply} (${pt.p.san}): ${sev} — ${((prev.cpWhite ?? 0) / 100).toFixed(2)} → ${((cur2.cpWhite ?? 0) / 100).toFixed(2)}</title></circle>`;
+    }
+
+    // Cursor line at the currently-viewed ply (board.viewPly is 0-based
+    // ply index in the mainline, or null when at live head).
+    let cursorSvg = '';
+    const curIdx = board.viewPly == null ? pts.length - 1 : Math.min(pts.length - 1, board.viewPly + 1);
+    const cx = pts[curIdx]?.x;
+    if (cx != null) {
+      cursorSvg = `<line class="eval-cursor" x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="4" y2="96"/>`;
+    }
+
+    svg.innerHTML =
+      `<line class="eval-zero" x1="0" x2="${W}" y1="50" y2="50"/>` +
+      areaPaths + linePaths + dotsSvg + cursorSvg;
+
+    stats.textContent = plies.length > 1
+      ? `${plies.length - 1} moves · ${countB ? countB + ' blunders · ' : ''}${countM ? countM + ' mistakes · ' : ''}${countI ? countI + ' inaccuracies · ' : ''}click to jump`
+      : '';
+
+    // Click handler — jump to the clicked ply.
+    svg.onclick = (ev) => {
+      const rect = svg.getBoundingClientRect();
+      const x = (ev.clientX - rect.left) / rect.width * W;
+      // Find closest point.
+      let bestI = 0, bestDist = Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        const d = Math.abs(pts[i].x - x);
+        if (d < bestDist) { bestDist = d; bestI = i; }
+      }
+      const targetPly = pts[bestI].p.ply;
+      // Navigate to that ply in the mainline. board.goToPly(null) = live.
+      if (board.goToPly) board.goToPly(targetPly === 0 ? 0 : targetPly);
+    };
+  }
+  // Also re-render on nav (arrow keys / move-list clicks) so the cursor
+  // line tracks the currently-viewed ply.
+  board.addEventListener('nav', scheduleTimelineRender);
+  // Initial render in case a draft was restored.
+  setTimeout(scheduleTimelineRender, 200);
 
   // ─── Archive a completed game ─────────────────────────────────────
   // Replays the game tree to harvest each ply's FEN + cached engine
@@ -1164,6 +1331,7 @@ async function main() {
     if (window.__threatMode) window.__exitThreatMode({ silent: true });
     renderMoveList(); fireAnalysis();
     scheduleDraftSave();
+    scheduleTimelineRender();
   });
   // Non-move tree mutations (adding a Stockfish PV as a variation via
   // right-click, promoting, deleting) still need the move list to
@@ -1181,6 +1349,7 @@ async function main() {
     if (pActions) pActions.hidden = true;
     clearDraft();
     renderMoveList(); fireAnalysis();
+    scheduleTimelineRender();
   });
   board.addEventListener('undo',     () => {
     if (window.__threatMode) window.__exitThreatMode({ silent: true });

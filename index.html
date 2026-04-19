@@ -343,6 +343,18 @@
         </div>
       </div>
 
+      <!-- Eval timeline — SVG line chart of per-move evaluations.
+           Hidden until at least one move has been played. Click a
+           point to jump to that ply. Coloured dots mark blunders /
+           mistakes / inaccuracies (Lichess-style). -->
+      <div id="eval-timeline" class="eval-timeline" hidden>
+        <div class="eval-timeline-header">
+          <span class="eval-timeline-title">📈 Eval timeline</span>
+          <span class="eval-timeline-stats" id="eval-timeline-stats"></span>
+        </div>
+        <svg id="eval-timeline-svg" class="eval-timeline-svg" viewBox="0 0 600 100" preserveAspectRatio="none"></svg>
+      </div>
+
       <!-- Move list + nav -->
       <div class="move-list-wrap">
         <div class="move-list-header">
