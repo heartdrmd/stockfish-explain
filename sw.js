@@ -1,123 +1,31 @@
-// sw.js — Service Worker that caches Stockfish engine assets so they
-// never have to be re-downloaded after the first fetch. Persists in the
-// browser's Cache Storage (origin-keyed, survives restarts, not cleared
-// by normal cache flushes).
+// sw.js — Self-uninstalling service worker.
 //
-// Only touches /assets/stockfish/* — everything else goes through
-// network as usual.
+// An earlier version of this SW intercepted /assets/stockfish/* fetches
+// with cache-first behaviour. On two real users that combination caused
+// Chrome "Aw Snap! / Can't open this page" renderer crashes — most
+// likely serving corrupt WASM left over from a failed preload. The cost
+// was higher than the benefit (slightly faster repeat boots), so the
+// fetch handler is gone entirely.
+//
+// This file now exists only to CLEAN UP anyone who still has the old
+// worker installed: on install we take over immediately, on activate
+// we delete every sf-engines-* cache and unregister ourselves. After
+// one visit the SW is gone and Chrome's normal HTTP cache does the job.
 
-// v2: bumped after the v1 preload OOM may have left partially-downloaded
-// WASM blobs in the cache — serving those caused "Aw Snap 5" (renderer
-// access violation) on boot. Activating v2 wipes v1 entirely via the
-// activate handler's keys-cleanup below.
-const CACHE = 'sf-engines-v2';
-
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-});
+self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    // Drop any older cache versions.
-    const keys = await caches.keys();
-    await Promise.all(
-      keys.filter(k => k.startsWith('sf-engines-') && k !== CACHE).map(k => caches.delete(k))
-    );
-    await self.clients.claim();
+    try {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys.filter(k => k.startsWith('sf-engines-')).map(k => caches.delete(k))
+      );
+    } catch {}
+    try { await self.registration.unregister(); } catch {}
+    try { await self.clients.claim(); } catch {}
   })());
 });
 
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-  // Only intercept engine assets.
-  if (!url.pathname.includes('/assets/stockfish/')) return;
-  if (event.request.method !== 'GET') return;
-
-  event.respondWith((async () => {
-    const cache = await caches.open(CACHE);
-    const hit = await cache.match(event.request);
-    if (hit) return hit;
-    const resp = await fetch(event.request);
-    if (resp.ok) cache.put(event.request, resp.clone()).catch(() => {});
-    return resp;
-  })());
-});
-
-// Main-thread → SW messages. Supports:
-//   {type:'preload', urls:[...]}  — precache listed URLs, reply per file
-//   {type:'clear'}                — wipe the engine cache
-//   {type:'list'}                 — report which URLs are already cached
-self.addEventListener('message', async (event) => {
-  const msg = event.data || {};
-  const reply = (data) => { try { event.source?.postMessage(data); } catch {} };
-
-  if (msg.type === 'preload' && Array.isArray(msg.urls)) {
-    const cache = await caches.open(CACHE);
-    const total = msg.urls.length;
-    let done = 0;
-    let failed = 0;
-
-    // Per-file timeout so one stalled download can't hang the whole
-    // queue. Big NNUE WASMs (~108 MB) need a generous budget.
-    const FETCH_TIMEOUT_MS = 4 * 60 * 1000; // 4 min
-    // Concurrency is a memory/RAM tradeoff, not a speed knob: each
-    // in-flight 108 MB WASM is buffered by the browser before it can
-    // be written to Cache Storage. 4 parallel → ~400 MB in-flight, which
-    // tipped Chrome's renderer into "Aw Snap! Error 5" on a user's
-    // machine. 2 is safe and still saturates most home connections.
-    const CONCURRENCY = 2;
-
-    const fetchOne = async (url) => {
-      const existing = await cache.match(url);
-      if (existing) {
-        return { ok: true, skipped: true };
-      }
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort('timeout'), FETCH_TIMEOUT_MS);
-      try {
-        const resp = await fetch(url, { signal: ctrl.signal });
-        if (!resp.ok) return { ok: false, status: resp.status };
-        // Don't clone(): we only need resp.ok above, then the body is
-        // handed directly to cache.put. Cloning doubles peak memory
-        // for a 108 MB WASM, which is what caused the renderer OOM.
-        await cache.put(url, resp);
-        return { ok: true };
-      } finally {
-        clearTimeout(timer);
-      }
-    };
-
-    const queue = msg.urls.slice();
-    const worker = async () => {
-      while (queue.length) {
-        const url = queue.shift();
-        if (!url) break;
-        reply({ type: 'preload-start', url, total });
-        try {
-          const r = await fetchOne(url);
-          done++;
-          if (!r.ok) failed++;
-          reply({ type: 'preload-progress', url, done, total, failed, ok: r.ok, skipped: r.skipped, status: r.status });
-        } catch (err) {
-          done++; failed++;
-          reply({ type: 'preload-progress', url, done, total, failed, error: String(err) });
-        }
-      }
-    };
-
-    const workers = Array.from({ length: CONCURRENCY }, () => worker());
-    await Promise.all(workers);
-    reply({ type: 'preload-done', total, failed });
-  }
-
-  if (msg.type === 'clear') {
-    await caches.delete(CACHE);
-    reply({ type: 'clear-done' });
-  }
-
-  if (msg.type === 'list') {
-    const cache = await caches.open(CACHE);
-    const keys = await cache.keys();
-    reply({ type: 'list-result', urls: keys.map(r => r.url) });
-  }
-});
+// No fetch handler — all requests go straight to the network (and
+// Chrome's HTTP cache), same as before the SW ever existed.

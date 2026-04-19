@@ -4419,15 +4419,21 @@ async function main() {
     await bootEngine(currentFlavor);
   });
 
-  // ───── Preload all engines ─────
-  // Service Worker at /sw.js transparently caches any engine asset the
-  // app fetches; the button below tells it to fetch EVERY variant up
-  // front so subsequent boots are instant. Cache lives in CacheStorage
-  // (origin-keyed, survives browser restarts).
+  // ───── Preload engines (HTTP-cache warming) ─────
+  // Previous version used a Service Worker to cache engine assets
+  // permanently in CacheStorage. That design crashed Chrome's renderer
+  // ("Can't open this page / Error 5") on two real users when it served
+  // partially-downloaded WASM. The SW at /sw.js now just self-
+  // unregisters on activate, and preload is simple fetch() calls that
+  // let Chrome's normal HTTP cache retain the bytes. Less persistent
+  // but far safer.
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
-      console.warn('[sw] register failed', err);
-    });
+    navigator.serviceWorker.getRegistrations?.().then(regs => {
+      for (const r of regs) r.unregister().catch(() => {});
+    }).catch(() => {});
+    // Register the cleanup SW so any legacy installation gets replaced
+    // (the new one self-unregisters after wiping sf-engines-* caches).
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
   const btnPreload = document.getElementById('btn-preload-engines');
@@ -4441,38 +4447,40 @@ async function main() {
       return urls;
     })();
     btnPreload.addEventListener('click', async () => {
-      const sw = navigator.serviceWorker?.controller;
-      if (!sw) {
-        // First-load: SW may be installed but not yet controlling this
-        // page. Reload once so it takes over, then the next click works.
-        alert('Service worker not active yet — reload the page once, then click again.');
-        return;
-      }
       const orig = btnPreload.textContent;
       btnPreload.disabled = true;
-      btnPreload.textContent = '⬇ 0 / ' + ALL_ENGINE_URLS.length;
-      const onMsg = (ev) => {
-        const m = ev.data || {};
-        if (m.type === 'preload-start') {
-          const fname = String(m.url || '').split('/').pop();
-          btnPreload.title = `Downloading ${fname}…`;
-        } else if (m.type === 'preload-progress') {
-          const failPart = m.failed ? ` (${m.failed} skipped)` : '';
-          btnPreload.textContent = `⬇ ${m.done} / ${m.total}${failPart}`;
-        } else if (m.type === 'preload-done') {
-          btnPreload.textContent = m.failed
-            ? `✓ Cached (${m.total - m.failed}/${m.total})`
-            : '✓ Engines cached';
-          btnPreload.disabled = false;
-          btnPreload.title = m.failed
-            ? `${m.failed} files unavailable on the server — those variants fall back to lite`
-            : 'All engines cached permanently in this browser';
-          navigator.serviceWorker.removeEventListener('message', onMsg);
-          setTimeout(() => { btnPreload.textContent = orig; }, 6000);
+      const total = ALL_ENGINE_URLS.length;
+      let done = 0, failed = 0;
+      btnPreload.textContent = `⬇ 0 / ${total}`;
+      // 2 parallel — safe on memory, plenty fast enough.
+      const queue = ALL_ENGINE_URLS.slice();
+      const worker = async () => {
+        while (queue.length) {
+          const url = queue.shift();
+          if (!url) break;
+          try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort('timeout'), 4 * 60 * 1000);
+            const resp = await fetch(url, { signal: ctrl.signal });
+            clearTimeout(timer);
+            if (!resp.ok) failed++;
+            // Drain the body so Chrome actually commits it to HTTP cache.
+            await resp.arrayBuffer().catch(() => {});
+          } catch { failed++; }
+          done++;
+          const failPart = failed ? ` (${failed} skipped)` : '';
+          btnPreload.textContent = `⬇ ${done} / ${total}${failPart}`;
         }
       };
-      navigator.serviceWorker.addEventListener('message', onMsg);
-      sw.postMessage({ type: 'preload', urls: ALL_ENGINE_URLS });
+      await Promise.all([worker(), worker()]);
+      btnPreload.textContent = failed
+        ? `✓ Warmed (${total - failed}/${total})`
+        : '✓ Engines warmed';
+      btnPreload.title = failed
+        ? `${failed} files unavailable on the server — those variants fall back to lite`
+        : 'All engines fetched into Chrome\'s HTTP cache';
+      btnPreload.disabled = false;
+      setTimeout(() => { btnPreload.textContent = orig; }, 6000);
     });
   }
 
