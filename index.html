@@ -277,19 +277,9 @@
     </aside>
 
     <section class="board-area">
-      <!-- Clock + board laid out side-by-side: a vertical clock column
-           sits to the LEFT of the board (chess-TV / tournament style).
-           The slot stays hidden (zero-width) until a practice game with
-           a clock starts; JS reparents #practice-clock into it and
-           reveals it, which pushes the board right. -->
-      <div class="board-with-clock">
-        <div id="board-clock-slot" class="board-clock-slot" hidden></div>
-        <div class="board-stack">
-          <div id="board" class="cg-wrap"></div>
-          <div id="promotion-overlay" class="promotion-overlay" hidden></div>
-          <div id="board-resize" class="board-resize" title="Drag to resize board"></div>
-        </div>
-      </div>
+      <div id="board" class="cg-wrap"></div>
+      <div id="promotion-overlay" class="promotion-overlay" hidden></div>
+      <div id="board-resize" class="board-resize" title="Drag to resize board"></div>
       <div class="board-nav" role="group" aria-label="Navigate history">
         <button id="board-nav-start" class="nav-btn" title="First (Home)">⏮</button>
         <button id="board-nav-prev"  class="nav-btn" title="Previous (← / wheel up)">◀</button>

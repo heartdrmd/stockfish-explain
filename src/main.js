@@ -3357,9 +3357,6 @@ async function main() {
       const clockDisplay = document.getElementById('clock-digital');
       if (clockDisplay) clockDisplay.dataset.userColor = color;
 
-      // Move the clock to the upper-left slot above the board.
-      try { window.__moveClockAboveBoard?.(); } catch {}
-
       // Auto-collapse the toolbar for a clean playing view. Restored on
       // game end. prevNavCollapsed was captured earlier (persisted state).
       document.body.classList.add('nav-collapsed');
@@ -3410,8 +3407,6 @@ async function main() {
     if (document.body.classList.contains('practice-finished')) return;
     document.body.classList.add('practice-finished');
     document.body.classList.remove('practice-thinking');
-    // Restore the clock to the side panel + restore prior toolbar state.
-    try { window.__restoreClockToSide?.(); } catch {}
     if (!prevNavCollapsed) document.body.classList.remove('nav-collapsed');
     // Stop any in-flight engine search AND invalidate its token so if
     // a bestmove fires after `stop` (as Stockfish does — it emits the
@@ -4571,35 +4566,6 @@ async function main() {
       }
     } catch {}
   }
-
-  // ───── Board-above clock-slot reparenting ─────
-  // When a practice game starts, move #practice-clock out of the
-  // right-side panel and into the slot directly above the board, so it
-  // sits upper-left as a chess-TV-style clock. Restore on game end.
-  function moveClockAboveBoard() {
-    const card = document.getElementById('practice-clock');
-    const slot = document.getElementById('board-clock-slot');
-    if (!card || !slot) return;
-    if (card.parentElement !== slot) {
-      card.dataset.prevParentId = card.parentElement?.id || '';
-      slot.appendChild(card);
-      slot.hidden = false;
-    }
-  }
-  function restoreClockToSide() {
-    const card = document.getElementById('practice-clock');
-    const slot = document.getElementById('board-clock-slot');
-    if (!card || !slot) return;
-    const prevId = card.dataset.prevParentId;
-    if (prevId) {
-      const prev = document.getElementById(prevId);
-      if (prev) prev.appendChild(card);
-    }
-    slot.hidden = true;
-  }
-  // Expose so the practice start/end code below can call them.
-  window.__moveClockAboveBoard = moveClockAboveBoard;
-  window.__restoreClockToSide  = restoreClockToSide;
 
   // Clear engine cache — escape hatch if a bad preload left corrupt
   // WASM in the SW cache (symptoms: "Aw Snap! Error 5" on boot).
