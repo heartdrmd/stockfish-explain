@@ -1238,17 +1238,20 @@ async function main() {
     if (drop >=  50) return 'inaccuracy';
     return null;
   }
-  // Map a cpWhite value to a y coordinate in the SVG (0 = top, 100 = bottom).
-  // Uses a sigmoid-like curve — steeper at small cp so a ±3.5 pawn
-  // delta shows a decisive spike rather than a shallow dip. Divisor
-  // 150 means ±1.5 pawn ≈ 50% toward the edge, ±3.5 ≈ 82%, ±5+ ≈ 95%.
+  // Convert cp (White POV) to a normalised "win-probability" value in
+  // (-1..+1). Uses tanh(cp/450) which is Lichess-like: small cp deltas
+  // in the ±100 range are already visible (~22%), a decisive ±500 hits
+  // ~76%, mate forces to the extreme. Smoother and more readable than
+  // sigmoid at extremes.
+  function cpToNormal(cpWhite, mate) {
+    if (mate != null) return mate > 0 ? 1 : -1;
+    if (cpWhite == null) return null;
+    return Math.tanh(cpWhite / 450);
+  }
   function cpToY(cpWhite, mate) {
-    let normalised;
-    if (mate != null) normalised = mate > 0 ? 1 : -1;
-    else if (cpWhite == null) return null;
-    else normalised = 2 / (1 + Math.exp(-cpWhite / 150)) - 1; // range (-1..+1)
-    // y=50 is centre (equal). White better → up (lower y).
-    return 50 - normalised * 45;
+    const n = cpToNormal(cpWhite, mate);
+    if (n == null) return null;
+    return 50 - n * 45;  // y=50 is equal; up = White better
   }
   function renderEvalTimeline() {
     const root = document.getElementById('eval-timeline');
@@ -1261,18 +1264,16 @@ async function main() {
     root.hidden = false;
 
     const W = 600, H = 100;
-    const leftPad = 8, rightPad = 8;
+    const leftPad = 0, rightPad = 0;
     const span = W - leftPad - rightPad;
     const stepX = plies.length > 1 ? span / (plies.length - 1) : span;
 
-    // Build the area polyline (from bottom to path to bottom) and line
-    // polyline (just the path). Skip nulls by breaking into segments.
     const pts = plies.map((p, i) => {
       const y = cpToY(p.cpWhite, p.mate);
       return { x: leftPad + i * stepX, y, p, i };
     });
 
-    // Line string — treat nulls as gaps.
+    // Split into null/non-null segments so gaps in data don't connect.
     const segments = [];
     let cur = [];
     for (const pt of pts) {
@@ -1280,18 +1281,37 @@ async function main() {
       cur.push(pt);
     }
     if (cur.length) segments.push(cur);
+
+    // BIDIRECTIONAL FILL (Lichess-style).
+    // We build two polygons per segment:
+    //   • White fill: the polygon bounded by (line clamped to y<=50)
+    //     on top and the zero-line at y=50 on the bottom.
+    //   • Black fill: the polygon bounded by the zero-line on top and
+    //     (line clamped to y>=50) on the bottom.
+    // Each segment's path clamps the opposite half so the fills never
+    // overlap. Result: white territory below zero is shaded pale, black
+    // territory above zero is shaded dark. The line crosses zero where
+    // the eval flips.
+    const buildFills = (seg) => {
+      if (seg.length < 2) return '';
+      const first = seg[0], last = seg[seg.length - 1];
+      // WHITE FILL — clamp y>50 to 50 (so white's area only extends up
+      // to the zero baseline when black is better).
+      const whiteLine = seg.map(p => `${p.x.toFixed(1)},${Math.min(50, p.y).toFixed(1)}`).join(' ');
+      const whitePoly = `<polygon class="eval-area-white" points="${first.x.toFixed(1)},50 ${whiteLine} ${last.x.toFixed(1)},50"/>`;
+      // BLACK FILL — clamp y<50 to 50.
+      const blackLine = seg.map(p => `${p.x.toFixed(1)},${Math.max(50, p.y).toFixed(1)}`).join(' ');
+      const blackPoly = `<polygon class="eval-area-black" points="${first.x.toFixed(1)},50 ${blackLine} ${last.x.toFixed(1)},50"/>`;
+      return whitePoly + blackPoly;
+    };
+    const fillPaths = segments.map(buildFills).join('');
     const linePaths = segments.map(seg =>
       `<polyline class="eval-line" points="${seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}"/>`
     ).join('');
-    // Area fill below 50% for each segment.
-    const areaPaths = segments.map(seg => {
-      if (seg.length < 2) return '';
-      const first = seg[0], last = seg[seg.length - 1];
-      const pts2 = seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-      return `<polygon class="eval-area" points="${first.x.toFixed(1)},50 ${pts2} ${last.x.toFixed(1)},50"/>`;
-    }).join('');
 
-    // Dots for blunders / mistakes / inaccuracies.
+    // MISTAKE DOTS — placed ABOVE the line for white's mistakes and
+    // BELOW for black's mistakes so both are always visible against
+    // the fill colours, Lichess-style.
     let dotsSvg = '';
     let countB = 0, countM = 0, countI = 0;
     for (let i = 1; i < pts.length; i++) {
@@ -1301,21 +1321,25 @@ async function main() {
       if (sev === 'blunder') countB++; else if (sev === 'mistake') countM++; else countI++;
       const pt = pts[i];
       if (pt.y == null) continue;
-      dotsSvg += `<circle class="eval-dot ${sev}" cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="3.5" data-ply="${pt.p.ply}"><title>Ply ${pt.p.ply} (${pt.p.san}): ${sev} — ${((prev.cpWhite ?? 0) / 100).toFixed(2)} → ${((cur2.cpWhite ?? 0) / 100).toFixed(2)}</title></circle>`;
+      // Which colour moved? stm AFTER = opposite of mover. If mover=w,
+      // put dot above (y-6); if mover=b, put dot below (y+6).
+      const stmAfter = cur2.fen.split(' ')[1] || 'w';
+      const moverIsWhite = stmAfter === 'b';
+      const dy = moverIsWhite ? -6 : 6;
+      dotsSvg += `<circle class="eval-dot ${sev}" cx="${pt.x.toFixed(1)}" cy="${(pt.y + dy).toFixed(1)}" r="3" data-ply="${pt.p.ply}"><title>Ply ${pt.p.ply} (${pt.p.san}): ${sev} — eval ${((prev.cpWhite ?? 0) / 100).toFixed(2)} → ${((cur2.cpWhite ?? 0) / 100).toFixed(2)} (White POV)</title></circle>`;
     }
 
-    // Cursor line at the currently-viewed ply (board.viewPly is 0-based
-    // ply index in the mainline, or null when at live head).
+    // Current-ply cursor.
     let cursorSvg = '';
     const curIdx = board.viewPly == null ? pts.length - 1 : Math.min(pts.length - 1, board.viewPly + 1);
     const cx = pts[curIdx]?.x;
     if (cx != null) {
-      cursorSvg = `<line class="eval-cursor" x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="4" y2="96"/>`;
+      cursorSvg = `<line class="eval-cursor" x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="0" y2="${H}"/>`;
     }
 
     svg.innerHTML =
       `<line class="eval-zero" x1="0" x2="${W}" y1="50" y2="50"/>` +
-      areaPaths + linePaths + dotsSvg + cursorSvg;
+      fillPaths + linePaths + dotsSvg + cursorSvg;
 
     stats.textContent = plies.length > 1
       ? `${plies.length - 1} moves · ${countB ? countB + ' blunders · ' : ''}${countM ? countM + ' mistakes · ' : ''}${countI ? countI + ' inaccuracies · ' : ''}click to jump`
