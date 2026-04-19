@@ -1186,7 +1186,7 @@ async function main() {
     timelineTimer = setTimeout(() => {
       timelineTimer = 0;
       renderEvalTimeline();
-    }, 120);
+    }, 60);
   }
   function collectTimelinePlies() {
     // Replay the mainline from startingFen, harvesting each ply's FEN
@@ -1235,13 +1235,14 @@ async function main() {
     return null;
   }
   // Map a cpWhite value to a y coordinate in the SVG (0 = top, 100 = bottom).
-  // Uses a sigmoid-like curve so small cp deltas are visible while extreme
-  // values (±mate) don't blow out the chart.
+  // Uses a sigmoid-like curve — steeper at small cp so a ±3.5 pawn
+  // delta shows a decisive spike rather than a shallow dip. Divisor
+  // 150 means ±1.5 pawn ≈ 50% toward the edge, ±3.5 ≈ 82%, ±5+ ≈ 95%.
   function cpToY(cpWhite, mate) {
     let normalised;
     if (mate != null) normalised = mate > 0 ? 1 : -1;
     else if (cpWhite == null) return null;
-    else normalised = 2 / (1 + Math.exp(-cpWhite / 400)) - 1; // range (-1..+1)
+    else normalised = 2 / (1 + Math.exp(-cpWhite / 150)) - 1; // range (-1..+1)
     // y=50 is centre (equal). White better → up (lower y).
     return 50 - normalised * 45;
   }
@@ -1250,6 +1251,7 @@ async function main() {
     const svg  = document.getElementById('eval-timeline-svg');
     const stats = document.getElementById('eval-timeline-stats');
     if (!root || !svg) return;
+    if (root.dataset.userHidden) { root.hidden = true; return; }
     const plies = collectTimelinePlies();
     if (plies.length < 2) { root.hidden = true; return; }
     root.hidden = false;
@@ -1343,6 +1345,7 @@ async function main() {
     const rowEl = document.getElementById('pawn-strip-row');
     const stats = document.getElementById('pawn-strip-stats');
     if (!root || !rowEl) return;
+    if (root.dataset.userHidden) { root.hidden = true; return; }
     const plies = collectTimelinePlies();
     if (plies.length < 4) { root.hidden = true; return; }
     root.hidden = false;
@@ -1489,6 +1492,7 @@ async function main() {
     const svg  = document.getElementById('king-safety-svg');
     const stats = document.getElementById('king-safety-stats');
     if (!root || !svg) return;
+    if (root.dataset.userHidden) { root.hidden = true; return; }
     const plies = collectTimelinePlies();
     if (plies.length < 4) { root.hidden = true; return; }
     root.hidden = false;
@@ -1497,18 +1501,23 @@ async function main() {
     const pad = 6;
     const span = W - 2 * pad;
     const stepX = plies.length > 1 ? span / (plies.length - 1) : span;
-    // Find the max observed pressure so we scale adaptively.
-    let maxP = 2;
+    // Fixed-ceiling scaling so a score of 5+ already consumes most of
+    // the vertical space — this matches the user's expectation that
+    // "loaded king geometry" (Greek gift, open h-file, back rank, etc.)
+    // should produce a dramatic spike, not a small bump.
+    const CEILING = 8;
     const series = plies.map((p, i) => {
       const s = kingSafetyAt(p.fen);
-      if (s.w > maxP) maxP = s.w;
-      if (s.b > maxP) maxP = s.b;
       return { x: pad + i * stepX, w: s.w, b: s.b, p };
     });
-    // Pressure ON white king comes from Black's attackers → plot on Black-colour
-    // line; vice versa. So our lines really show "pressure against the king of
-    // that colour". Y=0 = top (higher = more pressure).
-    const yFor = (pressure) => Math.max(4, H - pad - (pressure / maxP) * (H - 2 * pad - 4));
+    // Power curve: y = (pressure / ceiling)^0.6 hits 50% at pressure
+    // ~2, 80% at 5, 95% at 7. Matches "even a small attacking idea
+    // registers; a full geometry nearly maxes the chart".
+    const yFor = (pressure) => {
+      const clamped = Math.max(0, Math.min(CEILING, pressure));
+      const t = Math.pow(clamped / CEILING, 0.6);
+      return Math.max(4, H - pad - t * (H - 2 * pad - 4));
+    };
     const wLinePts = series.map(pt => `${pt.x.toFixed(1)},${yFor(pt.w).toFixed(1)}`).join(' ');
     const bLinePts = series.map(pt => `${pt.x.toFixed(1)},${yFor(pt.b).toFixed(1)}`).join(' ');
     // Mark spikes where pressure >= 5 (geometry genuinely loaded).
@@ -1552,103 +1561,95 @@ async function main() {
   board.addEventListener('nav',      scheduleKingSafetyRender);
   setTimeout(renderKingSafetyTimeline, 300);
 
-  // ─── Piece-activity heat map (#7) ────────────────────────────
-  // Walk the mainline; at each ply count how many enemy squares each
-  // piece of a given colour could move to, tagging targets. Aggregate
-  // into two 8×8 grids (W attacks, B attacks). Colour intensity scales
-  // with attack frequency — squares that get repeatedly covered glow.
-  // Per-FEN attacker lookup is cached.
-  const heatAttackerCache = new Map();
-  function attackedSquaresFor(fen, side) {
-    const key = fen + '|' + side;
-    if (heatAttackerCache.has(key)) return heatAttackerCache.get(key);
-    let squares = [];
-    try {
-      const c = new Chess(fen);
-      // chess.js only lists moves for side-to-move. Flip the FEN if
-      // needed.
-      if (c.turn() !== side) {
-        const fp = fen.split(' ');
-        fp[1] = side; fp[3] = '-'; fp[5] = '1';
-        try { c.load(fp.join(' ')); } catch { return []; }
-      }
-      const moves = c.moves({ verbose: true });
-      squares = moves
-        .filter(m => m.piece !== 'p' || m.flags.includes('c')) // include pawn captures but not quiet pawn pushes
-        .map(m => m.to);
-    } catch {}
-    if (heatAttackerCache.size > 300) {
-      heatAttackerCache.delete(heatAttackerCache.keys().next().value);
+  // ─── Panel hide/show (per-panel ✕ + header 👁 Panels menu) ─────────
+  const PANEL_HIDE_KEY = 'stockfish-explain.panel-hidden';
+  const loadHiddenPanels = () => {
+    try { return JSON.parse(localStorage.getItem(PANEL_HIDE_KEY) || '{}'); }
+    catch { return {}; }
+  };
+  const saveHiddenPanels = (obj) => {
+    try { localStorage.setItem(PANEL_HIDE_KEY, JSON.stringify(obj)); } catch {}
+  };
+  const applyHiddenPanels = () => {
+    const hidden = loadHiddenPanels();
+    for (const id of ['eval-timeline', 'king-safety-timeline', 'pawn-strip']) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      if (hidden[id]) { el.dataset.userHidden = '1'; el.hidden = true; }
+      else            { delete el.dataset.userHidden; /* let renderer control .hidden */ }
     }
-    heatAttackerCache.set(key, squares);
-    return squares;
-  }
+  };
+  applyHiddenPanels();
 
-  function renderHeatMap() {
-    const root = document.getElementById('heat-map');
-    const wGrid = document.getElementById('heat-map-w');
-    const bGrid = document.getElementById('heat-map-b');
-    const stats = document.getElementById('heat-map-stats');
-    if (!root || !wGrid || !bGrid) return;
-    const plies = collectTimelinePlies();
-    if (plies.length < 6) { root.hidden = true; return; }
-    root.hidden = false;
+  // Per-panel ✕ button
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.panel-hide-btn');
+    if (!btn) return;
+    const id = btn.dataset.panel;
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    const hidden = loadHiddenPanels();
+    hidden[id] = true;
+    saveHiddenPanels(hidden);
+    el.dataset.userHidden = '1';
+    el.hidden = true;
+  });
 
-    // 64-square count arrays indexed by a1..h8 (rank 1 first as row 7).
-    const wCount = new Array(64).fill(0);
-    const bCount = new Array(64).fill(0);
-    const idxOf = (sq) => {
-      const file = sq.charCodeAt(0) - 97;
-      const rank = parseInt(sq[1], 10) - 1;
-      return rank * 8 + file;
-    };
-    for (const p of plies) {
-      for (const sq of attackedSquaresFor(p.fen, 'w')) wCount[idxOf(sq)]++;
-      for (const sq of attackedSquaresFor(p.fen, 'b')) bCount[idxOf(sq)]++;
-    }
-    const maxW = Math.max(1, ...wCount);
-    const maxB = Math.max(1, ...bCount);
-    const paint = (count, max, color) => {
-      // Intensity 0..1, power-curved so mid values pop.
-      const t = Math.pow(count / max, 0.6);
-      const alpha = 0.12 + 0.7 * t;
-      // color is 'r,g,b' string
-      return count > 0 ? `background:rgba(${color},${alpha.toFixed(3)});color:${count >= max*0.6 ? 'white' : 'rgba(255,255,255,0.6)'};` : 'background:rgba(30,30,30,0.3);';
-    };
-    const render = (counts, max, color) => {
-      // Render top rank first (so visually matches a board).
-      const rows = [];
-      for (let r = 7; r >= 0; r--) {
-        for (let f = 0; f < 8; f++) {
-          const n = counts[r * 8 + f];
-          const style = paint(n, max, color);
-          const sq = String.fromCharCode(97 + f) + (r + 1);
-          rows.push(`<div style="${style}" title="${sq}: ${n} covering moves">${n || ''}</div>`);
+  // Header 👁 Panels button — toggle menu of hidden panels to unhide
+  const panelsBtn = document.getElementById('btn-panels');
+  if (panelsBtn) panelsBtn.addEventListener('click', () => {
+    const hidden = loadHiddenPanels();
+    const hiddenIds = Object.keys(hidden).filter(k => hidden[k]);
+    const all = [
+      { id: 'eval-timeline',         label: '📈 Eval timeline' },
+      { id: 'king-safety-timeline',  label: '👑 King-safety pressure' },
+      { id: 'pawn-strip',            label: '♟ Pawn structure' },
+    ];
+    const popup = document.createElement('div');
+    popup.className = 'modal';
+    popup.style.zIndex = '99999';
+    popup.innerHTML = `<div class="modal-card" style="max-width:380px;">
+      <button class="modal-close" id="panels-popup-close">×</button>
+      <h3>👁 Panels</h3>
+      <p class="muted" style="font-size:12px;">Toggle which analysis panels appear below the board.</p>
+      ${all.map(a => `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:13px;">
+        <input type="checkbox" data-panel-toggle="${a.id}" ${hidden[a.id] ? '' : 'checked'}>
+        <span>${a.label}</span>
+      </label>`).join('')}
+      <p class="muted" style="font-size:11px;margin-top:10px;">Each panel also has a <strong>✕</strong> button in its own header for quick hiding.</p>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.hidden = false;
+    const close = () => popup.remove();
+    popup.addEventListener('click', (e) => { if (e.target === popup) close(); });
+    popup.querySelector('#panels-popup-close').addEventListener('click', close);
+    popup.querySelectorAll('input[data-panel-toggle]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = cb.dataset.panelToggle;
+        const h = loadHiddenPanels();
+        if (cb.checked) {
+          delete h[id];
+          const el = document.getElementById(id);
+          if (el) { delete el.dataset.userHidden; }
+          // Trigger a re-render so it shows if the game has enough data.
+          scheduleTimelineRender();
+          schedulePawnStripRender();
+          scheduleKingSafetyRender();
+        } else {
+          h[id] = true;
+          const el = document.getElementById(id);
+          if (el) { el.dataset.userHidden = '1'; el.hidden = true; }
         }
-      }
-      return rows.join('');
-    };
-    wGrid.innerHTML = render(wCount, maxW, '240,240,240');
-    bGrid.innerHTML = render(bCount, maxB, '70,70,70');
-    // Identify the single hottest square for each colour (excluding the
-    // trivial starting-square outliers).
-    let hotW = -1, hotWSq = '';
-    let hotB = -1, hotBSq = '';
-    for (let i = 0; i < 64; i++) {
-      if (wCount[i] > hotW) { hotW = wCount[i]; hotWSq = String.fromCharCode(97 + (i & 7)) + (1 + (i >> 3)); }
-      if (bCount[i] > hotB) { hotB = bCount[i]; hotBSq = String.fromCharCode(97 + (i & 7)) + (1 + (i >> 3)); }
-    }
-    stats.textContent = `${plies.length - 1} plies aggregated · hottest W square ${hotWSq} (${hotW}) · hottest B square ${hotBSq} (${hotB})`;
-  }
-  let heatMapTimer = 0;
-  function scheduleHeatMapRender() {
-    if (heatMapTimer) return;
-    heatMapTimer = setTimeout(() => { heatMapTimer = 0; renderHeatMap(); }, 220);
-  }
-  board.addEventListener('move',     scheduleHeatMapRender);
-  board.addEventListener('new-game', scheduleHeatMapRender);
-  board.addEventListener('nav',      scheduleHeatMapRender);
-  setTimeout(renderHeatMap, 350);
+        saveHiddenPanels(h);
+      });
+    });
+  });
+
+  // ─── Piece-activity heat map (#7) — REMOVED (not useful) ───────
+  // Heat map intentionally removed — it ended up being noisy rather
+  // than informative, because attack-count per square is dominated by
+  // pieces that sit still, not by meaningful control swings.
   // Initial render in case a draft was restored.
   setTimeout(scheduleTimelineRender, 200);
 
@@ -1688,6 +1689,9 @@ async function main() {
       const o = detectOpening(sanHistory, board.fen());
       if (o) opening = { name: o.name, eco: o.eco || null, matched: o._matched || 'exact' };
     } catch {}
+    const userInfo = (typeof window !== 'undefined' && window.__user)
+      ? { name: window.__user.name, id: window.__user.id }
+      : { name: 'Guest', id: 'guest' };
     const game = {
       id:          Date.now(),
       date:        today,
@@ -1695,6 +1699,8 @@ async function main() {
       ending:      ending || '',
       mode:        mode || 'analysis',
       userColor,
+      userName:    userInfo.name,
+      userDeviceId: userInfo.id,
       opponent:    mode === 'practice'
                       ? `Stockfish (skill ${ui.rangeSkill?.value || '?'})`
                       : 'n/a',
@@ -2894,6 +2900,62 @@ async function main() {
     btnHard.addEventListener('click',  () => grade('hard'));
     btnGood.addEventListener('click',  () => grade('good'));
     btnEasy.addEventListener('click',  () => grade('easy'));
+  })();
+
+  // ────────── User identity (name + persistent device ID) ──────────
+  // Captured on first load so every archived game / mistake / drill
+  // session can be stamped with the user. The ID stays stable across
+  // sessions on the same device even if the user later changes their
+  // display name — making it safe to key a future DB sync on.
+  (() => {
+    const NAME_KEY = 'stockfish-explain.user-name';
+    const ID_KEY   = 'stockfish-explain.user-id';
+    const genId = () => {
+      // Short stable device ID — 12 chars of base36 random + a 2-char
+      // clock fingerprint for uniqueness.
+      const rand = Math.random().toString(36).slice(2, 12);
+      const clk  = Date.now().toString(36).slice(-2);
+      return 'dev-' + rand + clk;
+    };
+    let userId   = localStorage.getItem(ID_KEY);
+    let userName = localStorage.getItem(NAME_KEY);
+    if (!userId) {
+      userId = genId();
+      try { localStorage.setItem(ID_KEY, userId); } catch {}
+    }
+    if (!userName) {
+      // First-load prompt. Non-blocking: default to the ID when user
+      // cancels / leaves blank.
+      setTimeout(() => {
+        const entered = window.prompt(
+          "What should we call you?\n\n(Used to stamp your saved games and future cloud sync. Leave blank to use your device ID.)",
+          ''
+        );
+        const clean = (entered || '').trim().slice(0, 40);
+        userName = clean || userId;
+        try { localStorage.setItem(NAME_KEY, userName); } catch {}
+        refreshUserPill();
+      }, 500);
+    }
+
+    window.__user = { id: userId, get name() { return userName; }, set name(n) { userName = n; } };
+
+    const pill = document.getElementById('user-pill');
+    const refreshUserPill = () => {
+      if (!pill) return;
+      const label = (userName && userName !== userId) ? userName : userId;
+      pill.textContent = '👤 ' + label;
+      pill.title = `Name: ${userName || '(not set)'} · Device ID: ${userId}\n(click to rename)`;
+    };
+    refreshUserPill();
+    if (pill) pill.addEventListener('click', () => {
+      const next = window.prompt('Change your display name:', userName || '');
+      if (next == null) return;
+      const clean = next.trim().slice(0, 40);
+      userName = clean || userId;
+      try { localStorage.setItem(NAME_KEY, userName); } catch {}
+      refreshUserPill();
+    });
   })();
 
   // ────────── Mobile-first layout (#24) ──────────

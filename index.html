@@ -69,6 +69,8 @@
       <button id="btn-save-pgn"  class="btn" title="Download the current game as a PGN file">💾 PGN</button>
       <button id="btn-share"     class="btn" title="Copy a shareable URL for this exact position">🔗 Share</button>
       <button id="btn-export-gif" class="btn" title="Export the game as an animated GIF with eval ticker">🎞 GIF</button>
+      <button id="btn-panels" class="btn" title="Show or hide the analysis panels below the board">👁 Panels</button>
+      <span id="user-pill" class="pill" title="Your identity — used for game archival + future DB sync">👤 —</span>
       <button id="btn-download-log" class="btn" title="Download a diagnostic log file — send it to me if something breaks">📄 Log</button>
       <span id="engine-mode"  class="pill" title="Current engine + threads">loading…</span>
 
@@ -363,53 +365,29 @@
         <div class="eval-timeline-header">
           <span class="eval-timeline-title">📈 Eval timeline</span>
           <span class="eval-timeline-stats" id="eval-timeline-stats"></span>
+          <button class="panel-hide-btn" data-panel="eval-timeline" title="Hide this panel (unhide in the header menu)">✕</button>
         </div>
         <svg id="eval-timeline-svg" class="eval-timeline-svg" viewBox="0 0 600 100" preserveAspectRatio="none"></svg>
       </div>
 
-      <!-- King-safety timeline (#6) — two overlaid lines (W/B) showing
-           king-attack readiness per ply. Spikes when Greek gift / h-file
-           pry / back-rank / outpost patterns are loaded. Hidden until
-           a non-trivial game exists. -->
+      <!-- King-safety timeline (#6) -->
       <div id="king-safety-timeline" class="eval-timeline" hidden>
         <div class="eval-timeline-header">
           <span class="eval-timeline-title">👑 King-safety pressure</span>
           <span class="eval-timeline-stats" id="king-safety-stats"></span>
+          <button class="panel-hide-btn" data-panel="king-safety-timeline" title="Hide this panel">✕</button>
         </div>
         <svg id="king-safety-svg" class="eval-timeline-svg" viewBox="0 0 600 80" preserveAspectRatio="none" style="background:linear-gradient(180deg,rgba(200,200,200,0.1) 0%,rgba(100,100,100,0.3) 100%);height:60px;"></svg>
       </div>
 
-      <!-- Pawn-structure evolution strip (#5) — each cell is a tiny 8×8
-           pawn-only snapshot, sampled every N plies. Transitions to a
-           new detected archetype are highlighted. Hidden until the
-           game has enough moves to make it interesting. -->
+      <!-- Pawn-structure evolution strip (#5) -->
       <div id="pawn-strip" class="pawn-strip" hidden>
         <div class="pawn-strip-header">
           <span class="pawn-strip-title">♟ Pawn structure</span>
           <span class="pawn-strip-stats" id="pawn-strip-stats"></span>
+          <button class="panel-hide-btn" data-panel="pawn-strip" title="Hide this panel">✕</button>
         </div>
         <div id="pawn-strip-row" class="pawn-strip-row"></div>
-      </div>
-
-      <!-- Piece-activity heat map (#7) — two mini 8×8 grids (W/B)
-           showing how often each square was attacked by pieces of that
-           colour across the whole game. Hidden until the game is
-           substantive. -->
-      <div id="heat-map" class="pawn-strip" hidden>
-        <div class="pawn-strip-header">
-          <span class="pawn-strip-title">🔥 Piece activity heat map</span>
-          <span class="pawn-strip-stats" id="heat-map-stats"></span>
-        </div>
-        <div style="display:flex;gap:16px;justify-content:center;padding:6px 0;">
-          <div style="text-align:center;">
-            <div id="heat-map-w" class="heat-grid"></div>
-            <div class="pawn-label" style="margin-top:4px;">White control</div>
-          </div>
-          <div style="text-align:center;">
-            <div id="heat-map-b" class="heat-grid"></div>
-            <div class="pawn-label" style="margin-top:4px;">Black control</div>
-          </div>
-        </div>
       </div>
 
       <!-- Move list + nav -->
