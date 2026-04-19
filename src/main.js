@@ -4385,6 +4385,54 @@ async function main() {
     await bootEngine(currentFlavor);
   });
 
+  // ───── Preload all engines ─────
+  // Service Worker at /sw.js transparently caches any engine asset the
+  // app fetches; the button below tells it to fetch EVERY variant up
+  // front so subsequent boots are instant. Cache lives in CacheStorage
+  // (origin-keyed, survives browser restarts).
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.warn('[sw] register failed', err);
+    });
+  }
+
+  const btnPreload = document.getElementById('btn-preload-engines');
+  if (btnPreload) {
+    const ALL_ENGINE_URLS = (() => {
+      const urls = [];
+      for (const spec of Object.values(ENGINE_FLAVORS)) {
+        urls.push('/' + spec.js);
+        urls.push('/' + spec.js.replace(/\.js$/, '.wasm'));
+      }
+      return urls;
+    })();
+    btnPreload.addEventListener('click', async () => {
+      const sw = navigator.serviceWorker?.controller;
+      if (!sw) {
+        // First-load: SW may be installed but not yet controlling this
+        // page. Reload once so it takes over, then the next click works.
+        alert('Service worker not active yet — reload the page once, then click again.');
+        return;
+      }
+      const orig = btnPreload.textContent;
+      btnPreload.disabled = true;
+      btnPreload.textContent = '⬇ 0 / ' + ALL_ENGINE_URLS.length;
+      const onMsg = (ev) => {
+        const m = ev.data || {};
+        if (m.type === 'preload-progress') {
+          btnPreload.textContent = `⬇ ${m.done} / ${m.total}`;
+        } else if (m.type === 'preload-done') {
+          btnPreload.textContent = '✓ Engines cached';
+          btnPreload.disabled = false;
+          navigator.serviceWorker.removeEventListener('message', onMsg);
+          setTimeout(() => { btnPreload.textContent = orig; }, 4000);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', onMsg);
+      sw.postMessage({ type: 'preload', urls: ALL_ENGINE_URLS });
+    });
+  }
+
   // Lock button: hard-disable the engine until user explicitly unlocks.
   // While locked: no engine.start() is ever issued.
   const btnLock = document.getElementById('btn-lock');
