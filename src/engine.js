@@ -179,7 +179,14 @@ export class Engine extends EventTarget {
       : 1;
 
     try {
-      this.worker = new Worker(this.scriptPath);
+      // lichess-org/stockfish-web ships an ES module (uses import.meta).
+      // Our custom-built variants are classic scripts. Match the worker
+      // type to the flavor — sf-fast (and any future external-NNUE
+      // flavor) goes through as type:'module'.
+      const workerOpts = spec.externalNnue ? { type: 'module' } : undefined;
+      this.worker = workerOpts
+        ? new Worker(this.scriptPath, workerOpts)
+        : new Worker(this.scriptPath);
     } catch (err) {
       console.error('Engine worker failed to start:', err);
       throw err;

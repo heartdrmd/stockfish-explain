@@ -804,21 +804,22 @@ async function main() {
       ui.engineMode.textContent = 'engine failed';
       const msg = String(err.message || err);
       const isTimeout  = /timed out/i.test(msg);
-      const isCrash    = /unreachable|runtime error|not valid wasm/i.test(msg);
+      const isCrash    = /unreachable|runtime error|not valid wasm|crashed|failed to boot|syntaxerror|importscripts/i.test(msg);
 
-      // Auto-fallback: if the user's saved flavor crashed OR timed out
-      // AND it's not already the safe default, reset to the default
-      // (lite MT) and retry once. Handles two common bad states:
-      //   - corrupt wasm in Chrome's HTTP cache for the saved variant
-      //   - a specific variant build that's broken in this browser
-      const DEFAULT_FLAVOR = threadable ? 'lite' : 'lite-single';
-      if ((isTimeout || isCrash) && flavor !== DEFAULT_FLAVOR) {
+      // Auto-fallback chain: on crash/timeout, walk a priority list
+      // of safer flavors until one works. Stops as soon as a flavor
+      // boots — doesn't loop forever if every flavor is broken.
+      const fallbackChain = threadable
+        ? ['lite', 'lite-single']
+        : ['lite-single'];
+      const nextFlavor = fallbackChain.find(f => f !== flavor);
+      if ((isTimeout || isCrash) && nextFlavor) {
         localStorage.removeItem(FLAVOR_STORAGE);
-        ui.narrationText.innerHTML = `⚠ Engine "${flavor}" failed — falling back to <strong>${DEFAULT_FLAVOR}</strong> and retrying…`;
-        ui.selectFlavor.value = DEFAULT_FLAVOR;
+        ui.narrationText.innerHTML = `⚠ Engine "${flavor}" failed — falling back to <strong>${nextFlavor}</strong>…`;
+        ui.selectFlavor.value = nextFlavor;
         try { engine.terminate?.(); } catch {}
         engine = new Engine();
-        return bootEngine(DEFAULT_FLAVOR);
+        return bootEngine(nextFlavor);
       }
 
       if (isTimeout) {
