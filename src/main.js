@@ -3000,20 +3000,31 @@ async function main() {
       leaf.className = 'tree-leaf' + (entry.key === selected ? ' selected' : '');
       leaf.dataset.key = entry.key;
       const starred = !!favs[entry.key];
+      const side    = favs[entry.key] || null; // 'white' | 'black' | 'both' | null
       const queueSet = loadQueueSet();
       const badge = entry.o._source === 'lichess' ? '<span class="tree-lichess-badge">DB</span>' : '';
       const custom = entry.o._custom ? '<span class="tree-lichess-badge">custom</span>' : '';
       const leafName = entry.o.name;
-      // Queue checkbox — only visible for starred entries. When
-      // checked, this favourite is included in the random rotation
-      // queue. Default = included (any fav auto-joins rotation).
+      // Queue checkbox — only visible for starred entries.
       const inQueue = !starred || queueSet.size === 0 || queueSet.has(entry.key);
       const queueCb = starred
         ? `<input type="checkbox" class="tree-leaf-queue" data-queue="${entry.key}" ${inQueue ? 'checked' : ''} title="Include in queue rotation" onclick="event.stopPropagation()">`
         : '';
+      // Side chooser — only shown for starred entries. Three mini
+      // buttons (W / B / Both). Clicking one sets which colour the
+      // user wants to practice this opening as. 'Both' = board side
+      // is randomised each time the random-queue picks this opening.
+      const sideChooser = starred
+        ? `<span class="tree-leaf-side" data-side-key="${entry.key}" onclick="event.stopPropagation()">` +
+            `<button type="button" class="side-pick ${side === 'white' ? 'active' : ''}" data-side-pick="white" title="Practice as White">W</button>` +
+            `<button type="button" class="side-pick ${side === 'black' ? 'active' : ''}" data-side-pick="black" title="Practice as Black">B</button>` +
+            `<button type="button" class="side-pick ${side === 'both'  ? 'active' : ''}" data-side-pick="both"  title="Practice as either — random each time the queue picks this">↔</button>` +
+          `</span>`
+        : '';
       leaf.innerHTML =
         `<span class="tree-leaf-fav${starred ? ' starred' : ''}" data-fav="${entry.key}" title="${starred ? 'Unstar' : 'Star as favourite'}">${starred ? '★' : '☆'}</span>` +
         queueCb +
+        sideChooser +
         `<span class="tree-leaf-name">${escapeHtml(leafName)}</span>` +
         `<span class="tree-leaf-eco">${escapeHtml(entry.o.eco || '')}</span>` +
         badge + custom;
@@ -3023,6 +3034,21 @@ async function main() {
     // Click handlers on the tree.
     if (pTree) {
       pTree.addEventListener('click', (ev) => {
+        // Side pick (W / B / Both) — highest priority so clicks don't
+        // fall through to the leaf-select handler.
+        const sideBtn = ev.target.closest('[data-side-pick]');
+        if (sideBtn) {
+          const wrap = sideBtn.closest('[data-side-key]');
+          const key  = wrap?.dataset.sideKey;
+          if (key) {
+            const favs = loadFavs();
+            favs[key] = sideBtn.dataset.sidePick; // 'white' | 'black' | 'both'
+            saveFavs(favs);
+            renderTree();
+          }
+          ev.stopPropagation();
+          return;
+        }
         const favBtn = ev.target.closest('.tree-leaf-fav');
         if (favBtn) {
           const key = favBtn.dataset.fav;
@@ -3585,8 +3611,14 @@ async function main() {
     const pickedKey = pool[Math.floor(Math.random() * pool.length)];
     const pSel   = document.getElementById('practice-opening');
     const pColor = document.getElementById('practice-color');
+    // Resolve side: 'white' | 'black' | 'both' — 'both' picks
+    // randomly on each rotation so the user practices both sides.
+    const savedSide = favs[pickedKey] || 'white';
+    const resolvedSide = savedSide === 'both'
+      ? (Math.random() < 0.5 ? 'white' : 'black')
+      : savedSide;
     if (pSel)   pSel.value   = pickedKey;
-    if (pColor) pColor.value = favs[pickedKey] || 'white';
+    if (pColor) pColor.value = resolvedSide;
     // Programmatically click Start — reuses the full start handler
     // including settings save, clock start, and analysis-kick.
     const startBtn = document.getElementById('practice-start');

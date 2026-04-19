@@ -2483,6 +2483,28 @@ body.practice-mode .practice-card { display: block; }
   opacity: 1;
 }
 .practice-opening-tree .tree-leaf-fav:hover { opacity: 1; }
+
+/* W / B / Both mini-buttons next to starred favourites. */
+.practice-opening-tree .tree-leaf-side {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 4px;
+}
+.practice-opening-tree .side-pick {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  line-height: 1;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-low);
+  color: var(--c-font-dim);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.practice-opening-tree .side-pick:hover { color: var(--c-font); }
+.practice-opening-tree .side-pick.active[data-side-pick="white"] { background: #f5f5f5; color: #0b0b0b; border-color: #777; }
+.practice-opening-tree .side-pick.active[data-side-pick="black"] { background: #111;    color: #fff;    border-color: #000; }
+.practice-opening-tree .side-pick.active[data-side-pick="both"]  { background: #7aa7ff; color: #fff;    border-color: #4a7fd9; }
 .practice-opening-tree .tree-lichess-badge {
   font-size: 9px;
   color: #7aa7ff;
