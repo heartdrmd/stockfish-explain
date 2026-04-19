@@ -2543,6 +2543,117 @@ async function main() {
     return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   }
 
+  // ────────── Drill (SRS) — spaced-repetition review queue ──────────
+  (() => {
+    const btnOpen   = document.getElementById('btn-drill');
+    const modal     = document.getElementById('drill-modal');
+    const closeBtn  = document.getElementById('drill-close');
+    const badge     = document.getElementById('drill-badge');
+    const emptyEl   = document.getElementById('drill-empty');
+    const activeEl  = document.getElementById('drill-active');
+    const posEl     = document.getElementById('drill-position');
+    const totalEl   = document.getElementById('drill-total');
+    const statusEl  = document.getElementById('drill-status');
+    const severityEl= document.getElementById('drill-severity');
+    const contextEl = document.getElementById('drill-context');
+    const revealEl  = document.getElementById('drill-reveal');
+    const revealBody= document.getElementById('drill-reveal-body');
+    const statsEl   = document.getElementById('drill-stats');
+    const btnAgain  = document.getElementById('drill-again');
+    const btnHard   = document.getElementById('drill-hard');
+    const btnGood   = document.getElementById('drill-good');
+    const btnEasy   = document.getElementById('drill-easy');
+    if (!btnOpen || !modal) return;
+
+    let queue = [];
+    let idx = 0;
+
+    const fmtCp = (cp) => {
+      if (cp == null) return '—';
+      const v = cp / 100;
+      return (v >= 0 ? '+' : '') + v.toFixed(2);
+    };
+
+    const updateBadge = () => {
+      const due = Archive.dueMistakeCards(999).length;
+      if (due > 0) {
+        badge.style.display = 'inline-block';
+        badge.textContent = String(due);
+      } else {
+        badge.style.display = 'none';
+      }
+    };
+    updateBadge();
+    setInterval(updateBadge, 30000);
+
+    const renderActive = () => {
+      const item = queue[idx];
+      if (!item) { showEmpty(); return; }
+      emptyEl.hidden = true; activeEl.style.display = 'block';
+      posEl.textContent = String(idx + 1);
+      totalEl.textContent = String(queue.length);
+      statusEl.textContent = item.status;
+      severityEl.textContent = item.mistake.severity;
+      const m = item.mistake;
+      contextEl.innerHTML =
+        `<strong>${escHtml(m.opening?.name || 'unknown opening')}</strong> · ` +
+        `move ${Math.ceil(m.ply/2)}${m.ply%2===1?'.':'...'} · ` +
+        `eval was <strong>${fmtCp(m.cpBefore)}</strong> (from mover's view) · ` +
+        `${m.date}`;
+      revealEl.open = false;
+      revealBody.innerHTML =
+        `<p>You actually played <strong>${escHtml(m.san)}</strong>, eval dropped to <strong>${fmtCp(m.cpAfter)}</strong> (−${(m.swing/100).toFixed(2)}).</p>` +
+        `<p class="muted" style="font-size:11px;">Click <em>Review</em> below to load the position into the board. Then click 🧠 "Run both" in the Coach panel to see what you should have played instead.</p>` +
+        `<button id="drill-load-position" class="btn" style="font-size:11px;padding:4px 8px;">📂 Load position into board</button>`;
+      const loadBtn = revealBody.querySelector('#drill-load-position');
+      if (loadBtn) loadBtn.addEventListener('click', () => {
+        try {
+          board.newGame();
+          board.chess.load(m.fenBefore);
+          board.startingFen = m.fenBefore;
+          board.cg.set({ fen: m.fenBefore, turnColor: board.chess.turn() === 'w' ? 'white' : 'black' });
+          board.dispatchEvent(new CustomEvent('new-game'));
+          modal.hidden = true;
+          ui.narrationText.innerHTML = `🃏 Drill position loaded. You're on ply ${m.ply}. Try to find the move the engine prefers. Use 🧠 "Run both" for analysis.`;
+        } catch (err) { alert('Could not load position: ' + err.message); }
+      });
+      const srsStats = Archive.srsStats();
+      statsEl.textContent = `SRS: ${srsStats.total} cards total · ${srsStats.learning} learning · ${srsStats.mature} mature (≥21 days)`;
+    };
+
+    const showEmpty = () => {
+      emptyEl.hidden = false;
+      activeEl.style.display = 'none';
+      updateBadge();
+    };
+
+    const startDrill = () => {
+      queue = Archive.dueMistakeCards(15);
+      idx = 0;
+      if (!queue.length) { showEmpty(); return; }
+      renderActive();
+    };
+
+    const grade = (g) => {
+      const item = queue[idx];
+      if (!item) return;
+      const updated = Archive.gradeCard(item.card, g);
+      Archive.upsertCard(updated);
+      idx++;
+      if (idx >= queue.length) showEmpty();
+      else renderActive();
+      updateBadge();
+    };
+
+    btnOpen.addEventListener('click', () => { startDrill(); modal.hidden = false; });
+    closeBtn.addEventListener('click', () => { modal.hidden = true; });
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+    btnAgain.addEventListener('click', () => grade('again'));
+    btnHard.addEventListener('click',  () => grade('hard'));
+    btnGood.addEventListener('click',  () => grade('good'));
+    btnEasy.addEventListener('click',  () => grade('easy'));
+  })();
+
   // ────────── Save current position as a custom practice opening ──────
   (() => {
     const btnSave    = document.getElementById('btn-save-as-opening');

@@ -60,6 +60,7 @@
       <button id="btn-practice" class="btn" title="Play against the engine from a chosen opening">🎯 Practice</button>
       <button id="btn-my-games" class="btn" title="Browse your archived games with eval timelines and mistake analysis">📚 My Games</button>
       <button id="btn-mistake-bank" class="btn" title="Review positions where you played poorly — spaced repetition">🎓 Mistake Bank</button>
+      <button id="btn-drill" class="btn" title="Drill due cards — spaced-repetition review queue">🃏 Drill <span id="drill-badge" class="pill" style="display:none;margin-left:4px;padding:1px 6px;background:#dc3545;color:white;font-size:10px;">0</span></button>
       <button id="btn-tournament" class="btn" title="Engine vs engine self-play">🏆 Tournament</button>
       <button id="btn-restart" class="btn" title="Restart engine if stuck">♻ Restart</button>
       <button id="btn-copy-fen"  class="btn" title="Copy current position FEN to clipboard">📋 FEN</button>
@@ -546,6 +547,43 @@
         <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="mb-filter-by-user"    checked> Only my mistakes (not opponent's)</label>
       </div>
       <div id="mistake-bank-list" style="max-height:400px;overflow-y:auto;border:1px solid var(--c-border);border-radius:6px;padding:6px;"></div>
+    </div>
+  </div>
+
+  <!-- Drill modal (#3) — spaced-repetition queue. Shows one due mistake
+       at a time, user finds the better move on the board, then grades
+       themselves Again / Hard / Good / Easy. -->
+  <div id="drill-modal" class="modal" hidden>
+    <div class="modal-card modal-wide">
+      <button class="modal-close" id="drill-close">×</button>
+      <h3>🃏 Drill — spaced-repetition review</h3>
+      <div id="drill-empty" class="muted" style="padding:20px;text-align:center;" hidden>
+        <p><strong>Nothing due right now 🎉</strong></p>
+        <p style="font-size:12px;">Play more games and make some mistakes — they'll show up here for review. Already-drilled cards re-appear on the SRS schedule (1 day / 3 days / 7 days / 21 days based on how well you did).</p>
+      </div>
+      <div id="drill-active" style="display:none;">
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">
+          Card <strong id="drill-position">1</strong> of <strong id="drill-total">?</strong> ·
+          <strong id="drill-status">new</strong> ·
+          <strong id="drill-severity">mistake</strong>
+        </div>
+        <div id="drill-prompt" style="font-size:13px;margin-bottom:12px;">
+          Find the better move. Once you've decided, reveal the engine's answer below.
+        </div>
+        <div class="muted" style="font-size:11px;">Context:</div>
+        <div id="drill-context" style="font-size:12px;margin-bottom:10px;"></div>
+        <details id="drill-reveal" style="margin-bottom:10px;">
+          <summary style="cursor:pointer;font-weight:600;color:var(--c-accent,#7aa7ff);">▼ Reveal what was played and what should have been played</summary>
+          <div id="drill-reveal-body" style="margin-top:8px;font-size:12px;"></div>
+        </details>
+        <div class="tournament-actions" style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button id="drill-again" class="btn" style="background:rgba(220,53,69,0.2);border-color:#dc3545;" title="Missed it — see this card again soon">❌ Again (1 day)</button>
+          <button id="drill-hard"  class="btn" style="background:rgba(253,126,20,0.2);border-color:#fd7e14;" title="Got it but it was hard">😓 Hard</button>
+          <button id="drill-good"  class="btn" style="background:rgba(82,196,26,0.2);border-color:#52c41a;" title="Got it correctly">✅ Good</button>
+          <button id="drill-easy"  class="btn" style="background:rgba(122,167,255,0.2);border-color:var(--c-accent,#7aa7ff);" title="Too easy — space this further out">⚡ Easy</button>
+        </div>
+        <div class="muted" style="margin-top:8px;font-size:11px;" id="drill-stats">—</div>
+      </div>
     </div>
   </div>
 

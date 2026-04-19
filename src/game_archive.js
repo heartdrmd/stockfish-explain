@@ -194,6 +194,143 @@ export function clearArchive() {
   catch { return false; }
 }
 
+// ─── Spaced-repetition scheduler for the mistake bank (#3) ──────────
+// Simple SM-2-inspired scheduler keyed by fenBefore (plus moveSan for
+// uniqueness across identical positions reached from different games).
+// Each card tracks:
+//   ease (2.5 default; capped [1.3, 3.0])
+//   intervalDays (how long until next review)
+//   dueAt (ms timestamp)
+//   reps (consecutive correct answers)
+//   history [{ at, grade }]
+
+const SRS_KEY = 'stockfish-explain.srs.cards';
+const SRS_GRADES = { again: 0, hard: 1, good: 3, easy: 5 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function loadSrsCards() {
+  try {
+    const raw = localStorage.getItem(SRS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+export function saveSrsCards(arr) {
+  try { localStorage.setItem(SRS_KEY, JSON.stringify(arr)); return true; }
+  catch { return false; }
+}
+
+export function srsKey(mistake) {
+  return `${mistake.fenBefore}|${mistake.san}`;
+}
+
+/**
+ * Grade a card. Returns the updated card. Grades map to SM-2-like
+ * transitions:
+ *   again (0): reset reps, schedule in 1 day, drop ease by 0.2
+ *   hard  (1): keep reps, schedule at interval × 1.2, drop ease 0.15
+ *   good  (3): +1 rep, interval doubles (min 1 day after first rep)
+ *   easy  (5): +1 rep, interval triples, ease +0.1
+ */
+export function gradeCard(card, grade) {
+  const now = Date.now();
+  const g = grade in SRS_GRADES ? SRS_GRADES[grade] : grade;
+  const next = {
+    ...card,
+    history: [...(card.history || []), { at: now, grade: g }],
+  };
+  if (g === 0) {
+    next.reps = 0;
+    next.ease = Math.max(1.3, (card.ease || 2.5) - 0.2);
+    next.intervalDays = 1;
+  } else if (g === 1) {
+    next.reps = card.reps || 0;
+    next.ease = Math.max(1.3, (card.ease || 2.5) - 0.15);
+    next.intervalDays = Math.max(1, Math.round((card.intervalDays || 1) * 1.2));
+  } else if (g === 3) {
+    next.reps = (card.reps || 0) + 1;
+    next.ease = card.ease || 2.5;
+    next.intervalDays = next.reps === 1 ? 1
+                      : next.reps === 2 ? 3
+                      : Math.round((card.intervalDays || 3) * (card.ease || 2.5));
+  } else {
+    next.reps = (card.reps || 0) + 1;
+    next.ease = Math.min(3.0, (card.ease || 2.5) + 0.1);
+    next.intervalDays = next.reps === 1 ? 3
+                      : next.reps === 2 ? 7
+                      : Math.round((card.intervalDays || 3) * (card.ease || 2.5) * 1.3);
+  }
+  next.dueAt = now + next.intervalDays * DAY_MS;
+  next.lastReviewedAt = now;
+  return next;
+}
+
+/**
+ * Return cards that are currently due (dueAt <= now) OR brand-new
+ * mistakes that haven't been seeded into SRS yet. Limited to a
+ * daily review cap (default 15) so the queue is digestible.
+ *
+ * @param {number} cap — max cards to return
+ */
+export function dueMistakeCards(cap = 15) {
+  const now = Date.now();
+  const cards = loadSrsCards();
+  const cardByKey = new Map(cards.map(c => [c.key, c]));
+  const allMistakes = deriveMistakes();
+  // Keep user-side blunders + mistakes only; inaccuracies only get in
+  // if we're light on more-severe material.
+  const prioritised = [
+    ...allMistakes.filter(m => m.byUser !== false && m.severity === 'blunder'),
+    ...allMistakes.filter(m => m.byUser !== false && m.severity === 'mistake'),
+    ...allMistakes.filter(m => m.byUser !== false && m.severity === 'inaccuracy'),
+  ];
+  const out = [];
+  for (const m of prioritised) {
+    const k = srsKey(m);
+    const existing = cardByKey.get(k);
+    if (!existing) {
+      // Brand new — seed with default scheduling (due immediately).
+      out.push({
+        key: k,
+        mistake: m,
+        card: { key: k, ease: 2.5, intervalDays: 0, reps: 0, dueAt: now, history: [] },
+        status: 'new',
+      });
+    } else if (existing.dueAt <= now) {
+      out.push({
+        key: k,
+        mistake: m,
+        card: existing,
+        status: existing.reps > 0 ? 'review' : 'learning',
+      });
+    }
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+export function srsStats() {
+  const cards = loadSrsCards();
+  const now = Date.now();
+  const due = cards.filter(c => c.dueAt <= now).length;
+  const mature = cards.filter(c => (c.intervalDays || 0) >= 21).length;
+  const learning = cards.filter(c => (c.reps || 0) < 2).length;
+  return { total: cards.length, due, mature, learning };
+}
+
+export function upsertCard(updated) {
+  const cards = loadSrsCards();
+  const idx = cards.findIndex(c => c.key === updated.key);
+  if (idx >= 0) cards[idx] = updated; else cards.push(updated);
+  return saveSrsCards(cards);
+}
+
+export function clearSrs() {
+  try { localStorage.removeItem(SRS_KEY); return true; }
+  catch { return false; }
+}
+
 // ─── Auto-annotation for PGN export (#4) ────────────────────────────
 // Given a raw PGN string (as produced by tree.pgn()) and a list of
 // per-ply records [{ply, san, cpWhite, mate}], inject standard NAG
