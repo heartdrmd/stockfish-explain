@@ -23,6 +23,7 @@
 // factual reference data.
 
 import { Chess } from '../vendor/chess.js/chess.js';
+import { LICHESS_OPENINGS } from './openings_lichess.js';
 
 const BOOK_RAW = [
   // ═════════════════════ SICILIAN ═════════════════════
@@ -1900,10 +1901,50 @@ const BOOK_RAW = [
     motifs: ['Nd5 central outpost', '...Bxd5 eliminating the outpost', '...f5 kingside break'] },
 ];
 
-// Normalize by pre-computing move-count for prefix-match sorting
+// Mark every curated entry so we can prefer them over Lichess entries
+// in tie-breaks and skip plan-rendering for Lichess-only matches.
+for (const e of BOOK_RAW) e._source = 'curated';
+
+// ─── Merge in Lichess's 3,690 named openings (CC0) ───────────────────
+// These cover every known ECO line + sub-variation + nickname in
+// practical chess usage. Each entry is name + eco + moves only (no
+// hand-written plans/motifs). When such an entry is returned by the
+// matcher, the UI shows the name + a note that plan details are
+// pulled from the engine lines for that specific position rather
+// than from a hand-written coach entry.
+//
+// Generated from https://github.com/lichess-org/chess-openings via
+// scripts/build-lichess-openings.mjs into src/openings_lichess.js.
+try {
+  // Use static import to avoid async / module-init race. If the file
+  // is missing (fresh clone without running the build script), the
+  // app still works with just the curated entries.
+  // eslint-disable-next-line no-undef
+  // Imported at the top of this module.
+  for (const o of LICHESS_OPENINGS) {
+    BOOK_RAW.push({
+      name: o.name,
+      eco: o.eco,
+      parent: 'lichess-db',
+      moves: o.moves,
+      _source: 'lichess',
+    });
+  }
+} catch (err) {
+  console.warn('[openings_book] could not load Lichess openings DB:', err.message);
+}
+
+// Normalise move-count for prefix-match sorting
 for (const e of BOOK_RAW) e._len = (e.moves || []).length;
-// Sort longest-first so detectOpening returns the most-specific match
-BOOK_RAW.sort((a, b) => b._len - a._len);
+// Sort longest-first so detectOpening returns the most-specific match.
+// Tie-breaker: curated entries win over lichess so hand-written plans
+// take precedence when both share the same prefix length.
+BOOK_RAW.sort((a, b) => {
+  if (b._len !== a._len) return b._len - a._len;
+  const aw = a._source === 'curated' ? 0 : 1;
+  const bw = b._source === 'curated' ? 0 : 1;
+  return aw - bw;
+});
 
 // ─── FEN signatures (pre-computed once at module load) ────────────────
 // Replay each entry's moves[] on a chess.js instance, capture the
@@ -2060,6 +2101,11 @@ function roleDistance(a, b) {
 }
 
 for (const entry of BOOK_RAW) {
+  // Skip structural-signature computation for Lichess entries — they
+  // rely entirely on SAN-prefix matching (which is free at runtime).
+  // Computing signatures for 3,690 entries would add ~0.5s to module
+  // init on a mid-range machine for no practical gain.
+  if (entry._source === 'lichess') continue;
   try {
     const c = new Chess();
     let ok = true;
@@ -2297,6 +2343,19 @@ export function renderOpeningBlock(entry) {
   const suffix = structural
     ? ` <span class="muted" style="font-weight: normal; font-size: 10px;">(structural match${mirrored ? ', colour-mirrored' : ''}, d=${entry._distance})</span>`
     : '';
+  // Lichess-sourced entries: just name + ECO, no plan block (we have
+  // no hand-written coach data for these specific sub-variations).
+  if (entry._source === 'lichess') {
+    return `
+      <div class="coach-opening">
+        <h5 class="coach-section-h">${label} ${escapeHtml(entry.name)}
+          <span class="muted" style="font-weight: normal; margin-left: 6px; font-size: 10px;">${escapeHtml(entry.eco || '')}</span>
+          <span class="muted" style="font-weight: normal; margin-left: 6px; font-size: 10px; color: #7aa7ff;">Lichess DB</span>
+        </h5>
+        <p class="muted" style="font-size: 12px; margin: 4px 0 8px;">Named sub-variation from the Lichess openings database. No hand-written plan for this specific line — derive from engine lines + the Positional Coach synthesis below.</p>
+      </div>
+    `;
+  }
   return `
     <div class="coach-opening">
       <h5 class="coach-section-h">${label} ${escapeHtml(entry.name)}
@@ -2332,6 +2391,12 @@ export function renderOpeningForAI(entry) {
   const header = isStruct
     ? `DETECTED OPENING (structural similarity${isMirror ? ', colour-reversed' : ''}, distance ${entry._distance})\nReached by transposition — treat as: ${entry.name} (${entry.eco || '?'})${isMirror ? '\nNote: the plans below apply with colours reversed — swap "White" and "Black" when reading them.' : ''}`
     : `DETECTED OPENING\nName: ${entry.name} (${entry.eco || '?'})`;
+  // Lichess-sourced entries don't have hand-written plans/motifs.
+  // In that case we just emit the name + a hint that the concrete
+  // plan should be derived from the current engine lines.
+  if (entry._source === 'lichess') {
+    return `\n${header}\n(Identified from the Lichess opening database — 3,690+ named lines. No hand-written coach notes for this specific sub-variation; derive the plan from the engine top-5 and the Positional Coach block below.)\n`;
+  }
   return `
 ${header}
 Structure: ${entry.structure || ''}
