@@ -2896,6 +2896,44 @@ async function main() {
     btnEasy.addEventListener('click',  () => grade('easy'));
   })();
 
+  // ────────── Mobile-first layout (#24) ──────────
+  // Detects narrow viewports and opts into a bottom-sheet drawer mode
+  // where the tools panel docks to the bottom with a peek strip. The
+  // user taps the peek strip to expand/collapse; drawer starts
+  // collapsed on first load to maximise board real estate.
+  (() => {
+    const MOBILE_MAX = 640;
+    const applyMobile = () => {
+      const isMobile = window.innerWidth <= MOBILE_MAX;
+      document.body.classList.toggle('mobile-mode', isMobile);
+      if (!isMobile) document.body.classList.remove('mobile-drawer-collapsed');
+    };
+    applyMobile();
+    window.addEventListener('resize', applyMobile);
+    // Drawer toggle via the ::before peek handle — we watch click at
+    // the top of .tools.
+    document.addEventListener('click', (e) => {
+      if (!document.body.classList.contains('mobile-mode')) return;
+      const tools = document.querySelector('.tools');
+      if (!tools) return;
+      const rect = tools.getBoundingClientRect();
+      const y = e.clientY;
+      if (e.target === tools || tools.contains(e.target)) {
+        // Only treat clicks in the top 36px as toggle — avoid hijacking
+        // real content taps.
+        if (y <= rect.top + 36) {
+          document.body.classList.toggle('mobile-drawer-collapsed');
+          e.preventDefault();
+        }
+      }
+    });
+    // Collapse by default on first mobile load so the board gets the
+    // full height.
+    if (window.innerWidth <= MOBILE_MAX) {
+      document.body.classList.add('mobile-drawer-collapsed');
+    }
+  })();
+
   // ────────── Share position URL (#27) ──────────
   // Builds a URL of the form:
   //   https://.../#share=<base64url-json>

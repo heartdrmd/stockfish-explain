@@ -120,3 +120,62 @@
   gap: 10px;
   min-width: 0;
 }
+
+/* ─── Mobile (#24) — phone-width optimisation ─── */
+/* On narrow screens (< 640px), the tools panel becomes a sticky
+   bottom-sheet that the user can expand from a peek strip. The
+   sidebar (confidence / save / practice cards) hides by default to
+   reclaim screen real estate for the board.
+
+   Triggered ONLY when the portrait-mobile breakpoint applies; desktop
+   landscape still uses the full 3-column layout. */
+@media (max-width: 640px) {
+  body.mobile-mode .uniboard {
+    padding: 6px;
+    gap: 6px;
+  }
+  body.mobile-mode .uniboard .side { display: none; }
+  body.mobile-mode .uniboard .board-area { max-width: 100vw; }
+  body.mobile-mode .tools {
+    position: sticky;
+    bottom: 0;
+    background: var(--c-bg);
+    border-top: 1px solid var(--c-border);
+    z-index: 20;
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 8px 10px;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.4);
+  }
+  body.mobile-mode.mobile-drawer-collapsed .tools {
+    max-height: 40px;
+    overflow: hidden;
+  }
+  /* Peek handle at the top of the drawer — clickable to toggle */
+  body.mobile-mode .tools::before {
+    content: "▲ Drag / tap to expand · tap again to collapse";
+    display: block;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-font-dim);
+    padding: 4px 0 8px;
+    border-bottom: 1px solid var(--c-border);
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  body.mobile-mode.mobile-drawer-collapsed .tools::before {
+    content: "▼ Tap to expand coach panel";
+    border-bottom: none;
+    margin-bottom: 0;
+  }
+  /* Condensed headline view — show only the eval-timeline + coach
+     response headline. Hide anything not critical. */
+  body.mobile-mode.mobile-drawer-collapsed #eval-timeline,
+  body.mobile-mode.mobile-drawer-collapsed #pawn-strip,
+  body.mobile-mode.mobile-drawer-collapsed #king-safety-timeline,
+  body.mobile-mode.mobile-drawer-collapsed #heat-map,
+  body.mobile-mode.mobile-drawer-collapsed .move-list-wrap,
+  body.mobile-mode.mobile-drawer-collapsed .tabbed { display: none; }
+}
