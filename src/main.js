@@ -46,9 +46,12 @@ for (const lvl of ['log', 'info', 'warn', 'error']) {
 // Also catch uncaught errors and unhandled promise rejections
 window.addEventListener('error', (e) => {
   captureLog('error', [`uncaught: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`]);
+  // Show the visible banner so the user knows something broke.
+  try { if (typeof showFatalBanner === 'function') showFatalBanner(new Error(`${e.message} @ ${e.filename}:${e.lineno}`)); } catch {}
 });
 window.addEventListener('unhandledrejection', (e) => {
   captureLog('error', [`unhandled-promise: ${(e.reason && e.reason.message) || e.reason}`]);
+  try { if (typeof showFatalBanner === 'function') showFatalBanner(e.reason); } catch {}
 });
 function buildLogFile() {
   const header = [
@@ -64,6 +67,85 @@ function buildLogFile() {
     '',
   ].join('\n');
   return header + LOG_BUFFER.join('\n') + '\n';
+}
+
+// ─── EMERGENCY EARLY-WIRE ──────────────────────────────────────
+// Attach the most critical buttons IMMEDIATELY so they work even if
+// main() throws halfway through. Order of operations:
+//  1. These handlers run the moment this module parses.
+//  2. Later, main() attaches the fully-wired versions which simply
+//     supersede the early ones (addEventListener is additive — the
+//     early listener also fires, but its effect is benign).
+//
+// Critical buttons guarded here:
+//  - 🎯 Practice modal open (so the user can at least SEE the modal
+//    even if population failed)
+//  - 📄 Log download (so they can send us the log when things break)
+//  - 🔒 Engine lock (stops the engine)
+//  - ♻ Restart engine
+try {
+  const earlyWire = (id, handler) => {
+    const el = document.getElementById(id);
+    if (el && !el.dataset.earlyWired) {
+      el.dataset.earlyWired = '1';
+      el.addEventListener('click', handler);
+    }
+  };
+  // Fire on DOM-ready — DOMContentLoaded may have already fired if the
+  // script is after </body>, in which case we run immediately.
+  const runEarlyWire = () => {
+    earlyWire('btn-practice', () => {
+      const modal = document.getElementById('practice-modal');
+      if (modal) modal.hidden = false;
+    });
+    earlyWire('btn-download-log', () => {
+      try {
+        const content = buildLogFile();
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `stockfish-explain-log-${Date.now()}.txt`;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (err) { alert('Log download failed: ' + err.message); }
+    });
+    earlyWire('practice-close', () => {
+      const modal = document.getElementById('practice-modal');
+      if (modal) modal.hidden = true;
+    });
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', runEarlyWire);
+  } else {
+    runEarlyWire();
+  }
+} catch (err) {
+  console.warn('[early-wire] skipped:', err.message);
+}
+
+// Visible error banner if main() throws — so the user sees a message
+// instead of a silently broken page. Hooked into main()'s outer
+// promise.
+function showFatalBanner(err) {
+  try {
+    const existing = document.getElementById('fatal-error-banner');
+    if (existing) return;
+    const banner = document.createElement('div');
+    banner.id = 'fatal-error-banner';
+    banner.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; z-index: 99999;
+      padding: 10px 14px; background: #5c1a1a; color: #ffe8e8;
+      font-family: system-ui, sans-serif; font-size: 12px;
+      border-bottom: 2px solid #dc3545; box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    `;
+    banner.innerHTML = `
+      <strong>⚠ Initialisation error — the app may be partially broken.</strong><br>
+      <span style="font-family: var(--font-mono, monospace); font-size:11px;">${(err?.message || err || 'unknown').toString().slice(0, 300)}</span><br>
+      <span style="font-size:11px;">Please click <strong>📄 Log</strong> in the header and send the file. The Practice modal, Log download, and Engine controls should still work — others may not.</span>`;
+    (document.body || document.documentElement).prepend(banner);
+  } catch {}
 }
 
 async function main() {
@@ -5805,4 +5887,5 @@ main().catch(err => {
   console.error('[fatal]', err);
   const n = document.getElementById('narration-text');
   if (n) n.textContent = `Fatal error: ${err.message}`;
+  showFatalBanner(err);
 });
