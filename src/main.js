@@ -736,13 +736,18 @@ async function main() {
     ui.engineMode.classList.remove('threaded');
     ui.narrationText.textContent = `Loading ${ENGINE_FLAVORS[flavor].label} (${ENGINE_FLAVORS[flavor].size})…`;
     try {
-      // Race boot against a 60 s timeout so users see an error instead
-      // of an infinite "booting…" when something upstream (stuck SW,
-      // corrupt cached WASM, CDN stall) wedges engine.boot().
+      // Race boot against a size-aware timeout so users see an error
+      // instead of an infinite "booting…" when something upstream (stuck
+      // SW, corrupt cached WASM, CDN stall) wedges engine.boot().
+      // Lite (7 MB) should boot in <15 s on any sane connection; full
+      // NNUE (108 MB) may legitimately need up to ~90 s over a slow
+      // cold CDN fetch.
+      const sizeStr = ENGINE_FLAVORS[flavor]?.size || '';
+      const timeoutMs = sizeStr.includes('108') ? 90_000 : 25_000;
       const info = await Promise.race([
         engine.boot({ flavor }),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Engine boot timed out after 60 s')), 60_000)
+          setTimeout(() => reject(new Error(`Engine boot timed out after ${Math.round(timeoutMs/1000)} s`)), timeoutMs)
         ),
       ]);
       engineReady = true;
