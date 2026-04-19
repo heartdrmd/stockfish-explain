@@ -783,10 +783,24 @@ async function main() {
       console.error('[engine] boot failed', err);
       ui.engineMode.textContent = 'engine failed';
       const msg = String(err.message || err);
-      // Auto-recovery on timeout: most common cause is a stuck legacy
-      // Service Worker intercepting WASM. Unregister anything lingering
-      // + clear sf-engines-* caches + show a recover CTA in narration.
-      const isTimeout = /timed out/i.test(msg);
+      const isTimeout  = /timed out/i.test(msg);
+      const isCrash    = /unreachable|runtime error|not valid wasm/i.test(msg);
+
+      // Auto-fallback: if the user's saved flavor crashed OR timed out
+      // AND it's not already the safe default, reset to the default
+      // (lite MT) and retry once. Handles two common bad states:
+      //   - corrupt wasm in Chrome's HTTP cache for the saved variant
+      //   - a specific variant build that's broken in this browser
+      const DEFAULT_FLAVOR = threadable ? 'lite' : 'lite-single';
+      if ((isTimeout || isCrash) && flavor !== DEFAULT_FLAVOR) {
+        localStorage.removeItem(FLAVOR_STORAGE);
+        ui.narrationText.innerHTML = `⚠ Engine "${flavor}" failed — falling back to <strong>${DEFAULT_FLAVOR}</strong> and retrying…`;
+        ui.selectFlavor.value = DEFAULT_FLAVOR;
+        try { engine.terminate?.(); } catch {}
+        engine = new Engine();
+        return bootEngine(DEFAULT_FLAVOR);
+      }
+
       if (isTimeout) {
         try {
           const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
@@ -797,6 +811,12 @@ async function main() {
         ui.narrationText.innerHTML =
           `⚠ Engine boot timed out. I've cleared any stuck service worker + cache — ` +
           `<button class="btn" onclick="location.reload()" style="margin-left:6px;">Reload now</button>`;
+      } else if (isCrash) {
+        // Default also crashed — likely Chrome HTTP cache is holding a
+        // bad copy. Offer a hard-reload CTA that bypasses the cache.
+        ui.narrationText.innerHTML =
+          `⚠ Engine crashed on boot (${msg}). Try <button class="btn" onclick="location.reload()" style="margin-left:4px;">Hard reload</button> — ` +
+          `or press <kbd>⌘⇧R</kbd> to bypass Chrome's cache.`;
       } else {
         ui.narrationText.textContent = msg;
       }
