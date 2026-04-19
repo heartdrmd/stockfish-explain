@@ -2896,6 +2896,102 @@ async function main() {
     btnEasy.addEventListener('click',  () => grade('easy'));
   })();
 
+  // ────────── Share position URL (#27) ──────────
+  // Builds a URL of the form:
+  //   https://.../#share=<base64url-json>
+  // where the JSON has { fen, moves: sanHistory }. Short enough to
+  // paste anywhere (~200-400 chars for typical positions). The
+  // receiving page detects the hash on load and restores the position.
+  (() => {
+    const btnShare = document.getElementById('btn-share');
+    if (!btnShare) return;
+    const b64url = (s) => btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const b64urlDecode = (s) => {
+      s = s.replace(/-/g, '+').replace(/_/g, '/');
+      while (s.length % 4) s += '=';
+      return atob(s);
+    };
+
+    const buildShareUrl = () => {
+      const fen = board.fen();
+      const moves = board.chess.history();
+      const payload = { fen, moves, startingFen: board.startingFen };
+      const encoded = b64url(JSON.stringify(payload));
+      const baseUrl = location.origin + location.pathname;
+      return `${baseUrl}#share=${encoded}`;
+    };
+
+    btnShare.addEventListener('click', async () => {
+      const url = buildShareUrl();
+      let ok = false;
+      try {
+        await navigator.clipboard.writeText(url);
+        ok = true;
+      } catch {}
+      // Modal with the URL so user can copy manually if clipboard denied.
+      const w = Math.min(600, window.innerWidth - 40);
+      const existing = document.getElementById('share-url-popup');
+      if (existing) existing.remove();
+      const popup = document.createElement('div');
+      popup.id = 'share-url-popup';
+      popup.className = 'modal';
+      popup.style.zIndex = '99999';
+      popup.innerHTML = `
+        <div class="modal-card" style="max-width:${w}px;">
+          <button class="modal-close" id="share-url-close">×</button>
+          <h3>🔗 Share this position</h3>
+          <p class="muted" style="font-size:12px;">${ok ? '✅ Copied to clipboard!' : 'Select and copy this link:'}</p>
+          <textarea readonly style="width:100%;height:80px;font-family:var(--font-mono);font-size:11px;padding:8px;">${url}</textarea>
+          <p class="muted" style="font-size:11px;margin-top:8px;">Anyone who opens this link will see the same position with the move history replayed. Nothing is uploaded — the position is encoded in the URL itself.</p>
+        </div>`;
+      document.body.appendChild(popup);
+      popup.hidden = false;
+      popup.addEventListener('click', (e) => { if (e.target === popup) popup.remove(); });
+      document.getElementById('share-url-close').addEventListener('click', () => popup.remove());
+      const ta = popup.querySelector('textarea');
+      if (ta) { ta.focus(); ta.select(); }
+    });
+
+    // ── Restore from URL hash on page load ──
+    (function tryRestoreShare() {
+      const h = location.hash;
+      if (!h || !h.startsWith('#share=')) return;
+      try {
+        const encoded = h.slice('#share='.length);
+        const json = b64urlDecode(encoded);
+        const payload = JSON.parse(json);
+        if (!payload || !payload.fen) return;
+        // Defer until after board initialisation is stable.
+        setTimeout(() => {
+          try {
+            board.newGame();
+            if (payload.startingFen && payload.startingFen !== board.startingFen) {
+              board.chess.load(payload.startingFen);
+              board.startingFen = payload.startingFen;
+            }
+            for (const san of payload.moves || []) {
+              try { board.chess.move(san, { sloppy: true }); } catch { break; }
+            }
+            board.cg.set({
+              fen: board.chess.fen(),
+              turnColor: board.chess.turn() === 'w' ? 'white' : 'black',
+            });
+            board.dispatchEvent(new CustomEvent('move'));
+            if (ui.narrationText) {
+              ui.narrationText.innerHTML =
+                `🔗 <strong>Loaded a shared position</strong> — ${payload.moves?.length || 0} moves replayed. ` +
+                `This position is fresh in your analysis board; clear the URL hash to stop auto-loading.`;
+            }
+            // Clear the hash so a page refresh doesn't re-restore.
+            history.replaceState(null, '', location.pathname);
+          } catch (err) { console.warn('[share] restore failed', err); }
+        }, 400);
+      } catch (err) {
+        console.warn('[share] bad hash payload', err);
+      }
+    })();
+  })();
+
   // ────────── Save current position as a custom practice opening ──────
   (() => {
     const btnSave    = document.getElementById('btn-save-as-opening');
