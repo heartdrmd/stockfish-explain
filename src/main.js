@@ -871,6 +871,97 @@ async function main() {
     scheduleTimelineRender();
   });
 
+  // ────────── Chess clock (#19) ─────────────────────────────────────
+  const clock = {
+    active: false,
+    msWhite: 0,
+    msBlack: 0,
+    incMs: 0,
+    tickingFor: null,    // 'w' | 'b' | null
+    lastTickAt: 0,
+    timerId: 0,
+    initialMs: 0,
+  };
+  function formatClockTime(ms) {
+    if (ms == null || ms < 0) ms = 0;
+    const total = Math.round(ms / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+    if (ms < 20_000) return `${m}:${s.toString().padStart(2,'0')}.${Math.floor((ms % 1000) / 100)}`;
+    return `${m}:${s.toString().padStart(2,'0')}`;
+  }
+  function renderClock() {
+    const wEl = document.getElementById('clock-time-w');
+    const bEl = document.getElementById('clock-time-b');
+    const wSide = document.getElementById('clock-white');
+    const bSide = document.getElementById('clock-black');
+    if (!wEl || !bEl || !wSide || !bSide) return;
+    wEl.textContent = formatClockTime(clock.msWhite);
+    bEl.textContent = formatClockTime(clock.msBlack);
+    [wSide, bSide].forEach(el => el.classList.remove('active', 'low-time', 'critical-time'));
+    if (clock.tickingFor === 'w') wSide.classList.add('active');
+    if (clock.tickingFor === 'b') bSide.classList.add('active');
+    if (clock.msWhite < 30_000 && clock.msWhite > 10_000) wSide.classList.add('low-time');
+    if (clock.msBlack < 30_000 && clock.msBlack > 10_000) bSide.classList.add('low-time');
+    if (clock.msWhite <= 10_000) wSide.classList.add('critical-time');
+    if (clock.msBlack <= 10_000) bSide.classList.add('critical-time');
+  }
+  function startClock(minutes, incrementSec) {
+    clock.active = true;
+    clock.initialMs = minutes * 60_000;
+    clock.msWhite = clock.initialMs;
+    clock.msBlack = clock.initialMs;
+    clock.incMs   = incrementSec * 1000;
+    clock.tickingFor = 'w';
+    clock.lastTickAt = Date.now();
+    const clockCard = document.getElementById('practice-clock');
+    if (clockCard) clockCard.hidden = false;
+    const fmt = document.getElementById('clock-format');
+    if (fmt) fmt.textContent = `${minutes}+${incrementSec} time control`;
+    if (clock.timerId) clearInterval(clock.timerId);
+    clock.timerId = setInterval(() => {
+      if (!clock.active || !clock.tickingFor) return;
+      const now = Date.now();
+      const elapsed = now - clock.lastTickAt;
+      clock.lastTickAt = now;
+      if (clock.tickingFor === 'w') clock.msWhite = Math.max(0, clock.msWhite - elapsed);
+      else                          clock.msBlack = Math.max(0, clock.msBlack - elapsed);
+      renderClock();
+      if (clock.msWhite === 0 || clock.msBlack === 0) {
+        const loser = clock.msWhite === 0 ? 'white' : 'black';
+        stopClock();
+        const resultTag = loser === 'white' ? '0-1' : '1-0';
+        const narrative = `${loser === 'white' ? 'White' : 'Black'} ran out of time.`;
+        try { finishPracticeGame(resultTag, narrative); } catch {}
+      }
+    }, 100);
+    renderClock();
+  }
+  function stopClock() {
+    clock.active = false;
+    clock.tickingFor = null;
+    if (clock.timerId) { clearInterval(clock.timerId); clock.timerId = 0; }
+    renderClock();
+  }
+  function switchClock() {
+    if (!clock.active) return;
+    const now = Date.now();
+    if (clock.incMs > 0 && clock.tickingFor) {
+      if (clock.tickingFor === 'w') clock.msWhite += clock.incMs;
+      else                          clock.msBlack += clock.incMs;
+    }
+    clock.tickingFor = clock.tickingFor === 'w' ? 'b' : 'w';
+    clock.lastTickAt = now;
+    renderClock();
+  }
+  window.__clock         = clock;
+  window.__clockStart    = startClock;
+  window.__clockStop     = stopClock;
+  window.__clockSwitch   = switchClock;
+  board.addEventListener('move', () => { if (clock.active) switchClock(); });
+
   // ─── Opponent-style persona move selector (#18) ─────────────────
   // Given the engine's MultiPV top candidates, score each by how well
   // it matches the chosen persona's taste, then pick the best match.
@@ -1744,6 +1835,14 @@ async function main() {
   function searchLimits() {
     const mode = ui.limitMode.value;
     if (mode === 'infinite') return { infinite: true };
+    // Clock mode — engine uses ~1/30th of its remaining time per move,
+    // with a 300ms floor so it doesn't move instantly in the endgame.
+    // Clamped so it never exceeds 12s (keeps practice games flowing).
+    if (clock.active && practiceColor) {
+      const engineMs = practiceColor === 'white' ? clock.msBlack : clock.msWhite;
+      const budget = Math.max(300, Math.min(12_000, Math.floor(engineMs / 30)));
+      return { movetime: budget };
+    }
     const v = +ui.limitValue.value || (mode === 'depth' ? 18 : 2000);
     return mode === 'depth' ? { depth: v } : { movetime: v };
   }
@@ -2203,6 +2302,13 @@ async function main() {
     pMode.addEventListener('change', () => {
       if (pMode.value === 'depth')    pVal.value = 14;
       if (pMode.value === 'movetime') pVal.value = 1500;
+      const clockRow = document.getElementById('practice-clock-row');
+      if (clockRow) clockRow.style.display = pMode.value === 'clock' ? 'block' : 'none';
+    });
+    const pClockPreset = document.getElementById('practice-clock-preset');
+    const pClockCustom = document.getElementById('practice-clock-custom');
+    if (pClockPreset) pClockPreset.addEventListener('change', () => {
+      if (pClockCustom) pClockCustom.style.display = pClockPreset.value === 'custom' ? 'flex' : 'none';
     });
 
     // Custom starting position: "use current board position" checkbox.
@@ -2334,6 +2440,24 @@ async function main() {
         `🎯 Practice started: <strong>${op.name}</strong>. You play <strong>${color}</strong>. ` +
         `Engine skill ${skill}/20. ${limitMode === 'depth' ? `Depth ${limitVal}` : `${limitVal}ms/move`}.`;
 
+      // Initialise chess clock if time-control mode was selected.
+      if (limitMode === 'clock') {
+        let minutes = 5, inc = 3;
+        const preset = document.getElementById('practice-clock-preset')?.value;
+        if (preset === 'custom') {
+          minutes = +document.getElementById('practice-clock-minutes')?.value || 5;
+          inc     = +document.getElementById('practice-clock-increment')?.value || 0;
+        } else if (preset) {
+          const m = preset.match(/^(\d+)\+(\d+)$/);
+          if (m) { minutes = +m[1]; inc = +m[2]; }
+        }
+        startClock(minutes, inc);
+      } else {
+        stopClock();
+        const clockCard = document.getElementById('practice-clock');
+        if (clockCard) clockCard.hidden = true;
+      }
+
       // Kick the loop — if it's engine's turn first, it plays immediately
       fireAnalysis();
     });
@@ -2359,6 +2483,8 @@ async function main() {
     // Archive the completed game for later review / mistake bank.
     try { archiveCurrentGame({ result: resultTag, ending: narrative, mode: 'practice' }); }
     catch (err) { console.warn('[archive] failed to archive practice game', err); }
+    // Stop the chess clock if it was running.
+    try { stopClock(); } catch {}
     // Draft is no longer needed.
     clearDraft();
     // Swap the card UI into post-game state

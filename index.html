@@ -193,6 +193,24 @@
            active. Splits into TWO states: in-progress (Resign / Offer
            Draw) and finished (result banner + Save PGN + instruction to
            use nav arrows to review with full engine eval visible). -->
+      <!-- Chess clock (#19) — visible only when practice has a clock
+           time control. Shows both sides' remaining time, lights up
+           red when low on time, and triggers timeout loss at 0. -->
+      <div class="side-card practice-card" id="practice-clock" hidden>
+        <h3>⏱ Clock</h3>
+        <div class="clock-display">
+          <div class="clock-side" id="clock-black">
+            <span class="clock-label">Black</span>
+            <span class="clock-time" id="clock-time-b">—</span>
+          </div>
+          <div class="clock-side" id="clock-white">
+            <span class="clock-label">White</span>
+            <span class="clock-time" id="clock-time-w">—</span>
+          </div>
+        </div>
+        <p class="muted" style="font-size:11px;margin:6px 0 0;" id="clock-format">—</p>
+      </div>
+
       <div class="side-card practice-card" id="practice-actions" hidden>
         <h3>Practice game</h3>
         <div class="practice-live" id="practice-live">
@@ -513,9 +531,29 @@
             <select id="practice-limit-mode">
               <option value="depth" selected>By depth</option>
               <option value="movetime">By time (ms)</option>
+              <option value="clock">Time control (chess clock)</option>
             </select>
             <input id="practice-limit-value" type="number" min="1" value="14" class="limit-input">
           </div>
+        </div>
+        <div class="setting" id="practice-clock-row" style="display:none;">
+          <label for="practice-clock-preset">Clock preset</label>
+          <select id="practice-clock-preset" class="tourn-select">
+            <option value="1+0">⚡ Bullet · 1 min (no increment)</option>
+            <option value="3+2">⚡ Blitz · 3 min + 2 sec increment</option>
+            <option value="5+3" selected>⚡ Blitz · 5 min + 3 sec increment</option>
+            <option value="10+0">🏇 Rapid · 10 min (no increment)</option>
+            <option value="15+10">🏇 Rapid · 15 min + 10 sec increment</option>
+            <option value="30+0">♞ Classical · 30 min</option>
+            <option value="custom">⚙ Custom…</option>
+          </select>
+          <div id="practice-clock-custom" class="row-compact" style="display:none;margin-top:6px;">
+            <input id="practice-clock-minutes" type="number" min="1" max="999" value="5" class="limit-input" title="Minutes">
+            <span style="align-self:center;">+</span>
+            <input id="practice-clock-increment" type="number" min="0" max="60" value="3" class="limit-input" title="Increment per move (seconds)">
+            <span style="align-self:center;font-size:11px;color:var(--c-font-dim);">sec increment</span>
+          </div>
+          <small class="muted">Run out of time = lose. Engine thinks proportionally to its remaining time (longer when it's the first move, shorter when the game draws out).</small>
         </div>
       </div>
 

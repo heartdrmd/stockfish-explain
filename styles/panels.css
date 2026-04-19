@@ -1826,6 +1826,54 @@ body.practice-mode .practice-card { display: block; }
 }
 .practice-hint { font-style: italic; }
 
+/* ─── Chess clock (#19) ─── */
+.clock-display {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.clock-side {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: var(--c-bg-zebra);
+  border: 2px solid var(--c-border);
+  transition: all 0.15s;
+}
+.clock-side.active {
+  border-color: var(--c-accent, #7aa7ff);
+  background: rgba(122,167,255,0.1);
+}
+.clock-side.low-time {
+  border-color: #fd7e14;
+  background: rgba(253,126,20,0.15);
+}
+.clock-side.critical-time {
+  border-color: #dc3545;
+  background: rgba(220,53,69,0.2);
+  animation: clockPulse 0.6s ease-in-out infinite;
+}
+@keyframes clockPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.7; }
+}
+.clock-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-font-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.clock-time {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--c-font-clear);
+}
+
 /* ─── Eval timeline (#1) ─── */
 .eval-timeline {
   background: var(--c-bg);
