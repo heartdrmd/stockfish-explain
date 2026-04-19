@@ -1100,8 +1100,8 @@ async function main() {
     if (!svg) return;
     const isChrome = clock.style === 'analog-chrome';
     const dial = (cx, ms, isActiveDial) => {
-      const cy = 60;
-      const r  = 48;
+      const cy = 80;
+      const r  = 68;
 
       // ── Minute hand position ──
       // Count-down: start at (60 - initialMinutes) — i.e., 55-minute
@@ -1153,61 +1153,81 @@ async function main() {
         flagSvg = `<path d="M ${mhx.toFixed(1)} ${mhy.toFixed(1)} L ${ftx.toFixed(1)} ${fty.toFixed(1)} L ${(ftx - 1).toFixed(1)} ${(fty + 4).toFixed(1)} L ${(mhx - 1).toFixed(1)} ${(mhy + 4).toFixed(1)} Z" fill="#c0392b" stroke="#6a1d13" stroke-width="0.4"/>`;
       }
 
-      // ── Tick marks ──
+      // ── Tick marks — every minute; bolder at 5-min (major) marks ──
       let ticks = '';
       for (let i = 0; i < 60; i++) {
         const t = (i * 6 - 90) * Math.PI / 180;
         const isMajor = i % 5 === 0;
-        const outR = r;
-        const inR  = isMajor ? r - 5 : r - 2.5;
+        const outR = r - 1;
+        const inR  = isMajor ? r - 8 : r - 3.5;
         const x1 = cx + outR * Math.cos(t), y1 = cy + outR * Math.sin(t);
         const x2 = cx + inR  * Math.cos(t), y2 = cy + inR  * Math.sin(t);
-        const strokeCol = isChrome ? '#222' : '#2a1e14';
-        ticks += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${strokeCol}" stroke-width="${isMajor ? 1.6 : 0.6}"/>`;
+        const strokeCol = isChrome ? '#1a1a1a' : '#2a1e14';
+        ticks += `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="${strokeCol}" stroke-width="${isMajor ? 2.2 : 0.8}" stroke-linecap="round"/>`;
       }
 
-      // ── Roman numerals at 12/3/6/9 ──
+      // ── Arabic minute numerals every 5 (5..60) plus big Roman at corners ──
       let numerals = '';
-      const numList = [['XII', 0], ['III', 90], ['VI', 180], ['IX', 270]];
-      for (const [num, ang] of numList) {
-        const tr = (ang - 90) * Math.PI / 180;
-        const nx = cx + (r - 11) * Math.cos(tr);
-        const ny = cy + (r - 11) * Math.sin(tr) + 2.5;
-        const numCol = isChrome ? '#222' : '#2a1e14';
-        numerals += `<text x="${nx.toFixed(1)}" y="${ny.toFixed(1)}" text-anchor="middle" font-size="7" font-family="serif" fill="${numCol}">${num}</text>`;
+      for (let i = 0; i < 12; i++) {
+        const label = (i === 0) ? '60' : String(i * 5);
+        const ang = (i * 30 - 90) * Math.PI / 180;
+        const nx = cx + (r - 14) * Math.cos(ang);
+        const ny = cy + (r - 14) * Math.sin(ang) + 3.2;
+        const numCol = isChrome ? '#1a1a1a' : '#2a1e14';
+        numerals += `<text x="${nx.toFixed(2)}" y="${ny.toFixed(2)}" text-anchor="middle" font-size="9" font-weight="600" font-family="'Helvetica Neue', Arial, sans-serif" fill="${numCol}">${label}</text>`;
       }
 
-      // ── Face ──
+      // ── Face + colors ──
       const faceColor = isChrome
-        ? (isActiveDial ? '#f8f8f8' : '#e8e8ea')
-        : (isActiveDial ? '#f5e3be' : '#e8d4a7');
+        ? (isActiveDial ? '#fafafa' : '#e8e8ea')
+        : (isActiveDial ? '#f7e6c1' : '#ebd6a6');
       const rimColor  = isChrome ? '#888' : '#8c6a3a';
       const rimOuter  = isChrome ? '#333' : '#3a2814';
-      const handColor = isChrome ? '#111' : '#1a0f08';
+      const handColor = isChrome ? '#0c0c0c' : '#1a0f08';
       const secColor  = '#c83b2f';
-      // Optional inner ring (chrome gets a subtle inner bevel)
+
+      // Sharper rim: a thin bevel + subtle inner ring regardless of theme.
       const bevel = isChrome
-        ? `<circle cx="${cx}" cy="${cy}" r="${r - 2}" fill="none" stroke="#bbb" stroke-width="0.6"/>`
-        : '';
+        ? `<circle cx="${cx}" cy="${cy}" r="${r - 3}" fill="none" stroke="#bcbcbc" stroke-width="0.6"/>`
+        : `<circle cx="${cx}" cy="${cy}" r="${r - 3}" fill="none" stroke="#d5b778" stroke-width="0.6" opacity="0.7"/>`;
 
       return `
         <g>
-          <circle cx="${cx}" cy="${cy}" r="${r}" fill="${faceColor}" stroke="${rimColor}" stroke-width="2.5"/>
-          <circle cx="${cx}" cy="${cy}" r="${r + 3}" fill="none" stroke="${rimOuter}" stroke-width="1.2"/>
+          <circle cx="${cx}" cy="${cy}" r="${r + 4}" fill="none" stroke="${rimOuter}" stroke-width="1.4"/>
+          <circle cx="${cx}" cy="${cy}" r="${r + 1}" fill="${faceColor}" stroke="${rimColor}" stroke-width="2.6"/>
           ${bevel}
           ${ticks}
           ${numerals}
-          <line x1="${cx}" y1="${cy}" x2="${hhx.toFixed(1)}" y2="${hhy.toFixed(1)}" stroke="${handColor}" stroke-width="3" stroke-linecap="round"/>
-          <line x1="${cx}" y1="${cy}" x2="${mhx.toFixed(1)}" y2="${mhy.toFixed(1)}" stroke="${handColor}" stroke-width="2.2" stroke-linecap="round"/>
-          <line x1="${cx}" y1="${cy}" x2="${shx.toFixed(1)}" y2="${shy.toFixed(1)}" stroke="${secColor}" stroke-width="1" stroke-linecap="round"/>
+          <line x1="${cx}" y1="${cy}" x2="${hhx.toFixed(2)}" y2="${hhy.toFixed(2)}" stroke="${handColor}" stroke-width="4.2" stroke-linecap="round"/>
+          <line x1="${cx}" y1="${cy}" x2="${mhx.toFixed(2)}" y2="${mhy.toFixed(2)}" stroke="${handColor}" stroke-width="2.8" stroke-linecap="round"/>
+          <line x1="${cx}" y1="${cy}" x2="${shx.toFixed(2)}" y2="${shy.toFixed(2)}" stroke="${secColor}" stroke-width="1.2" stroke-linecap="round"/>
           ${flagSvg}
-          <circle cx="${cx}" cy="${cy}" r="2.5" fill="${handColor}"/>
+          <circle cx="${cx}" cy="${cy}" r="3.4" fill="${handColor}"/>
+          <circle cx="${cx}" cy="${cy}" r="1.3" fill="${secColor}"/>
         </g>`;
     };
     const activeSide = clock.tickingFor;
+    // Who is on top vs bottom: in a practice game the user's color
+    // goes on the BOTTOM (matches the board orientation: own pieces
+    // toward the bottom). Fallback: black on top, white on bottom.
+    const userCol = (typeof practiceColor !== 'undefined' && practiceColor) ? practiceColor : 'white';
+    const topIsBlack   = (userCol === 'white');
+    const leftColor    = topIsBlack ? 'b' : 'w';
+    const rightColor   = topIsBlack ? 'w' : 'b';
+    const leftMs       = topIsBlack ? clock.msBlack : clock.msWhite;
+    const rightMs      = topIsBlack ? clock.msWhite : clock.msBlack;
+    // Solid-king label under each dial. Same glyph (♚) for both sides —
+    // color distinguishes them: white king = light fill on dark stroke,
+    // black king = solid dark fill. No text labels.
+    const kingGlyph = (color) => color === 'w'
+      ? `<text text-anchor="middle" font-size="22" font-weight="900" font-family="'Segoe UI Symbol','Apple Symbols',serif" fill="#f5f5f5" stroke="#111" stroke-width="0.8" paint-order="stroke">♚</text>`
+      : `<text text-anchor="middle" font-size="22" font-weight="900" font-family="'Segoe UI Symbol','Apple Symbols',serif" fill="#111">♚</text>`;
+    const glyphAt = (x, color) => kingGlyph(color).replace('<text ', `<text x="${x}" y="158" `);
     svg.innerHTML =
-      dial(60,  clock.msBlack, activeSide === 'b') +
-      dial(180, clock.msWhite, activeSide === 'w');
+      dial(80,  leftMs,  activeSide === leftColor)  +
+      dial(240, rightMs, activeSide === rightColor) +
+      glyphAt(80,  leftColor) +
+      glyphAt(240, rightColor);
   }
   function startClock(minutes, incrementSec, mode = 'down') {
     clock.active = true;
@@ -3268,6 +3288,17 @@ async function main() {
       // Flip the board to the user's color (user plays from the bottom)
       if (color !== board.orientation) board.flipBoard();
 
+      // Match clock orientation to the board: user's color on the bottom.
+      const clockDisplay = document.getElementById('clock-digital');
+      if (clockDisplay) clockDisplay.dataset.userColor = color;
+
+      // Move the clock to the upper-left slot above the board.
+      try { window.__moveClockAboveBoard?.(); } catch {}
+
+      // Auto-collapse the toolbar for a clean playing view. Restored on
+      // game end. prevNavCollapsed was captured earlier (persisted state).
+      document.body.classList.add('nav-collapsed');
+
       pModal.hidden = true;
       ui.narrationText.innerHTML =
         `🎯 Practice started: <strong>${op.name}</strong>. You play <strong>${color}</strong>. ` +
@@ -3314,6 +3345,9 @@ async function main() {
     if (document.body.classList.contains('practice-finished')) return;
     document.body.classList.add('practice-finished');
     document.body.classList.remove('practice-thinking');
+    // Restore the clock to the side panel + restore prior toolbar state.
+    try { window.__restoreClockToSide?.(); } catch {}
+    if (!prevNavCollapsed) document.body.classList.remove('nav-collapsed');
     // Stop any in-flight engine search AND invalidate its token so if
     // a bestmove fires after `stop` (as Stockfish does — it emits the
     // best move found so far) the listener bails rather than playing
@@ -4432,6 +4466,58 @@ async function main() {
       sw.postMessage({ type: 'preload', urls: ALL_ENGINE_URLS });
     });
   }
+
+  // ───── Toolbar show/hide toggle ─────
+  // Large prominent button (lives OUTSIDE .site-nav so it's reachable
+  // even when the nav is collapsed). Also auto-collapses during a
+  // practice game so the player sees a clean board + clock + minimal
+  // chrome, then restores the prior state when the game ends.
+  const BODY_NAV_COLLAPSED = 'nav-collapsed';
+  let prevNavCollapsed = document.body.classList.contains(BODY_NAV_COLLAPSED);
+  const btnToggleToolbar = document.getElementById('btn-toggle-toolbar');
+  if (btnToggleToolbar) {
+    btnToggleToolbar.addEventListener('click', () => {
+      document.body.classList.toggle(BODY_NAV_COLLAPSED);
+      prevNavCollapsed = document.body.classList.contains(BODY_NAV_COLLAPSED);
+      try { localStorage.setItem('stockfish-explain.nav-collapsed', prevNavCollapsed ? '1' : '0'); } catch {}
+    });
+    // Restore persisted state.
+    try {
+      if (localStorage.getItem('stockfish-explain.nav-collapsed') === '1') {
+        document.body.classList.add(BODY_NAV_COLLAPSED);
+        prevNavCollapsed = true;
+      }
+    } catch {}
+  }
+
+  // ───── Board-above clock-slot reparenting ─────
+  // When a practice game starts, move #practice-clock out of the
+  // right-side panel and into the slot directly above the board, so it
+  // sits upper-left as a chess-TV-style clock. Restore on game end.
+  function moveClockAboveBoard() {
+    const card = document.getElementById('practice-clock');
+    const slot = document.getElementById('board-clock-slot');
+    if (!card || !slot) return;
+    if (card.parentElement !== slot) {
+      card.dataset.prevParentId = card.parentElement?.id || '';
+      slot.appendChild(card);
+      slot.hidden = false;
+    }
+  }
+  function restoreClockToSide() {
+    const card = document.getElementById('practice-clock');
+    const slot = document.getElementById('board-clock-slot');
+    if (!card || !slot) return;
+    const prevId = card.dataset.prevParentId;
+    if (prevId) {
+      const prev = document.getElementById(prevId);
+      if (prev) prev.appendChild(card);
+    }
+    slot.hidden = true;
+  }
+  // Expose so the practice start/end code below can call them.
+  window.__moveClockAboveBoard = moveClockAboveBoard;
+  window.__restoreClockToSide  = restoreClockToSide;
 
   // Lock button: hard-disable the engine until user explicitly unlocks.
   // While locked: no engine.start() is ever issued.

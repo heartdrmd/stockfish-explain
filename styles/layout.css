@@ -28,6 +28,53 @@
    Flip/Pause/Engine controls from the rest. */
 .nav-spacer { flex: 1 1 auto; }
 
+/* Prominent toolbar-hide toggle button. */
+.btn-toggle-toolbar {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  background: linear-gradient(180deg, #6a4fff, #4a2fcf);
+  color: #fff;
+  border: 1px solid #3a1fa0;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.btn-toggle-toolbar:hover { filter: brightness(1.1); }
+
+/* Collapsed-toolbar state: hide everything in the nav except
+   always-visible items. The toggle button lives outside .site-nav so
+   it stays clickable regardless. */
+body.nav-collapsed .site-nav > * {
+  display: none !important;
+}
+body.nav-collapsed .site-nav > .always-visible,
+body.nav-collapsed .always-visible {
+  display: inline-flex !important;
+}
+body.nav-collapsed .site-header { min-height: 40px; padding: 6px 14px; }
+
+/* ─── Upper-left clock slot above the board ─── */
+.board-clock-slot {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+  /* Clock card inside gets its existing styling; we just host it. */
+}
+.board-clock-slot .side-card {
+  margin: 0;
+  width: 100%;
+  max-width: 560px;
+}
+/* When the clock is hosted here, make the analog SVG bigger + sharper. */
+.board-clock-slot .clock-analog {
+  padding: 4px;
+  border-width: 1px;
+}
+.board-clock-slot .clock-analog-svg {
+  height: 220px;     /* up from 120 */
+  shape-rendering: geometricPrecision;
+}
+.board-clock-slot .clock-analog::after { display: none; } /* drop rivets, more dial less wood */
+
 .depth-ctrl {
   display: inline-flex;
   align-items: center;

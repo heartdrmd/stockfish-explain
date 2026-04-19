@@ -18,6 +18,11 @@
   <header class="site-header">
     <h1 class="site-title">Stockfish<span class="accent">.explain</span></h1>
 
+    <!-- Prominent toolbar-visibility toggle — kept OUTSIDE .site-nav so
+         it remains clickable even when the nav is collapsed. -->
+    <button id="btn-toggle-toolbar" class="btn btn-toggle-toolbar always-visible"
+            title="Show or hide the top toolbar — auto-hides during a practice game">⇕ Toolbar</button>
+
     <nav class="site-nav">
       <!-- Primary action group (left) -->
       <button id="btn-new"    class="btn"       title="New game">New game</button>
@@ -208,23 +213,29 @@
           </div>
         </div>
 
-        <!-- Digital variants render into this container -->
-        <div class="clock-display" id="clock-digital">
+        <!-- Digital variants render into this container.
+             Labels use only a solid king glyph (♚) + coloring — no
+             "White"/"Black" words. When the user plays black, JS sets
+             data-user-color="black" on this element and CSS flips the
+             flex order so the user's own clock is always on the bottom. -->
+        <div class="clock-display" id="clock-digital" data-user-color="white">
           <div class="clock-side" id="clock-black">
             <div class="clock-piece">♚</div>
-            <span class="clock-label">Black</span>
             <span class="clock-time" id="clock-time-b">—</span>
           </div>
           <div class="clock-side" id="clock-white">
-            <div class="clock-piece">♔</div>
-            <span class="clock-label">White</span>
+            <div class="clock-piece">♚</div>
             <span class="clock-time" id="clock-time-w">—</span>
           </div>
         </div>
 
-        <!-- Analog Garde clock — two-dial SVG panel -->
+        <!-- Analog Garde clock — two-dial SVG panel.
+             viewBox doubled for higher detail; shape-rendering=geometricPrecision
+             keeps ticks/numerals razor-sharp at large sizes. -->
         <div class="clock-analog" id="clock-analog" hidden>
-          <svg viewBox="0 0 240 120" class="clock-analog-svg" preserveAspectRatio="xMidYMid meet"></svg>
+          <svg viewBox="0 0 320 160" class="clock-analog-svg"
+               preserveAspectRatio="xMidYMid meet"
+               shape-rendering="geometricPrecision"></svg>
         </div>
 
         <p class="clock-format-line" id="clock-format">—</p>
@@ -255,6 +266,10 @@
     </aside>
 
     <section class="board-area">
+      <!-- Upper-left clock slot — empty until a practice game with clock
+           starts. On start, JS reparents #practice-clock into here so the
+           clock appears directly above the board (chess-TV style). -->
+      <div id="board-clock-slot" class="board-clock-slot" hidden></div>
       <div id="board" class="cg-wrap"></div>
       <div id="promotion-overlay" class="promotion-overlay" hidden></div>
       <div id="board-resize" class="board-resize" title="Drag to resize board"></div>
