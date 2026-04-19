@@ -17,7 +17,8 @@ import * as Dorfman                from './dorfman.js';
 import * as CoachV2                from './coach_v2.js';
 import * as Tablebase              from './tablebase.js';
 import * as OpeningExplorer        from './opening_explorer.js';
-import { renderOpeningBlock, renderOpeningForAI } from './openings_book.js';
+import { renderOpeningBlock, renderOpeningForAI, detectOpening } from './openings_book.js';
+import * as Archive from './game_archive.js';
 import                                './validation_harness.js';
 
 // ─── Diagnostic log capture ─────────────────────────────────────────
@@ -858,6 +859,41 @@ async function main() {
     }, 160);
   }
 
+  // Piggyback on the engine's thinking events to capture evals for
+  // the game archive. Runs regardless of __engineMuted so that even in
+  // practice mode the per-move data is recorded silently.
+  engine.addEventListener('thinking', () => { captureEngineThinkingEval(); });
+  engine.addEventListener('bestmove', () => { captureEngineThinkingEval(); });
+
+  // ─── Per-ply eval capture (feeds the game archive) ────────────────
+  // Whenever Stockfish reports info at the live FEN, cache the latest
+  // (deepest) cp/mate evaluation keyed by that FEN. At game-end we
+  // collate these into the archive's plies[] array so downstream
+  // features (eval timeline, mistake bank) have per-move data to read
+  // without needing to re-analyse the whole game.
+  const fenEvalCache = new Map(); // FEN → { cpWhite, mate, depth }
+  function captureEngineThinkingEval() {
+    // Called from Explainer's info handler (wired below). We just read
+    // the engine's latest top line.
+    try {
+      const live = engine && engine.history && engine.history.length
+        ? engine.history[engine.history.length - 1] : null;
+      if (!live) return;
+      const fen = board.chess.fen();
+      // Convert STM-POV score to White POV for consistent storage.
+      const stm = fen.split(' ')[1] === 'w' ? 1 : -1;
+      const cpWhite = live.scoreKind === 'cp' ? stm * live.score : null;
+      const mate    = live.scoreKind === 'mate' ? stm * live.score : null;
+      fenEvalCache.set(fen, { cpWhite, mate, depth: live.depth });
+      // Cap the map to 500 entries to avoid unbounded growth during
+      // long sessions.
+      if (fenEvalCache.size > 500) {
+        const first = fenEvalCache.keys().next().value;
+        fenEvalCache.delete(first);
+      }
+    } catch {}
+  }
+
   // ─── Auto-save draft ─────────────────────────────────────────────
   // Persist the current in-progress game (practice OR analysis) on every
   // move so a closed tab / refresh doesn't wipe it out. Throttled to
@@ -940,6 +976,72 @@ async function main() {
   // populating board + UI.
   setTimeout(maybeRestoreDraft, 150);
 
+  // ─── Archive a completed game ─────────────────────────────────────
+  // Replays the game tree to harvest each ply's FEN + cached engine
+  // eval from fenEvalCache. Tolerates missing cache entries (stores
+  // cpWhite: null for those plies).
+  function archiveCurrentGame({ result, ending, mode }) {
+    const history = board.chess.history({ verbose: true });
+    if (!history.length) return false;
+    // Walk the starting FEN forward, applying each SAN, collecting per-
+    // ply records. We prefer FENs from fenEvalCache — if a position was
+    // never evaluated, cpWhite stays null.
+    const replay = new Chess(board.startingFen);
+    const plies = [];
+    for (let i = 0; i < history.length; i++) {
+      const mv = history[i];
+      const san = mv.san;
+      const res = replay.move(san, { sloppy: true });
+      if (!res) break;
+      const fen = replay.fen();
+      const ev = fenEvalCache.get(fen) || {};
+      plies.push({
+        ply:     i + 1,
+        san,
+        fen,
+        cpWhite: ev.cpWhite ?? null,
+        mate:    ev.mate    ?? null,
+        depth:   ev.depth   ?? null,
+      });
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const userColor = mode === 'practice' ? practiceColor : null;
+    const sanHistory = history.map(m => m.san);
+    let opening = null;
+    try {
+      const o = detectOpening(sanHistory, board.fen());
+      if (o) opening = { name: o.name, eco: o.eco || null, matched: o._matched || 'exact' };
+    } catch {}
+    const game = {
+      id:          Date.now(),
+      date:        today,
+      result:      result || '*',
+      ending:      ending || '',
+      mode:        mode || 'analysis',
+      userColor,
+      opponent:    mode === 'practice'
+                      ? `Stockfish (skill ${ui.rangeSkill?.value || '?'})`
+                      : 'n/a',
+      opening,
+      startingFen: board.startingFen,
+      pgn:         board.tree.pgn({ tags: {
+                      Event: mode === 'practice' ? 'Practice vs Stockfish' : 'Analysis session',
+                      Date:  today.replace(/-/g, '.'),
+                      Result: result || '*',
+                    }}),
+      plies,
+    };
+    const ok = Archive.archiveGame(game);
+    if (ok && ui.narrationText) {
+      // Append a short note to the existing narration.
+      const suffix = ` · 💾 Archived to My Games (${plies.length} plies).`;
+      if (!ui.narrationText.innerHTML.includes('Archived to My Games')) {
+        ui.narrationText.innerHTML += suffix;
+      }
+    }
+    return ok;
+  }
+
   function fireAnalysis() {
     // Invalidate any practice-mode bestmove listener that's still waiting
     // on the previous position — when engine.stop() below triggers, the
@@ -959,24 +1061,28 @@ async function main() {
       if (chessNow.isGameOver()) {
         ui.narrationText.innerHTML = gameOverMessage(chessNow);
         engine.stop();
-        // If this game-over happened during a practice game, flip us
-        // into analysis mode so the user can review with the engine's
-        // eval visible and save the PGN. Only fires once (guarded by
-        // the practice-finished class).
+        // Build a standard result tag / narrative from chess.js state.
+        let resultTag = '*';
+        let narrative = 'Game over';
+        if (chessNow.isCheckmate()) {
+          const loser = chessNow.turn();
+          resultTag  = loser === 'w' ? '0-1' : '1-0';
+          narrative  = loser === 'w' ? 'Black wins by checkmate' : 'White wins by checkmate';
+        } else if (chessNow.isStalemate()) {
+          resultTag = '1/2-1/2'; narrative = 'Draw by stalemate';
+        } else if (chessNow.isDraw()) {
+          resultTag = '1/2-1/2'; narrative = 'Draw (50-move / threefold / insufficient material)';
+        }
+        // If this was a practice game, flip into practice-finished
+        // analysis mode (which also archives).
         if (practiceColor && !document.body.classList.contains('practice-finished')) {
-          let resultTag = '*';
-          let narrative = 'Game over';
-          if (chessNow.isCheckmate()) {
-            // The player to move is checkmated — loser is their colour.
-            const loser = chessNow.turn(); // 'w' or 'b'
-            resultTag  = loser === 'w' ? '0-1' : '1-0';
-            narrative  = loser === 'w' ? 'Black wins by checkmate' : 'White wins by checkmate';
-          } else if (chessNow.isStalemate()) {
-            resultTag = '1/2-1/2'; narrative = 'Draw by stalemate';
-          } else if (chessNow.isDraw()) {
-            resultTag = '1/2-1/2'; narrative = 'Draw (50-move / threefold / insufficient material)';
-          }
           finishPracticeGame(resultTag, narrative);
+        } else if (!practiceColor && !document.body.classList.contains('analysis-archived')) {
+          // Analysis-mode game that ended naturally — still worth
+          // archiving once. Use a class as an idempotency guard.
+          document.body.classList.add('analysis-archived');
+          try { archiveCurrentGame({ result: resultTag, ending: narrative, mode: 'analysis' }); } catch {}
+          clearDraft();
         }
       } else {
         engine.stop();
@@ -1070,7 +1176,7 @@ async function main() {
     // Exiting any active / finished practice game when a fresh board
     // starts. The practice card hides via CSS once the class is gone.
     practiceColor = null;
-    document.body.classList.remove('practice-mode', 'practice-thinking', 'practice-finished');
+    document.body.classList.remove('practice-mode', 'practice-thinking', 'practice-finished', 'analysis-archived');
     const pActions = document.getElementById('practice-actions');
     if (pActions) pActions.hidden = true;
     clearDraft();
@@ -1649,6 +1755,11 @@ async function main() {
     practiceSearchToken++;
     practiceResultTag = resultTag;
     practiceResultText = narrative;
+    // Archive the completed game for later review / mistake bank.
+    try { archiveCurrentGame({ result: resultTag, ending: narrative, mode: 'practice' }); }
+    catch (err) { console.warn('[archive] failed to archive practice game', err); }
+    // Draft is no longer needed.
+    clearDraft();
     // Swap the card UI into post-game state
     const pLive = document.getElementById('practice-live');
     const pOver = document.getElementById('practice-over');
@@ -1760,6 +1871,189 @@ async function main() {
     const practiceBtn = document.getElementById('btn-practice');
     if (practiceBtn) practiceBtn.click();
   });
+
+  // ────────── My Games archive browser ──────────
+  (() => {
+    const btnOpen   = document.getElementById('btn-my-games');
+    const modal     = document.getElementById('my-games-modal');
+    const closeBtn  = document.getElementById('my-games-close');
+    const statsEl   = document.getElementById('my-games-stats');
+    const filterEl  = document.getElementById('my-games-filter');
+    const listEl    = document.getElementById('my-games-list');
+    const clearBtn  = document.getElementById('my-games-clear');
+    if (!btnOpen || !modal) return;
+
+    const fmtCp = (cp, mate) => {
+      if (mate != null) return mate > 0 ? `#${mate}` : `#-${Math.abs(mate)}`;
+      if (cp == null) return '—';
+      const v = cp / 100;
+      return (v >= 0 ? '+' : '') + v.toFixed(2);
+    };
+    const render = () => {
+      const games = Archive.loadGames();
+      const stats = Archive.archiveStats();
+      statsEl.innerHTML = games.length
+        ? `<strong>${stats.total}</strong> games archived · W ${stats.byResult['1-0']||0} / D ${stats.byResult['1/2-1/2']||0} / L ${stats.byResult['0-1']||0} · ${Math.round(stats.bytesUsed/1024)} KB of ~4.5 MB cap used`
+        : 'No games archived yet. Play a practice game — it will auto-archive on completion.';
+      const f = (filterEl.value || '').trim().toLowerCase();
+      const shown = f
+        ? games.filter(g =>
+            (g.opening?.name || '').toLowerCase().includes(f) ||
+            (g.opponent  || '').toLowerCase().includes(f) ||
+            (g.result    || '').toLowerCase().includes(f) ||
+            (g.date      || '').toLowerCase().includes(f) ||
+            (g.ending    || '').toLowerCase().includes(f))
+        : games;
+      listEl.innerHTML = shown.length
+        ? shown.map(g => {
+            const finalCp = g.plies.length ? g.plies[g.plies.length - 1] : null;
+            const finalEval = finalCp ? fmtCp(finalCp.cpWhite, finalCp.mate) : '—';
+            const resTag = g.result === '1-0' ? 'W'
+                        : g.result === '0-1' ? 'L'
+                        : g.result === '1/2-1/2' ? 'D' : '·';
+            const resColor = resTag === 'W' ? '#52c41a' : resTag === 'L' ? '#dc3545' : resTag === 'D' ? '#ffc107' : 'var(--c-font-dim)';
+            return `<div class="my-game-row" data-id="${g.id}" style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:1px solid var(--c-border);cursor:pointer;">
+              <span style="width:22px;height:22px;border-radius:50%;background:${resColor};color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;">${resTag}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:13px;">${escHtml(g.opening?.name || '(unknown opening)')}</div>
+                <div class="muted" style="font-size:11px;">${g.date} · ${g.plies.length} plies · ${g.userColor ? 'as ' + g.userColor : 'analysis'} · ${escHtml(g.opponent)} · ${escHtml(g.ending)}</div>
+              </div>
+              <span class="muted" style="font-family:var(--font-mono);font-size:11px;width:60px;text-align:right;">${finalEval}</span>
+              <button class="my-game-load btn" data-id="${g.id}" title="Load this game into the board" style="font-size:11px;padding:4px 8px;">Load</button>
+              <button class="my-game-delete btn" data-id="${g.id}" title="Delete this game" style="font-size:11px;padding:4px 8px;background:rgba(220,53,69,0.1);border-color:#dc3545;">✕</button>
+            </div>`;
+          }).join('')
+        : `<p class="muted" style="padding:20px;text-align:center;">No games match your filter.</p>`;
+    };
+    const loadGame = (id) => {
+      const g = Archive.getGame(id);
+      if (!g) return;
+      modal.hidden = true;
+      board.newGame();
+      try {
+        if (g.startingFen && g.startingFen !== board.startingFen) {
+          board.chess.load(g.startingFen);
+          board.startingFen = g.startingFen;
+        }
+        for (const p of g.plies) {
+          try { board.chess.move(p.san, { sloppy: true }); } catch { break; }
+        }
+        board.cg.set({ fen: board.chess.fen(), turnColor: board.chess.turn() === 'w' ? 'white' : 'black' });
+        board.dispatchEvent(new CustomEvent('move'));
+        ui.narrationText.innerHTML = `📚 Loaded archived game: <strong>${escHtml(g.opening?.name || 'game')}</strong> (${g.date}). Walk through with ← → to review with full engine eval.`;
+      } catch (err) {
+        console.warn('[archive] load failed', err);
+        alert('Could not load that game.');
+      }
+    };
+    btnOpen.addEventListener('click', () => { render(); modal.hidden = false; });
+    closeBtn.addEventListener('click', () => modal.hidden = true);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+    filterEl.addEventListener('input', render);
+    listEl.addEventListener('click', (e) => {
+      const loadBtn = e.target.closest('.my-game-load');
+      const delBtn  = e.target.closest('.my-game-delete');
+      const row     = e.target.closest('.my-game-row');
+      if (loadBtn) { loadGame(+loadBtn.dataset.id); return; }
+      if (delBtn)  { if (confirm('Delete this archived game?')) { Archive.deleteGame(+delBtn.dataset.id); render(); } return; }
+      if (row)     { loadGame(+row.dataset.id); }
+    });
+    clearBtn.addEventListener('click', () => {
+      if (!Archive.loadGames().length) return;
+      if (!confirm('Delete ALL archived games? This cannot be undone.')) return;
+      Archive.clearArchive();
+      render();
+    });
+  })();
+
+  // ────────── Mistake Bank ──────────
+  (() => {
+    const btnOpen   = document.getElementById('btn-mistake-bank');
+    const modal     = document.getElementById('mistake-bank-modal');
+    const closeBtn  = document.getElementById('mistake-bank-close');
+    const statsEl   = document.getElementById('mistake-bank-stats');
+    const listEl    = document.getElementById('mistake-bank-list');
+    const fBlunder  = document.getElementById('mb-filter-blunder');
+    const fMistake  = document.getElementById('mb-filter-mistake');
+    const fInacc    = document.getElementById('mb-filter-inaccuracy');
+    const fByUser   = document.getElementById('mb-filter-by-user');
+    if (!btnOpen || !modal) return;
+
+    const SEVERITY_STYLE = {
+      blunder:    { label: '??', bg: '#dc3545', pillText: 'Blunder' },
+      mistake:    { label: '?',  bg: '#fd7e14', pillText: 'Mistake' },
+      inaccuracy: { label: '?!', bg: '#ffc107', pillText: 'Inaccuracy' },
+    };
+
+    const fmtCp = (cp) => {
+      if (cp == null) return '—';
+      const v = cp / 100;
+      return (v >= 0 ? '+' : '') + v.toFixed(2);
+    };
+
+    const render = () => {
+      const all = Archive.deriveMistakes();
+      const allowed = new Set();
+      if (fBlunder.checked) allowed.add('blunder');
+      if (fMistake.checked) allowed.add('mistake');
+      if (fInacc.checked)   allowed.add('inaccuracy');
+      const byUser = fByUser.checked;
+      const shown = all.filter(m =>
+        allowed.has(m.severity) && (!byUser || m.byUser === true));
+      statsEl.innerHTML = all.length
+        ? `<strong>${all.length}</strong> mistakes across your games (${shown.length} shown). ` +
+          `Blunders: ${all.filter(m => m.severity === 'blunder').length} · ` +
+          `Mistakes: ${all.filter(m => m.severity === 'mistake').length} · ` +
+          `Inaccuracies: ${all.filter(m => m.severity === 'inaccuracy').length}.`
+        : 'No mistakes logged yet. Play some games — this list builds automatically.';
+      listEl.innerHTML = shown.length
+        ? shown.map(m => {
+            const sty = SEVERITY_STYLE[m.severity];
+            return `<div class="mb-row" data-fen="${escHtml(m.fenBefore)}" data-fen-after="${escHtml(m.fenAfter)}" data-game="${m.gameId}" data-ply="${m.ply}" style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:1px solid var(--c-border);cursor:pointer;">
+              <span style="min-width:32px;height:22px;border-radius:3px;background:${sty.bg};color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;padding:0 6px;">${sty.label}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:13px;">Move ${Math.ceil(m.ply/2)}${m.ply%2===1?'.':'...'} ${escHtml(m.san)}
+                  <span class="muted" style="font-weight:400;font-size:11px;">· ${sty.pillText} · eval ${fmtCp(m.cpBefore)} → ${fmtCp(m.cpAfter)} (−${(m.swing/100).toFixed(2)})</span>
+                </div>
+                <div class="muted" style="font-size:11px;">${m.date} · ${escHtml(m.opening?.name || 'unknown opening')} · ${m.byUser === true ? 'your move' : m.byUser === false ? 'opponent\\'s move' : ''}</div>
+              </div>
+              <button class="mb-load btn" title="Load this position — try to find the better move" style="font-size:11px;padding:4px 8px;">Review</button>
+            </div>`;
+          }).join('')
+        : `<p class="muted" style="padding:20px;text-align:center;">No mistakes match your filters.</p>`;
+    };
+
+    const loadMistake = (fenBefore) => {
+      modal.hidden = true;
+      try {
+        board.newGame();
+        board.chess.load(fenBefore);
+        board.startingFen = fenBefore;
+        board.cg.set({ fen: fenBefore, turnColor: board.chess.turn() === 'w' ? 'white' : 'black' });
+        board.dispatchEvent(new CustomEvent('new-game'));
+        ui.narrationText.innerHTML =
+          `🎓 <strong>Mistake drill.</strong> The position is loaded — find the move that should have been played. Click 🧠 "Run both" on the Coach panel for an analysis of what went wrong.`;
+      } catch (err) {
+        console.warn('[mistake-bank] load failed', err);
+      }
+    };
+
+    btnOpen.addEventListener('click', () => { render(); modal.hidden = false; });
+    closeBtn.addEventListener('click', () => modal.hidden = true);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+    for (const cb of [fBlunder, fMistake, fInacc, fByUser]) {
+      cb.addEventListener('change', render);
+    }
+    listEl.addEventListener('click', (e) => {
+      const row = e.target.closest('.mb-row');
+      if (!row) return;
+      loadMistake(row.dataset.fen);
+    });
+  })();
+
+  function escHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
 
   // ────────── Save current position as a custom practice opening ──────
   (() => {

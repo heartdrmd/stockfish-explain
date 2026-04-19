@@ -58,6 +58,8 @@
       </select>
       <button id="btn-settings" class="btn" title="Engine settings (skill, threads, hash, arrows, piece values)">⚙ More</button>
       <button id="btn-practice" class="btn" title="Play against the engine from a chosen opening">🎯 Practice</button>
+      <button id="btn-my-games" class="btn" title="Browse your archived games with eval timelines and mistake analysis">📚 My Games</button>
+      <button id="btn-mistake-bank" class="btn" title="Review positions where you played poorly — spaced repetition">🎓 Mistake Bank</button>
       <button id="btn-tournament" class="btn" title="Engine vs engine self-play">🏆 Tournament</button>
       <button id="btn-restart" class="btn" title="Restart engine if stuck">♻ Restart</button>
       <button id="btn-copy-fen"  class="btn" title="Copy current position FEN to clipboard">📋 FEN</button>
@@ -458,6 +460,38 @@
        sidebar "Save as practice opening" button. Lets the user name
        the custom variation and place it under an existing group or a
        new one. -->
+  <!-- My Games modal — browse archived games, view per-move evals, reload into board -->
+  <div id="my-games-modal" class="modal" hidden>
+    <div class="modal-card modal-wide">
+      <button class="modal-close" id="my-games-close">×</button>
+      <h3>📚 My Games</h3>
+      <div id="my-games-stats" class="muted" style="font-size:12px;margin-bottom:10px;">—</div>
+      <div style="margin-bottom:10px;">
+        <input id="my-games-filter" type="search" placeholder="🔎 Filter by opening, opponent, result, or date…" autocomplete="off" style="width:100%;">
+      </div>
+      <div id="my-games-list" style="max-height:400px;overflow-y:auto;border:1px solid var(--c-border);border-radius:6px;padding:6px;"></div>
+      <div class="tournament-actions" style="margin-top:10px;">
+        <button id="my-games-clear" class="btn" style="background:rgba(220,53,69,0.2);border-color:#dc3545;" title="Permanently delete all archived games">🗑 Clear all</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mistake Bank modal — list positions with severity, filter, load into board -->
+  <div id="mistake-bank-modal" class="modal" hidden>
+    <div class="modal-card modal-wide">
+      <button class="modal-close" id="mistake-bank-close">×</button>
+      <h3>🎓 Mistake Bank</h3>
+      <div id="mistake-bank-stats" class="muted" style="font-size:12px;margin-bottom:10px;">—</div>
+      <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;">
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="mb-filter-blunder"    checked> Blunders (≥200cp)</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="mb-filter-mistake"    checked> Mistakes (100–199)</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="mb-filter-inaccuracy"        > Inaccuracies (50–99)</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="mb-filter-by-user"    checked> Only my mistakes (not opponent's)</label>
+      </div>
+      <div id="mistake-bank-list" style="max-height:400px;overflow-y:auto;border:1px solid var(--c-border);border-radius:6px;padding:6px;"></div>
+    </div>
+  </div>
+
   <div id="save-opening-modal" class="modal" hidden>
     <div class="modal-card">
       <button class="modal-close" id="save-opening-close">×</button>
