@@ -193,8 +193,18 @@
            time control. Shows both sides' remaining time, lights up
            red when low on time, and triggers timeout loss at 0. -->
       <div class="side-card practice-card" id="practice-clock" hidden>
-        <h3>⏱ Clock</h3>
-        <div class="clock-display">
+        <div class="clock-header">
+          <h3 style="margin:0;">⏱ Clock</h3>
+          <div class="clock-style-switcher" id="clock-style-switcher">
+            <button type="button" class="clock-style-btn active" data-style="digital-dark" title="Digital dark (default)">●</button>
+            <button type="button" class="clock-style-btn" data-style="digital-light" title="Digital light (reverse)">○</button>
+            <button type="button" class="clock-style-btn" data-style="digital-led"   title="LED digital (red on black)">▣</button>
+            <button type="button" class="clock-style-btn" data-style="analog-garde"  title="Classic analog (Garde-style)">⏰</button>
+          </div>
+        </div>
+
+        <!-- Digital variants render into this container -->
+        <div class="clock-display" id="clock-digital">
           <div class="clock-side" id="clock-black">
             <div class="clock-piece">♚</div>
             <span class="clock-label">Black</span>
@@ -206,6 +216,12 @@
             <span class="clock-time" id="clock-time-w">—</span>
           </div>
         </div>
+
+        <!-- Analog Garde clock — two-dial SVG panel -->
+        <div class="clock-analog" id="clock-analog" hidden>
+          <svg viewBox="0 0 240 120" class="clock-analog-svg" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+
         <p class="clock-format-line" id="clock-format">—</p>
       </div>
 
@@ -515,7 +531,14 @@
             <input type="checkbox" id="practice-use-clock">
             ⏱ Use chess clock (timed game)
           </label>
-          <small class="muted">Off = engine uses a fixed depth/time per move. On = both sides get a real chess clock (bullet/blitz/rapid presets).</small>
+          <small class="muted">Off = <strong>untimed</strong> game — the clock counts <strong>UP</strong> showing time used per move and total. On = real chess clock counting DOWN with bullet/blitz/rapid presets and optional increment.</small>
+          <div style="margin-top:6px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+              <input type="checkbox" id="practice-untimed-increment-on">
+              Untimed mode: add increment per move (seconds)
+              <input id="practice-untimed-increment" type="number" min="0" max="60" value="0" style="width:60px;padding:2px 6px;" disabled>
+            </label>
+          </div>
         </div>
         <div class="setting" id="practice-limit-row">
           <label for="practice-limit">Engine think time / move</label>

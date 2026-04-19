@@ -874,6 +874,7 @@ async function main() {
   // ────────── Chess clock (#19) ─────────────────────────────────────
   const clock = {
     active: false,
+    mode: 'down',        // 'down' (timed) | 'up' (untimed — counts time used)
     msWhite: 0,
     msBlack: 0,
     incMs: 0,
@@ -881,6 +882,9 @@ async function main() {
     lastTickAt: 0,
     timerId: 0,
     initialMs: 0,
+    // Persisted style: user can cycle through digital-dark /
+    // digital-light / digital-led / analog-garde
+    style: localStorage.getItem('stockfish-explain.clock-style') || 'digital-dark',
   };
   function formatClockTime(ms) {
     if (ms == null || ms < 0) ms = 0;
@@ -889,7 +893,12 @@ async function main() {
     const m = Math.floor((total % 3600) / 60);
     const s = total % 60;
     if (h > 0) return `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-    if (ms < 20_000) return `${m}:${s.toString().padStart(2,'0')}.${Math.floor((ms % 1000) / 100)}`;
+    // Show tenths-of-a-second only in count-DOWN critical time. In
+    // count-up mode, tenths make the clock feel frantic — keep whole
+    // seconds always.
+    if (clock.mode === 'down' && ms < 20_000) {
+      return `${m}:${s.toString().padStart(2,'0')}.${Math.floor((ms % 1000) / 100)}`;
+    }
     return `${m}:${s.toString().padStart(2,'0')}`;
   }
   function renderClock() {
@@ -897,45 +906,143 @@ async function main() {
     const bEl = document.getElementById('clock-time-b');
     const wSide = document.getElementById('clock-white');
     const bSide = document.getElementById('clock-black');
+    const digital = document.getElementById('clock-digital');
+    const analog  = document.getElementById('clock-analog');
     if (!wEl || !bEl || !wSide || !bSide) return;
+    // Apply style attribute so CSS variants kick in.
+    if (digital) digital.dataset.style = clock.style;
+    // Toggle digital vs analog visibility.
+    const isAnalog = clock.style === 'analog-garde';
+    if (digital) digital.hidden = isAnalog;
+    if (analog)  analog.hidden  = !isAnalog;
+
+    if (isAnalog) {
+      renderAnalogClock();
+      return;
+    }
     wEl.textContent = formatClockTime(clock.msWhite);
     bEl.textContent = formatClockTime(clock.msBlack);
     [wSide, bSide].forEach(el => el.classList.remove('active', 'low-time', 'critical-time'));
     if (clock.tickingFor === 'w') wSide.classList.add('active');
     if (clock.tickingFor === 'b') bSide.classList.add('active');
-    if (clock.msWhite < 30_000 && clock.msWhite > 10_000) wSide.classList.add('low-time');
-    if (clock.msBlack < 30_000 && clock.msBlack > 10_000) bSide.classList.add('low-time');
-    if (clock.msWhite <= 10_000) wSide.classList.add('critical-time');
-    if (clock.msBlack <= 10_000) bSide.classList.add('critical-time');
+    // Low/critical colours only make sense in count-DOWN mode.
+    if (clock.mode === 'down') {
+      if (clock.msWhite < 30_000 && clock.msWhite > 10_000) wSide.classList.add('low-time');
+      if (clock.msBlack < 30_000 && clock.msBlack > 10_000) bSide.classList.add('low-time');
+      if (clock.msWhite <= 10_000) wSide.classList.add('critical-time');
+      if (clock.msBlack <= 10_000) bSide.classList.add('critical-time');
+    }
   }
-  function startClock(minutes, incrementSec) {
+
+  // ─── Analog Garde clock renderer ─────────────────────────────────
+  // Two round dials side-by-side. Black dial on the left, White on
+  // the right (mirror of the digital layout so the active side is
+  // always the one below the current player). Classic wooden / brass
+  // housing via CSS; the hands + ticks drawn by this SVG function.
+  function renderAnalogClock() {
+    const svg = document.querySelector('.clock-analog-svg');
+    if (!svg) return;
+    const dial = (cx, ms, activeSide, isActiveDial) => {
+      const cy = 60;
+      const r  = 48;
+      const totalMs = clock.mode === 'down'
+        ? (clock.initialMs || 60 * 60_000)
+        : Math.max(60_000, ms + 60_000);
+      // Map ms to an angle on a 60-minute dial. Count-down: 12 o'clock
+      // is full time, 6 o'clock is half, rotates clockwise toward 12
+      // again. Count-up: starts at 12 and sweeps CW as time grows.
+      const mins = ms / 60_000;
+      const angle = clock.mode === 'down'
+        ? (mins % 60) / 60 * 360
+        : (mins % 60) / 60 * 360;
+      // Hand rotated so 12-o-clock = 0, clockwise positive.
+      const rad = (angle - 90) * Math.PI / 180;
+      const hx = cx + r * 0.82 * Math.cos(rad);
+      const hy = cy + r * 0.82 * Math.sin(rad);
+      // Secondary (second hand) — faster rotation.
+      const seconds = (ms / 1000) % 60;
+      const sRad = (seconds * 6 - 90) * Math.PI / 180;
+      const sx = cx + r * 0.9 * Math.cos(sRad);
+      const sy = cy + r * 0.9 * Math.sin(sRad);
+      // Ticks
+      let ticks = '';
+      for (let i = 0; i < 60; i++) {
+        const t = (i * 6 - 90) * Math.PI / 180;
+        const isMajor = i % 5 === 0;
+        const outR = r;
+        const inR  = isMajor ? r - 6 : r - 3;
+        const x1 = cx + outR * Math.cos(t), y1 = cy + outR * Math.sin(t);
+        const x2 = cx + inR  * Math.cos(t), y2 = cy + inR  * Math.sin(t);
+        ticks += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#2a1e14" stroke-width="${isMajor ? 1.5 : 0.6}"/>`;
+      }
+      const faceColor = isActiveDial ? '#f5e3be' : '#e8d4a7';
+      const handColor = '#1a0f08';
+      const secColor  = '#a33';
+      // Flag (red half-moon) — shows when time is critical in count-
+      // down mode. Suppressed in count-up.
+      const flag = (clock.mode === 'down' && ms <= 15_000)
+        ? `<path d="M ${(cx - 2).toFixed(1)} ${(cy - r + 2).toFixed(1)} L ${(cx + 6).toFixed(1)} ${(cy - r + 10).toFixed(1)} L ${(cx - 2).toFixed(1)} ${(cy - r + 10).toFixed(1)} Z" fill="#c0392b"/>`
+        : '';
+      return `
+        <g>
+          <circle cx="${cx}" cy="${cy}" r="${r}" fill="${faceColor}" stroke="#8c6a3a" stroke-width="2.5"/>
+          <circle cx="${cx}" cy="${cy}" r="${r + 3}" fill="none" stroke="#3a2814" stroke-width="1.2"/>
+          ${ticks}
+          ${flag}
+          <line x1="${cx}" y1="${cy}" x2="${hx.toFixed(1)}" y2="${hy.toFixed(1)}" stroke="${handColor}" stroke-width="3" stroke-linecap="round"/>
+          <line x1="${cx}" y1="${cy}" x2="${sx.toFixed(1)}" y2="${sy.toFixed(1)}" stroke="${secColor}" stroke-width="1.1" stroke-linecap="round"/>
+          <circle cx="${cx}" cy="${cy}" r="2.6" fill="${handColor}"/>
+        </g>`;
+    };
+    const activeSide = clock.tickingFor;
+    svg.innerHTML =
+      dial(60,  clock.msBlack, 'b', activeSide === 'b') +
+      dial(180, clock.msWhite, 'w', activeSide === 'w');
+  }
+  function startClock(minutes, incrementSec, mode = 'down') {
     clock.active = true;
+    clock.mode   = mode;
     clock.initialMs = minutes * 60_000;
-    clock.msWhite = clock.initialMs;
-    clock.msBlack = clock.initialMs;
+    // Count-down starts at initialMs and ticks to zero.
+    // Count-up starts at 0 and ticks upward (tracks time used).
+    clock.msWhite = mode === 'up' ? 0 : clock.initialMs;
+    clock.msBlack = mode === 'up' ? 0 : clock.initialMs;
     clock.incMs   = incrementSec * 1000;
     clock.tickingFor = 'w';
     clock.lastTickAt = Date.now();
     const clockCard = document.getElementById('practice-clock');
     if (clockCard) clockCard.hidden = false;
     const fmt = document.getElementById('clock-format');
-    if (fmt) fmt.textContent = `${minutes}+${incrementSec} time control`;
+    if (fmt) {
+      if (mode === 'up') {
+        fmt.textContent = incrementSec > 0
+          ? `Untimed · ${incrementSec}s increment per move`
+          : 'Untimed · tracking time used';
+      } else {
+        fmt.textContent = `${minutes}+${incrementSec} time control`;
+      }
+    }
     if (clock.timerId) clearInterval(clock.timerId);
     clock.timerId = setInterval(() => {
       if (!clock.active || !clock.tickingFor) return;
       const now = Date.now();
       const elapsed = now - clock.lastTickAt;
       clock.lastTickAt = now;
-      if (clock.tickingFor === 'w') clock.msWhite = Math.max(0, clock.msWhite - elapsed);
-      else                          clock.msBlack = Math.max(0, clock.msBlack - elapsed);
-      renderClock();
-      if (clock.msWhite === 0 || clock.msBlack === 0) {
-        const loser = clock.msWhite === 0 ? 'white' : 'black';
-        stopClock();
-        const resultTag = loser === 'white' ? '0-1' : '1-0';
-        const narrative = `${loser === 'white' ? 'White' : 'Black'} ran out of time.`;
-        try { finishPracticeGame(resultTag, narrative); } catch {}
+      if (mode === 'down') {
+        if (clock.tickingFor === 'w') clock.msWhite = Math.max(0, clock.msWhite - elapsed);
+        else                          clock.msBlack = Math.max(0, clock.msBlack - elapsed);
+        if (clock.msWhite === 0 || clock.msBlack === 0) {
+          const loser = clock.msWhite === 0 ? 'white' : 'black';
+          stopClock();
+          const resultTag = loser === 'white' ? '0-1' : '1-0';
+          const narrative = `${loser === 'white' ? 'White' : 'Black'} ran out of time.`;
+          try { finishPracticeGame(resultTag, narrative); } catch {}
+        }
+      } else {
+        if (clock.tickingFor === 'w') clock.msWhite += elapsed;
+        else                          clock.msBlack += elapsed;
       }
+      renderClock();
     }, 100);
     renderClock();
   }
@@ -961,6 +1068,37 @@ async function main() {
   window.__clockStop     = stopClock;
   window.__clockSwitch   = switchClock;
   board.addEventListener('move', () => { if (clock.active) switchClock(); });
+
+  // Clock style switcher — persists the choice to localStorage and
+  // re-renders immediately so the user sees the chosen skin.
+  (() => {
+    const switcher = document.getElementById('clock-style-switcher');
+    if (!switcher) return;
+    const applyActive = () => {
+      switcher.querySelectorAll('.clock-style-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.style === clock.style);
+      });
+      renderClock();
+    };
+    switcher.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('.clock-style-btn');
+      if (!btn) return;
+      clock.style = btn.dataset.style;
+      try { localStorage.setItem('stockfish-explain.clock-style', clock.style); } catch {}
+      applyActive();
+    });
+    applyActive();
+  })();
+
+  // Untimed-increment enable toggle — enables the seconds input.
+  (() => {
+    const toggle = document.getElementById('practice-untimed-increment-on');
+    const input  = document.getElementById('practice-untimed-increment');
+    if (!toggle || !input) return;
+    const apply = () => { input.disabled = !toggle.checked; };
+    toggle.addEventListener('change', apply);
+    apply();
+  })();
 
   // ─── Opponent-style persona move selector (#18) ─────────────────
   // Given the engine's MultiPV top candidates, score each by how well
@@ -2621,7 +2759,13 @@ async function main() {
         `🎯 Practice started: <strong>${op.name}</strong>. You play <strong>${color}</strong>. ` +
         `Engine skill ${skill}/20. ${limitMode === 'depth' ? `Depth ${limitVal}` : `${limitVal}ms/move`}.`;
 
-      // Initialise chess clock if time-control mode was selected.
+      // Initialise clock:
+      //   - useClock = true  → count-DOWN chess clock with preset
+      //   - useClock = false + untimed-increment on → count-UP clock
+      //                                              tracking time per
+      //                                              move with increment
+      //   - useClock = false + no increment → count-UP clock just
+      //                                       showing time used
       if (limitMode === 'clock') {
         let minutes = 5, inc = 3;
         const preset = document.getElementById('practice-clock-preset')?.value;
@@ -2632,11 +2776,14 @@ async function main() {
           const m = preset.match(/^(\d+)\+(\d+)$/);
           if (m) { minutes = +m[1]; inc = +m[2]; }
         }
-        startClock(minutes, inc);
+        startClock(minutes, inc, 'down');
       } else {
-        stopClock();
-        const clockCard = document.getElementById('practice-clock');
-        if (clockCard) clockCard.hidden = true;
+        // Untimed — count UP to show time used. Increment optional.
+        const useUntimedInc = document.getElementById('practice-untimed-increment-on')?.checked;
+        const incSec = useUntimedInc
+          ? (+document.getElementById('practice-untimed-increment')?.value || 0)
+          : 0;
+        startClock(0, incSec, 'up');
       }
 
       // Kick the loop — if it's engine's turn first, it plays immediately

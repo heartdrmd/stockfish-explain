@@ -1955,6 +1955,141 @@ body.practice-mode .practice-card { display: block; }
   opacity: 0.7;
 }
 
+/* ─── Clock style switcher ─── */
+.clock-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.clock-style-switcher {
+  display: flex;
+  gap: 3px;
+}
+.clock-style-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-zebra);
+  color: var(--c-font-dim);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s;
+}
+.clock-style-btn:hover {
+  background: var(--c-bg-zebra2);
+  color: var(--c-font);
+}
+.clock-style-btn.active {
+  background: rgba(122,167,255,0.2);
+  border-color: var(--c-accent, #7aa7ff);
+  color: var(--c-font-clear);
+  box-shadow: 0 0 0 1px rgba(122,167,255,0.3);
+}
+
+/* ─── Theme variants ─── */
+/* Default = digital-dark (original styles above). */
+
+/* digital-light — reverse colour scheme, paper-white face */
+.clock-display[data-style="digital-light"] .clock-side {
+  background:
+    linear-gradient(135deg, rgba(250,250,252,0.98), rgba(230,230,234,0.98)),
+    radial-gradient(circle at top left, rgba(0,0,0,0.04), transparent 60%);
+  border-color: rgba(0,0,0,0.15);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.9),
+    0 2px 8px rgba(0,0,0,0.15);
+}
+.clock-display[data-style="digital-light"] .clock-time {
+  color: #1c1c20;
+  text-shadow: none;
+}
+.clock-display[data-style="digital-light"] .clock-label { color: rgba(0,0,0,0.55); }
+.clock-display[data-style="digital-light"] .clock-side.active .clock-label { color: rgba(0,0,0,0.85); }
+.clock-display[data-style="digital-light"] .clock-side#clock-white .clock-piece { color: #444; }
+.clock-display[data-style="digital-light"] .clock-side#clock-black .clock-piece { color: #111; }
+.clock-display[data-style="digital-light"] .clock-piece {
+  background: linear-gradient(135deg, rgba(0,0,0,0.04), rgba(0,0,0,0.02));
+  border-color: rgba(0,0,0,0.15);
+}
+
+/* digital-led — tactical-clock style, red 7-segment-ish glow on black */
+.clock-display[data-style="digital-led"] .clock-side {
+  background: linear-gradient(135deg, #050508, #0a0a10);
+  border-color: rgba(255, 60, 30, 0.25);
+  box-shadow:
+    inset 0 0 14px rgba(255, 60, 30, 0.15),
+    0 2px 12px rgba(0,0,0,0.6);
+}
+.clock-display[data-style="digital-led"] .clock-time {
+  color: #ff4422;
+  font-family: 'Courier New', monospace;
+  text-shadow:
+    0 0 2px #ff4422,
+    0 0 6px rgba(255, 68, 34, 0.8),
+    0 0 18px rgba(255, 68, 34, 0.35);
+  letter-spacing: 0.04em;
+}
+.clock-display[data-style="digital-led"] .clock-label {
+  color: rgba(255, 68, 34, 0.6);
+  letter-spacing: 0.18em;
+}
+.clock-display[data-style="digital-led"] .clock-side.active {
+  border-color: rgba(255, 120, 60, 0.9);
+  box-shadow:
+    inset 0 0 20px rgba(255, 120, 60, 0.25),
+    0 0 16px rgba(255, 120, 60, 0.4);
+}
+.clock-display[data-style="digital-led"] .clock-side.active .clock-time {
+  text-shadow:
+    0 0 3px #ffaa22,
+    0 0 10px #ffaa22,
+    0 0 24px rgba(255, 170, 34, 0.5);
+  color: #ffaa22;
+}
+.clock-display[data-style="digital-led"] .clock-side.critical-time .clock-time {
+  color: #ff2020;
+  text-shadow: 0 0 3px #ff2020, 0 0 14px #ff2020, 0 0 28px rgba(255,32,32,0.6);
+}
+.clock-display[data-style="digital-led"] .clock-piece {
+  background: #1a0a08;
+  border-color: rgba(255, 60, 30, 0.3);
+  color: rgba(255, 170, 90, 0.7);
+}
+
+/* ─── Analog Garde clock ─── */
+.clock-analog {
+  padding: 8px;
+  background:
+    linear-gradient(135deg, #3a2f22, #1f1812);
+  border-radius: 10px;
+  border: 2px solid #1a1310;
+  box-shadow:
+    inset 0 2px 8px rgba(0,0,0,0.6),
+    0 2px 10px rgba(0,0,0,0.4);
+  position: relative;
+}
+.clock-analog::after {
+  /* brass plate rivets */
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle 2px at 8px 8px, rgba(255,220,160,0.5), transparent 2.5px),
+    radial-gradient(circle 2px at calc(100% - 8px) 8px, rgba(255,220,160,0.5), transparent 2.5px),
+    radial-gradient(circle 2px at 8px calc(100% - 8px), rgba(255,220,160,0.5), transparent 2.5px),
+    radial-gradient(circle 2px at calc(100% - 8px) calc(100% - 8px), rgba(255,220,160,0.5), transparent 2.5px);
+}
+.clock-analog-svg {
+  display: block;
+  width: 100%;
+  height: 120px;
+}
+
 /* ─── Eval timeline (#1) ─── */
 .eval-timeline {
   background: var(--c-bg);
