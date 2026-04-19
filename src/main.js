@@ -18,6 +18,7 @@ import * as CoachV2                from './coach_v2.js';
 import * as Tablebase              from './tablebase.js';
 import * as OpeningExplorer        from './opening_explorer.js';
 import { renderOpeningBlock, renderOpeningForAI, detectOpening } from './openings_book.js';
+import { LICHESS_OPENINGS } from './openings_lichess.js';
 import * as Archive from './game_archive.js';
 import                                './validation_harness.js';
 
