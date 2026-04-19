@@ -877,6 +877,25 @@ async function main() {
       if (chessNow.isGameOver()) {
         ui.narrationText.innerHTML = gameOverMessage(chessNow);
         engine.stop();
+        // If this game-over happened during a practice game, flip us
+        // into analysis mode so the user can review with the engine's
+        // eval visible and save the PGN. Only fires once (guarded by
+        // the practice-finished class).
+        if (practiceColor && !document.body.classList.contains('practice-finished')) {
+          let resultTag = '*';
+          let narrative = 'Game over';
+          if (chessNow.isCheckmate()) {
+            // The player to move is checkmated — loser is their colour.
+            const loser = chessNow.turn(); // 'w' or 'b'
+            resultTag  = loser === 'w' ? '0-1' : '1-0';
+            narrative  = loser === 'w' ? 'Black wins by checkmate' : 'White wins by checkmate';
+          } else if (chessNow.isStalemate()) {
+            resultTag = '1/2-1/2'; narrative = 'Draw by stalemate';
+          } else if (chessNow.isDraw()) {
+            resultTag = '1/2-1/2'; narrative = 'Draw (50-move / threefold / insufficient material)';
+          }
+          finishPracticeGame(resultTag, narrative);
+        }
       } else {
         engine.stop();
         if (!paused && !locked) {
@@ -954,6 +973,12 @@ async function main() {
   });
   board.addEventListener('new-game', () => {
     if (window.__threatMode) window.__exitThreatMode({ silent: true });
+    // Exiting any active / finished practice game when a fresh board
+    // starts. The practice card hides via CSS once the class is gone.
+    practiceColor = null;
+    document.body.classList.remove('practice-mode', 'practice-thinking', 'practice-finished');
+    const pActions = document.getElementById('practice-actions');
+    if (pActions) pActions.hidden = true;
     renderMoveList(); fireAnalysis();
   });
   board.addEventListener('undo',     () => {
@@ -1355,6 +1380,18 @@ async function main() {
       board.playerColor = color;
       practiceSearchToken++;   // invalidate any in-flight bestmove listener
       document.body.classList.add('practice-mode');
+      document.body.classList.remove('practice-finished');
+      // Reveal the in-progress practice-actions card and reset the
+      // post-game panel in case a previous game had flipped to
+      // finished state.
+      const pActions = document.getElementById('practice-actions');
+      if (pActions) pActions.hidden = false;
+      const pLive = document.getElementById('practice-live');
+      const pOver = document.getElementById('practice-over');
+      if (pLive) pLive.hidden = false;
+      if (pOver) pOver.hidden = true;
+      const drawRespEl = document.getElementById('practice-draw-response');
+      if (drawRespEl) drawRespEl.textContent = '';
       console.log('[practice] started', { color, skill, limitMode, limitVal });
 
       // Configure engine
@@ -1380,6 +1417,130 @@ async function main() {
       fireAnalysis();
     });
   }
+
+  // ────────── Practice game-end helpers ──────────
+  // finishPracticeGame centralises the transition from "in-progress"
+  // to "analysis mode". Called by natural game-over (in fireAnalysis),
+  // by Resign, and by accepted Offer-Draw. Safe to call multiple times;
+  // the practice-finished class is the idempotent guard.
+  function finishPracticeGame(resultTag, narrative) {
+    if (document.body.classList.contains('practice-finished')) return;
+    document.body.classList.add('practice-finished');
+    document.body.classList.remove('practice-thinking');
+    engine.stop();
+    practiceResultTag = resultTag;
+    practiceResultText = narrative;
+    // Swap the card UI into post-game state
+    const pLive = document.getElementById('practice-live');
+    const pOver = document.getElementById('practice-over');
+    if (pLive) pLive.hidden = true;
+    if (pOver) pOver.hidden = false;
+    const banner = document.getElementById('practice-result-banner');
+    if (banner) banner.textContent = `Result: ${resultTag} — ${narrative}`;
+    ui.narrationText.innerHTML =
+      `🏁 <strong>Game over: ${resultTag}</strong> — ${narrative}. ` +
+      `Engine eval is now visible on every position. Use the arrows / move list to review.`;
+    // Kick fireAnalysis so the engine starts evaluating the current
+    // position for post-game review (even if we were on the user's
+    // turn, we now want the engine running freely).
+    fireAnalysis();
+  }
+
+  let practiceResultTag = null;
+  let practiceResultText = null;
+
+  // Resign button — user concedes. Result is flipped: user's colour loses.
+  const btnResign = document.getElementById('btn-resign');
+  if (btnResign) btnResign.addEventListener('click', () => {
+    if (!practiceColor) return;
+    if (!confirm('Resign this game?')) return;
+    const userLoses = practiceColor; // 'white' or 'black'
+    const resultTag = userLoses === 'white' ? '0-1' : '1-0';
+    const narrative = `You resigned. ${userLoses === 'white' ? 'Black' : 'White'} wins.`;
+    finishPracticeGame(resultTag, narrative);
+  });
+
+  // Offer-Draw button — the engine "decides" based on the current eval.
+  // Engine accepts when |eval from its side| is < 50 cp (near equal) or
+  // when it's losing. Declines when it's clearly winning (why would it
+  // accept?). We use the engine's most recent top evaluation; if none
+  // is available yet we default to accept so the user isn't stuck.
+  const btnDraw = document.getElementById('btn-offer-draw');
+  if (btnDraw) btnDraw.addEventListener('click', async () => {
+    if (!practiceColor) return;
+    const drawResp = document.getElementById('practice-draw-response');
+    btnDraw.disabled = true;
+    if (drawResp) drawResp.textContent = '⏳ Engine is deciding…';
+    try {
+      // Probe the engine on the current position at a modest depth so
+      // we have a concrete eval to judge against. This respects the
+      // engine-mute flag for the duration of the probe, same as askAI.
+      const fen = board.isAtLive() ? board.fen() : rebuildFenAtPly(board.chess, board.viewPly);
+      const wasEngineMuted = window.__engineMuted === true;
+      window.__engineMuted = false;
+      engine.stop();
+      let evalCpWhite = 0;
+      try {
+        const probe = await AICoach.probeEngine(engine, fen, 14, 1);
+        if (probe.lines.length) {
+          const stm = fen.split(' ')[1] || 'w';
+          const raw = probe.lines[0];
+          const cpStm = raw.scoreKind === 'mate'
+            ? (raw.score > 0 ? 10000 : -10000)
+            : raw.score;
+          evalCpWhite = stm === 'w' ? cpStm : -cpStm;
+        }
+      } finally {
+        window.__engineMuted = wasEngineMuted;
+      }
+      // Engine's perspective: positive means engine is winning.
+      const engineColour = practiceColor === 'white' ? 'b' : 'w';
+      const evalCpEngine = engineColour === 'w' ? evalCpWhite : -evalCpWhite;
+      // Accept when engine is not clearly winning. Threshold 80cp =
+      // about a pawn and a half of committed advantage — below that
+      // a draw is reasonable.
+      const engineAccepts = evalCpEngine < 80;
+      if (engineAccepts) {
+        if (drawResp) drawResp.textContent = '✅ Engine accepted. Draw agreed.';
+        finishPracticeGame('1/2-1/2', 'Draw agreed');
+      } else {
+        if (drawResp) drawResp.textContent = `❌ Engine declined (its eval ≈ ${(evalCpEngine/100).toFixed(2)} pawns in its favour). Play on.`;
+      }
+    } catch (err) {
+      console.warn('[practice] draw-offer probe failed', err);
+      if (drawResp) drawResp.textContent = `Engine couldn't decide — try again.`;
+    } finally {
+      btnDraw.disabled = false;
+    }
+  });
+
+  // Save PGN — download the current game with the recorded result
+  // tag. Reuses the existing tree.pgn() machinery.
+  const btnPracticeSave = document.getElementById('btn-practice-save');
+  if (btnPracticeSave) btnPracticeSave.addEventListener('click', () => {
+    const tags = {
+      Event: 'Practice vs Stockfish',
+      Site:  'stockfish-explain',
+      Date:  new Date().toISOString().slice(0, 10).replace(/-/g, '.'),
+      White: practiceColor === 'white' ? 'Human' : `Stockfish (skill ${ui.rangeSkill.value || '?'})`,
+      Black: practiceColor === 'black' ? 'Human' : `Stockfish (skill ${ui.rangeSkill.value || '?'})`,
+      Result: practiceResultTag || '*',
+    };
+    try {
+      const pgn = board.tree.pgn({ tags });
+      const filename = `practice-${tags.Date.replace(/\./g, '')}-${practiceColor}-vs-stockfish.pgn`;
+      downloadBlob(pgn, filename, 'application/x-chess-pgn');
+    } catch (err) {
+      alert('Could not generate PGN: ' + err.message);
+    }
+  });
+
+  // "New game" from the post-game card — re-opens the practice modal.
+  const btnPracticeAgain = document.getElementById('btn-practice-again');
+  if (btnPracticeAgain) btnPracticeAgain.addEventListener('click', () => {
+    const practiceBtn = document.getElementById('btn-practice');
+    if (practiceBtn) practiceBtn.click();
+  });
 
   // ────────── Tournament (engine vs engine) ──────────
   // The main analysis engine MUST be paused while a tournament runs —

@@ -180,6 +180,32 @@
           <p class="confidence-reason muted">The engine hasn't thought yet.</p>
         </div>
       </div>
+
+      <!-- Practice game-flow controls — hidden unless a practice game is
+           active. Splits into TWO states: in-progress (Resign / Offer
+           Draw) and finished (result banner + Save PGN + instruction to
+           use nav arrows to review with full engine eval visible). -->
+      <div class="side-card practice-card" id="practice-actions" hidden>
+        <h3>Practice game</h3>
+        <div class="practice-live" id="practice-live">
+          <p class="muted" style="font-size:12px;margin:0 0 8px;">Game in progress.</p>
+          <div class="practice-btn-row">
+            <button id="btn-resign"      class="practice-btn resign-btn" title="Concede the game">🏳 Resign</button>
+            <button id="btn-offer-draw"  class="practice-btn draw-btn"   title="Offer a draw — engine decides based on the current evaluation">🤝 Offer Draw</button>
+          </div>
+          <p class="practice-hint muted" id="practice-draw-response" style="font-size:11px;margin:8px 0 0;min-height:14px;"></p>
+        </div>
+        <div class="practice-over" id="practice-over" hidden>
+          <p class="practice-result" id="practice-result-banner">Result: —</p>
+          <p class="muted" style="font-size:11px;margin:4px 0 8px;">
+            Analysis unlocked — use ⏮ ◀ ▶ ⏭ and the move list to step through. Engine evaluation is now visible on every position.
+          </p>
+          <div class="practice-btn-row">
+            <button id="btn-practice-save"  class="practice-btn save-btn" title="Download this game as PGN">💾 Save PGN</button>
+            <button id="btn-practice-again" class="practice-btn again-btn" title="Start a new practice game">🔁 New game</button>
+          </div>
+        </div>
+      </div>
     </aside>
 
     <section class="board-area">

@@ -1775,17 +1775,56 @@ select.coach-model-input:focus { outline: none; border-color: var(--c-primary); 
 }
 
 /* ─── Practice mode — hide engine analysis so user doesn't see hints ── */
-body.practice-mode .pv-lines,
-body.practice-mode #pv-lines,
-body.practice-mode .pearl,
-body.practice-mode .meta-big,
-body.practice-mode .meta-nps,
-body.practice-mode .ceval-bar {
+/* During an in-progress practice game the engine's views are hidden so
+   the user can't cheat. Once the game ends (body.practice-finished is
+   added on mate / stalemate / resign / draw) the hide rules lift and
+   full engine eval returns for post-game analysis. */
+body.practice-mode:not(.practice-finished) .pv-lines,
+body.practice-mode:not(.practice-finished) #pv-lines,
+body.practice-mode:not(.practice-finished) .pearl,
+body.practice-mode:not(.practice-finished) .meta-big,
+body.practice-mode:not(.practice-finished) .meta-nps,
+body.practice-mode:not(.practice-finished) .ceval-bar {
   visibility: hidden;
 }
 /* Preserve panel height so the layout doesn't jump when hiding */
-body.practice-mode .pv-lines,
-body.practice-mode #pv-lines { min-height: 60px; }
+body.practice-mode:not(.practice-finished) .pv-lines,
+body.practice-mode:not(.practice-finished) #pv-lines { min-height: 60px; }
+
+/* ─── Practice game-flow card (sidebar) ─── */
+.practice-card { display: none; }
+body.practice-mode .practice-card { display: block; }
+.practice-btn-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.practice-btn {
+  flex: 1 1 calc(50% - 3px);
+  min-width: 80px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  color: var(--c-font);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.practice-btn:hover { background: var(--c-bg-zebra2); }
+.practice-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.practice-btn.resign-btn:hover { background: rgba(220,53,69,0.15); border-color: #dc3545; }
+.practice-btn.draw-btn:hover   { background: rgba(255,193,7,0.15);  border-color: #ffc107; }
+.practice-btn.save-btn:hover   { background: rgba(82,196,26,0.15);  border-color: #52c41a; }
+.practice-btn.again-btn:hover  { background: rgba(122,167,255,0.15); border-color: var(--c-accent, #7aa7ff); }
+.practice-result {
+  margin: 0 0 6px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--c-font-clear);
+}
+.practice-hint { font-style: italic; }
 
 /* Thinking indicator — only shown while engine is actually computing */
 body.practice-mode .ceval::after {
