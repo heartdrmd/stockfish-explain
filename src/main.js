@@ -33,7 +33,33 @@ function captureLog(level, args) {
     const stamp = new Date().toISOString();
     const msg = args.map(a => {
       if (typeof a === 'string') return a;
-      try { return JSON.stringify(a); } catch { return String(a); }
+      // Error objects don't JSON-stringify usefully (message/stack
+      // are non-enumerable). Serialise them manually so the log
+      // actually tells us what went wrong.
+      if (a instanceof Error) {
+        return `Error: ${a.message}${a.stack ? '\n' + a.stack.split('\n').slice(0, 5).join('\n') : ''}`;
+      }
+      if (a && typeof a === 'object') {
+        try {
+          const seen = new WeakSet();
+          const json = JSON.stringify(a, (k, v) => {
+            if (v && typeof v === 'object') {
+              if (seen.has(v)) return '[circular]';
+              seen.add(v);
+            }
+            if (v instanceof Error) return `Error: ${v.message}`;
+            return v;
+          });
+          // If it stringified to "{}", fall back to key listing (more
+          // informative than empty braces).
+          if (json === '{}') {
+            const keys = Object.getOwnPropertyNames(a);
+            if (keys.length) return `{${keys.map(k => `${k}: ${String(a[k]).slice(0, 80)}`).join(', ')}}`;
+          }
+          return json;
+        } catch { return String(a); }
+      }
+      return String(a);
     }).join(' ');
     LOG_BUFFER.push(`[${stamp}] ${level.padEnd(5)} ${msg}`);
     if (LOG_BUFFER.length > LOG_MAX) LOG_BUFFER.splice(0, LOG_BUFFER.length - LOG_MAX);
@@ -68,6 +94,20 @@ function buildLogFile() {
   ].join('\n');
   return header + LOG_BUFFER.join('\n') + '\n';
 }
+
+// ─── User-action trace ─────────────────────────────────────────
+// Tag every click on a header button with a log line so when the user
+// downloads the log we can see exactly what they clicked last before
+// things broke. Negligible overhead (only fires on actual clicks).
+document.addEventListener('click', (ev) => {
+  try {
+    const btn = ev.target.closest('button[id], [data-action]');
+    if (!btn) return;
+    const id = btn.id || btn.dataset.action || '?';
+    const label = (btn.textContent || '').trim().slice(0, 40).replace(/\s+/g, ' ');
+    console.log(`[click] #${id} "${label}"`);
+  } catch {}
+}, true);
 
 // ─── EMERGENCY EARLY-WIRE ──────────────────────────────────────
 // Attach the most critical buttons IMMEDIATELY so they work even if
@@ -139,12 +179,21 @@ function showFatalBanner(err) {
       padding: 10px 14px; background: #5c1a1a; color: #ffe8e8;
       font-family: system-ui, sans-serif; font-size: 12px;
       border-bottom: 2px solid #dc3545; box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+      max-height: 50vh; overflow-y: auto;
     `;
+    const msg = (err?.message || err || 'unknown').toString().slice(0, 300);
+    // First 6 stack frames — usually enough to pin the file:line that
+    // threw, which is the info we most need for remote debugging.
+    const stack = (err?.stack || '').toString().split('\n').slice(0, 6).join('\n');
     banner.innerHTML = `
-      <strong>⚠ Initialisation error — the app may be partially broken.</strong><br>
-      <span style="font-family: var(--font-mono, monospace); font-size:11px;">${(err?.message || err || 'unknown').toString().slice(0, 300)}</span><br>
-      <span style="font-size:11px;">Please click <strong>📄 Log</strong> in the header and send the file. The Practice modal, Log download, and Engine controls should still work — others may not.</span>`;
+      <strong>⚠ Initialisation error — the app may be partially broken.</strong>
+      <span style="float:right;cursor:pointer;font-size:14px;padding:0 6px;" id="fatal-banner-close">×</span><br>
+      <span style="font-family: var(--font-mono, monospace); font-size:11px;">${msg.replace(/[<>]/g, '')}</span>
+      ${stack ? `<pre style="margin:6px 0 0;padding:6px;background:rgba(0,0,0,0.3);border-radius:3px;font-size:10px;line-height:1.3;overflow-x:auto;white-space:pre-wrap;">${stack.replace(/[<>]/g, '')}</pre>` : ''}
+      <span style="font-size:11px;">Click <strong>📄 Log</strong> and send the file — the full trace will be there. The Practice modal, Log download, and Engine controls still work.</span>`;
     (document.body || document.documentElement).prepend(banner);
+    const closeBtn = document.getElementById('fatal-banner-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => banner.remove());
   } catch {}
 }
 
@@ -746,12 +795,13 @@ async function main() {
   // ────────── Engine control <-> UI ──────────
 
   // Hardware concurrency — set max on thread slider. Default: 75% of
-  // available cores rounded up, capped at N-1 (matches engine.js
-  // default so UI and engine agree out of the box). User can slide up
-  // to maxThreads or down for more browser headroom.
+  // available cores rounded up, capped at N-1 AND at 32 (Stockfish
+  // WASM thread-pool ceiling; beyond that the worker crashes without
+  // a useful error).
   const maxThreads = Math.max(1, navigator.hardwareConcurrency || 4);
-  ui.rangeThreads.max = String(maxThreads);
-  const defaultThreads = Math.max(1, Math.min(maxThreads - 1, Math.ceil(maxThreads * 0.75)));
+  const WASM_THREAD_CAP = 32;
+  ui.rangeThreads.max = String(Math.min(maxThreads, WASM_THREAD_CAP));
+  const defaultThreads = Math.max(1, Math.min(maxThreads - 1, Math.ceil(maxThreads * 0.75), WASM_THREAD_CAP));
   ui.rangeThreads.value = String(defaultThreads);
   ui.threadsVal.textContent = ui.rangeThreads.value;
   ui.threadsHw.textContent = `(${maxThreads} cores detected · default: ${defaultThreads})`;

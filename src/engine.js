@@ -152,12 +152,15 @@ export class Engine extends EventTarget {
 
     this.flavor = flavor;
     this.scriptPath = spec.js;
-    // Default: 75% of available cores, rounded up, capped at N-1 so one
-    // core stays free for the browser UI / OS. Shared with main.js —
-    // keep the two formulas in sync (main.js pickDefaultThreads()).
+    // Default: 75% of available cores, capped at N-1 AND at 32.
+    // Stockfish WASM pthread pools are typically compiled with a
+    // 32-thread ceiling — requesting more crashes the worker without
+    // a useful error. Beyond ~24 threads scaling plateaus anyway.
+    // User can crank the UI slider up to whatever they want later.
     const hw = navigator.hardwareConcurrency || 4;
+    const WASM_THREAD_CAP = 32;
     this.threads = spec.threaded
-      ? Math.max(1, Math.min(hw - 1, Math.ceil(hw * 0.75)))
+      ? Math.max(1, Math.min(hw - 1, Math.ceil(hw * 0.75), WASM_THREAD_CAP))
       : 1;
 
     try {
