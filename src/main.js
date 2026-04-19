@@ -871,6 +871,108 @@ async function main() {
     scheduleTimelineRender();
   });
 
+  // ─── Opponent-style persona move selector (#18) ─────────────────
+  // Given the engine's MultiPV top candidates, score each by how well
+  // it matches the chosen persona's taste, then pick the best match.
+  // When |score(#1) - score(pickedByStyle)| is small the personas feel
+  // distinctive without making the engine visibly weaker.
+  function pickMoveByStyle(topMoves, style, chessNow, fallbackUci) {
+    if (!topMoves || topMoves.length <= 1 || style === 'default') return fallbackUci;
+    // Reject candidates that are dramatically worse than #1 (≥80 cp)
+    // so style never turns into blunder-therapy.
+    const best = topMoves[0];
+    if (!best || best.scoreKind == null) return fallbackUci;
+    const bestScore = best.scoreKind === 'cp' ? best.score : (best.score > 0 ? 10000 : -10000);
+    const candidates = topMoves.filter(t => {
+      if (t === best) return true;
+      if (t.scoreKind == null || !t.pv || !t.pv.length) return false;
+      const s = t.scoreKind === 'cp' ? t.score : (t.score > 0 ? 10000 : -10000);
+      return bestScore - s <= 80; // within ~0.8 pawn of #1
+    });
+    if (candidates.length === 1) return fallbackUci;
+    const scored = candidates.map(c => ({
+      move: c,
+      score: scoreCandidateForStyle(c, style, chessNow),
+    }));
+    scored.sort((a, b) => b.score - a.score + (Math.random() - 0.5) * 0.001);
+    const winnerUci = scored[0].move.pv ? scored[0].move.pv[0] : fallbackUci;
+    return winnerUci || fallbackUci;
+  }
+  // Return a style-bias score. Higher = better fit for this persona.
+  // Uses cheap features: move metadata (chess.js Move object), target
+  // square, whether it's a capture / check / promotion / centre move.
+  function scoreCandidateForStyle(candidate, style, chessNowBefore) {
+    const uci = candidate.pv && candidate.pv[0];
+    if (!uci) return -Infinity;
+    let moveObj = null;
+    try {
+      const probe = new Chess(chessNowBefore.fen());
+      moveObj = probe.move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci.length > 4 ? uci[4] : undefined,
+      });
+    } catch {}
+    if (!moveObj) return -Infinity;
+    const flags = moveObj.flags || '';
+    const isCapture  = flags.includes('c') || flags.includes('e');
+    const isCheck    = moveObj.san?.includes('+');
+    const isMate     = moveObj.san?.includes('#');
+    const isPromo    = flags.includes('p');
+    const isCastle   = flags.includes('k') || flags.includes('q');
+    const toFile     = moveObj.to.charCodeAt(0) - 97;
+    const toRank     = parseInt(moveObj.to[1], 10) - 1;
+    const centreDist = Math.max(Math.abs(toFile - 3.5), Math.abs(toRank - 3.5));
+    const piece      = moveObj.piece;
+    const isPawn     = piece === 'p';
+    const isQueen    = piece === 'q';
+    // Per-style weights.
+    switch (style) {
+      case 'karpov':
+        // Slow and solid. Prefers quiet developing moves, avoids
+        // sacrifices and unnecessary captures.
+        return (!isCapture ? 1 : -0.5)
+             + (isCastle ? 1.5 : 0)
+             + (isCheck && !isMate ? -0.3 : 0)
+             + (centreDist < 2 ? 0.4 : 0)
+             + (isPawn && toRank < 4 && toRank > 2 ? 0.3 : 0);
+      case 'tal':
+        // Sacrificial, loves captures and checks especially to enemy
+        // king zone. Penalises dull pawn moves.
+        return (isCapture ? 1.5 : 0)
+             + (isCheck ? 2 : 0)
+             + (isMate ? 10 : 0)
+             + (isPawn && !isCapture ? -0.5 : 0)
+             + (piece === 'n' || piece === 'b' ? 0.3 : 0);
+      case 'aronian':
+        // Sharp tactical, likes forcing moves but more balanced than
+        // Tal — rewards pins, forks, central pressure.
+        return (isCapture ? 0.7 : 0)
+             + (isCheck ? 0.8 : 0)
+             + (isMate ? 10 : 0)
+             + (centreDist < 2 ? 0.4 : 0)
+             + (piece === 'n' || piece === 'b' ? 0.2 : 0);
+      case 'capablanca':
+        // Endgame-minded. Rewards trades, avoids complications, likes
+        // piece coordination.
+        return (isCapture ? 1.2 : 0)
+             + (isCastle ? 1 : 0)
+             + (isCheck && !isMate ? -0.4 : 0)
+             + (isPromo ? 1.5 : 0)
+             + (isQueen && !isCapture ? -0.3 : 0);
+      case 'kasparov':
+        // Aggressive centre + attack. Rewards central pushes, piece
+        // activity, castling early, tactical shots.
+        return (isCapture ? 0.8 : 0)
+             + (isCheck ? 1.2 : 0)
+             + (isMate ? 10 : 0)
+             + (centreDist < 2 ? 1 : 0)
+             + (isCastle ? 0.6 : 0);
+      default:
+        return 0;
+    }
+  }
+
   // ─── Per-ply eval capture (feeds the game archive) ────────────────
   // Whenever Stockfish reports info at the live FEN, cache the latest
   // (deepest) cp/mate evaluation keyed by that FEN. At game-end we
@@ -1605,8 +1707,14 @@ async function main() {
                 }
                 document.body.classList.remove('practice-thinking');
                 if (ev.detail.best && ev.detail.best !== '(none)') {
-                  console.log('[practice] engine plays', ev.detail.best);
-                  board.playEngineMove(ev.detail.best);
+                  // Style-bias: pick from the engine's top candidates
+                  // using a persona weighting function. Falls back to
+                  // the engine's #1 when style is default or only one
+                  // candidate is available.
+                  const style = window.__practiceStyle || 'default';
+                  const pickedUci = pickMoveByStyle(ev.detail.topMoves, style, chessNow, ev.detail.best);
+                  console.log('[practice] engine plays', pickedUci, '(style:', style, ')');
+                  board.playEngineMove(pickedUci);
                 } else {
                   console.log('[practice] engine returned (none) — probably game over');
                   ui.narrationText.innerHTML = 'Engine has no legal moves — game over.';
@@ -2075,6 +2183,10 @@ async function main() {
       if (last.skill)     { pStren.value = String(last.skill); pStrenV.textContent = String(last.skill); }
       if (last.limitMode) pMode.value    = last.limitMode;
       if (last.limitVal)  pVal.value     = String(last.limitVal);
+      if (last.style) {
+        const styleSel = document.getElementById('practice-style');
+        if (styleSel) styleSel.value = last.style;
+      }
     };
     // Update the replay button label so the user sees what they'll replay.
     const pReplayBtn  = document.getElementById('practice-replay');
@@ -2154,13 +2266,17 @@ async function main() {
       const skill = +pStren.value;
       const limitMode = pMode.value;
       const limitVal  = +pVal.value;
+      const style     = document.getElementById('practice-style')?.value || 'default';
 
       // Remember these settings so we can replay / pre-fill next time.
       saveLastSettings({
         openingValue: pSel.value,
         openingName:  op.name,
-        color, skill, limitMode, limitVal,
+        color, skill, limitMode, limitVal, style,
       });
+      // Expose the chosen style globally so the bestmove handler in
+      // fireAnalysis can bias selection.
+      window.__practiceStyle = style;
       refreshReplayButton();
 
       if (useCurrent) {

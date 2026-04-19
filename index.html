@@ -496,6 +496,18 @@
           <small class="muted">0 ≈ beginner · 10 ≈ club · 15 ≈ strong · 20 = full</small>
         </div>
         <div class="setting">
+          <label for="practice-style">Opponent style</label>
+          <select id="practice-style" class="tourn-select">
+            <option value="default"   selected>🎯 Balanced (engine picks #1)</option>
+            <option value="karpov">     ♜ Karpov — slow positional, avoids risk</option>
+            <option value="tal">        ♞ Tal — sacrificial, prefers imbalance</option>
+            <option value="aronian">    ♝ Aronian — sharp, tactical</option>
+            <option value="capablanca">♕ Capablanca — endgame-minded, simplifies</option>
+            <option value="kasparov">   ♔ Kasparov — aggressive centre, attacking</option>
+          </select>
+          <small class="muted">Style biases the engine toward a specific type of move from its top candidates. Skill still controls raw strength.</small>
+        </div>
+        <div class="setting">
           <label for="practice-limit">Engine think time / move</label>
           <div class="row-compact">
             <select id="practice-limit-mode">
