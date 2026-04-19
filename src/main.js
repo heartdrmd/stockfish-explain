@@ -904,7 +904,11 @@ async function main() {
           // analysis leaks to the user. The `practice-thinking` class
           // on <body> drives the CSS that hides PV lines + score and
           // shows the "engine thinking…" indicator.
-          if (practiceColor && board.isAtLive()) {
+          // NOTE: once practice-finished is set (resign / accepted draw /
+          // natural game over) the engine switches to free-analysis
+          // mode — no auto-moves regardless of whose "turn" it would be.
+          const practiceOver = document.body.classList.contains('practice-finished');
+          if (practiceColor && board.isAtLive() && !practiceOver) {
             const playerChar = practiceColor[0];
             const engineTurn = chessNow.turn() !== playerChar;
             if (engineTurn) {
@@ -919,6 +923,13 @@ async function main() {
                 engine.removeEventListener('bestmove', onBest);
                 if (myToken !== practiceSearchToken) {
                   console.log('[practice] stale bestmove ignored', { myToken, current: practiceSearchToken });
+                  return;
+                }
+                // Extra guard: if the game ended (resign / draw) between
+                // go and bestmove, do not play the move even if the
+                // token somehow still matches.
+                if (document.body.classList.contains('practice-finished')) {
+                  console.log('[practice] bestmove ignored — game over');
                   return;
                 }
                 document.body.classList.remove('practice-thinking');
@@ -1427,7 +1438,12 @@ async function main() {
     if (document.body.classList.contains('practice-finished')) return;
     document.body.classList.add('practice-finished');
     document.body.classList.remove('practice-thinking');
+    // Stop any in-flight engine search AND invalidate its token so if
+    // a bestmove fires after `stop` (as Stockfish does — it emits the
+    // best move found so far) the listener bails rather than playing
+    // a move onto a game that just ended.
     engine.stop();
+    practiceSearchToken++;
     practiceResultTag = resultTag;
     practiceResultText = narrative;
     // Swap the card UI into post-game state
