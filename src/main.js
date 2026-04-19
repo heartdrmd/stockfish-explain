@@ -736,7 +736,15 @@ async function main() {
     ui.engineMode.classList.remove('threaded');
     ui.narrationText.textContent = `Loading ${ENGINE_FLAVORS[flavor].label} (${ENGINE_FLAVORS[flavor].size})…`;
     try {
-      const info = await engine.boot({ flavor });
+      // Race boot against a 60 s timeout so users see an error instead
+      // of an infinite "booting…" when something upstream (stuck SW,
+      // corrupt cached WASM, CDN stall) wedges engine.boot().
+      const info = await Promise.race([
+        engine.boot({ flavor }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Engine boot timed out after 60 s')), 60_000)
+        ),
+      ]);
       engineReady = true;
       currentFlavor = info.flavor;
       ui.selectFlavor.value = info.flavor;
@@ -754,7 +762,24 @@ async function main() {
     } catch (err) {
       console.error('[engine] boot failed', err);
       ui.engineMode.textContent = 'engine failed';
-      ui.narrationText.textContent = String(err.message || err);
+      const msg = String(err.message || err);
+      // Auto-recovery on timeout: most common cause is a stuck legacy
+      // Service Worker intercepting WASM. Unregister anything lingering
+      // + clear sf-engines-* caches + show a recover CTA in narration.
+      const isTimeout = /timed out/i.test(msg);
+      if (isTimeout) {
+        try {
+          const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+          await Promise.all(regs.map(r => r.unregister()));
+          const keys = await caches.keys();
+          await Promise.all(keys.filter(k => k.startsWith('sf-engines-')).map(k => caches.delete(k)));
+        } catch {}
+        ui.narrationText.innerHTML =
+          `⚠ Engine boot timed out. I've cleared any stuck service worker + cache — ` +
+          `<button class="btn" onclick="location.reload()" style="margin-left:6px;">Reload now</button>`;
+      } else {
+        ui.narrationText.textContent = msg;
+      }
     }
   }
 

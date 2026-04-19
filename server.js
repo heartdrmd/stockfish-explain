@@ -100,6 +100,13 @@ app.use((req, res, next) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   }
   if (req.path.endsWith('.wasm')) res.setHeader('Content-Type', 'application/wasm');
+  // sw.js MUST never be browser-cached — otherwise bug-fix SW deploys
+  // won't reach users until their browser decides to revalidate. This
+  // is the canonical no-cache setup for service workers.
+  if (req.path === '/sw.js') {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Service-Worker-Allowed', '/');
+  }
   next();
 });
 
