@@ -2015,7 +2015,7 @@ async function main() {
                 <div style="font-weight:600;font-size:13px;">Move ${Math.ceil(m.ply/2)}${m.ply%2===1?'.':'...'} ${escHtml(m.san)}
                   <span class="muted" style="font-weight:400;font-size:11px;">· ${sty.pillText} · eval ${fmtCp(m.cpBefore)} → ${fmtCp(m.cpAfter)} (−${(m.swing/100).toFixed(2)})</span>
                 </div>
-                <div class="muted" style="font-size:11px;">${m.date} · ${escHtml(m.opening?.name || 'unknown opening')} · ${m.byUser === true ? 'your move' : m.byUser === false ? 'opponent\\'s move' : ''}</div>
+                <div class="muted" style="font-size:11px;">${m.date} · ${escHtml(m.opening?.name || 'unknown opening')} · ${m.byUser === true ? 'your move' : m.byUser === false ? 'opponent move' : ''}</div>
               </div>
               <button class="mb-load btn" title="Load this position — try to find the better move" style="font-size:11px;padding:4px 8px;">Review</button>
             </div>`;
