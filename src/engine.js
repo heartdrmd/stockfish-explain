@@ -195,8 +195,19 @@ export class Engine extends EventTarget {
     const timeoutPromise = new Promise((_r, rej) => {
       setTimeout(() => { timedOut = true; rej(new Error(`UCI handshake timed out after ${bootTimeoutMs/1000}s — variant may be broken`)); }, bootTimeoutMs);
     });
+    // Reject boot IMMEDIATELY on a worker-level crash (WASM unreachable,
+    // bad bytes, etc.) instead of waiting out the full timeout. Lets
+    // main.js's auto-fallback kick in within milliseconds.
+    const crashPromise = new Promise((_r, rej) => {
+      const prev = this.worker.onerror;
+      this.worker.onerror = (e) => {
+        if (typeof prev === 'function') prev(e);
+        const msg = (e && (e.message || e.error?.message)) || 'Stockfish worker crashed';
+        rej(new Error(`Engine '${flavor}' crashed: ${msg}`));
+      };
+    });
     try {
-      await Promise.race([waitPromise, timeoutPromise]);
+      await Promise.race([waitPromise, timeoutPromise, crashPromise]);
     } finally {
       this.worker.removeEventListener('message', idCapture);
     }

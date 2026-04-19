@@ -72,7 +72,15 @@ for (const lvl of ['log', 'info', 'warn', 'error']) {
 // Also catch uncaught errors and unhandled promise rejections
 window.addEventListener('error', (e) => {
   captureLog('error', [`uncaught: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`]);
-  // Show the visible banner so the user knows something broke.
+  // Silence the scary banner for Stockfish-worker crashes — bootEngine
+  // already has its own recovery UI (auto-fallback to the default
+  // flavor + retry). Showing BOTH the banner and the recovery UI just
+  // confuses users. The worker error still reaches the engine via its
+  // own onerror handler.
+  const filename = String(e.filename || '');
+  const isStockfishWorker = /\/assets\/stockfish\//.test(filename) ||
+                            /unreachable/.test(String(e.message || ''));
+  if (isStockfishWorker) return;
   try { if (typeof showFatalBanner === 'function') showFatalBanner(new Error(`${e.message} @ ${e.filename}:${e.lineno}`)); } catch {}
 });
 window.addEventListener('unhandledrejection', (e) => {
