@@ -1358,6 +1358,104 @@ async function main() {
   board.addEventListener('new-game', scheduleKingSafetyRender);
   board.addEventListener('nav',      scheduleKingSafetyRender);
   setTimeout(renderKingSafetyTimeline, 300);
+
+  // ─── Piece-activity heat map (#7) ────────────────────────────
+  // Walk the mainline; at each ply count how many enemy squares each
+  // piece of a given colour could move to, tagging targets. Aggregate
+  // into two 8×8 grids (W attacks, B attacks). Colour intensity scales
+  // with attack frequency — squares that get repeatedly covered glow.
+  // Per-FEN attacker lookup is cached.
+  const heatAttackerCache = new Map();
+  function attackedSquaresFor(fen, side) {
+    const key = fen + '|' + side;
+    if (heatAttackerCache.has(key)) return heatAttackerCache.get(key);
+    let squares = [];
+    try {
+      const c = new Chess(fen);
+      // chess.js only lists moves for side-to-move. Flip the FEN if
+      // needed.
+      if (c.turn() !== side) {
+        const fp = fen.split(' ');
+        fp[1] = side; fp[3] = '-'; fp[5] = '1';
+        try { c.load(fp.join(' ')); } catch { return []; }
+      }
+      const moves = c.moves({ verbose: true });
+      squares = moves
+        .filter(m => m.piece !== 'p' || m.flags.includes('c')) // include pawn captures but not quiet pawn pushes
+        .map(m => m.to);
+    } catch {}
+    if (heatAttackerCache.size > 300) {
+      heatAttackerCache.delete(heatAttackerCache.keys().next().value);
+    }
+    heatAttackerCache.set(key, squares);
+    return squares;
+  }
+
+  function renderHeatMap() {
+    const root = document.getElementById('heat-map');
+    const wGrid = document.getElementById('heat-map-w');
+    const bGrid = document.getElementById('heat-map-b');
+    const stats = document.getElementById('heat-map-stats');
+    if (!root || !wGrid || !bGrid) return;
+    const plies = collectTimelinePlies();
+    if (plies.length < 6) { root.hidden = true; return; }
+    root.hidden = false;
+
+    // 64-square count arrays indexed by a1..h8 (rank 1 first as row 7).
+    const wCount = new Array(64).fill(0);
+    const bCount = new Array(64).fill(0);
+    const idxOf = (sq) => {
+      const file = sq.charCodeAt(0) - 97;
+      const rank = parseInt(sq[1], 10) - 1;
+      return rank * 8 + file;
+    };
+    for (const p of plies) {
+      for (const sq of attackedSquaresFor(p.fen, 'w')) wCount[idxOf(sq)]++;
+      for (const sq of attackedSquaresFor(p.fen, 'b')) bCount[idxOf(sq)]++;
+    }
+    const maxW = Math.max(1, ...wCount);
+    const maxB = Math.max(1, ...bCount);
+    const paint = (count, max, color) => {
+      // Intensity 0..1, power-curved so mid values pop.
+      const t = Math.pow(count / max, 0.6);
+      const alpha = 0.12 + 0.7 * t;
+      // color is 'r,g,b' string
+      return count > 0 ? `background:rgba(${color},${alpha.toFixed(3)});color:${count >= max*0.6 ? 'white' : 'rgba(255,255,255,0.6)'};` : 'background:rgba(30,30,30,0.3);';
+    };
+    const render = (counts, max, color) => {
+      // Render top rank first (so visually matches a board).
+      const rows = [];
+      for (let r = 7; r >= 0; r--) {
+        for (let f = 0; f < 8; f++) {
+          const n = counts[r * 8 + f];
+          const style = paint(n, max, color);
+          const sq = String.fromCharCode(97 + f) + (r + 1);
+          rows.push(`<div style="${style}" title="${sq}: ${n} covering moves">${n || ''}</div>`);
+        }
+      }
+      return rows.join('');
+    };
+    wGrid.innerHTML = render(wCount, maxW, '240,240,240');
+    bGrid.innerHTML = render(bCount, maxB, '70,70,70');
+    // Identify the single hottest square for each colour (excluding the
+    // trivial starting-square outliers).
+    let hotW = -1, hotWSq = '';
+    let hotB = -1, hotBSq = '';
+    for (let i = 0; i < 64; i++) {
+      if (wCount[i] > hotW) { hotW = wCount[i]; hotWSq = String.fromCharCode(97 + (i & 7)) + (1 + (i >> 3)); }
+      if (bCount[i] > hotB) { hotB = bCount[i]; hotBSq = String.fromCharCode(97 + (i & 7)) + (1 + (i >> 3)); }
+    }
+    stats.textContent = `${plies.length - 1} plies aggregated · hottest W square ${hotWSq} (${hotW}) · hottest B square ${hotBSq} (${hotB})`;
+  }
+  let heatMapTimer = 0;
+  function scheduleHeatMapRender() {
+    if (heatMapTimer) return;
+    heatMapTimer = setTimeout(() => { heatMapTimer = 0; renderHeatMap(); }, 220);
+  }
+  board.addEventListener('move',     scheduleHeatMapRender);
+  board.addEventListener('new-game', scheduleHeatMapRender);
+  board.addEventListener('nav',      scheduleHeatMapRender);
+  setTimeout(renderHeatMap, 350);
   // Initial render in case a draft was restored.
   setTimeout(scheduleTimelineRender, 200);
 

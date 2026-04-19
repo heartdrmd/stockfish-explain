@@ -379,6 +379,27 @@
         <div id="pawn-strip-row" class="pawn-strip-row"></div>
       </div>
 
+      <!-- Piece-activity heat map (#7) — two mini 8×8 grids (W/B)
+           showing how often each square was attacked by pieces of that
+           colour across the whole game. Hidden until the game is
+           substantive. -->
+      <div id="heat-map" class="pawn-strip" hidden>
+        <div class="pawn-strip-header">
+          <span class="pawn-strip-title">🔥 Piece activity heat map</span>
+          <span class="pawn-strip-stats" id="heat-map-stats"></span>
+        </div>
+        <div style="display:flex;gap:16px;justify-content:center;padding:6px 0;">
+          <div style="text-align:center;">
+            <div id="heat-map-w" class="heat-grid"></div>
+            <div class="pawn-label" style="margin-top:4px;">White control</div>
+          </div>
+          <div style="text-align:center;">
+            <div id="heat-map-b" class="heat-grid"></div>
+            <div class="pawn-label" style="margin-top:4px;">Black control</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Move list + nav -->
       <div class="move-list-wrap">
         <div class="move-list-header">

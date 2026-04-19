@@ -1971,6 +1971,26 @@ body.practice-mode .practice-card { display: block; }
   white-space: nowrap;
 }
 
+/* ─── Piece-activity heat grid (#7) ─── */
+.heat-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 18px);
+  grid-template-rows: repeat(8, 18px);
+  gap: 1px;
+  background: rgba(80,80,80,0.4);
+  border-radius: 3px;
+  padding: 1px;
+}
+.heat-grid > div {
+  background: rgba(30,30,30,0.3);
+  font-size: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.5);
+  font-family: var(--font-mono);
+}
+
 /* Thinking indicator — only shown while engine is actually computing */
 body.practice-mode .ceval::after {
   content: '';
