@@ -14,16 +14,51 @@
   <link rel="stylesheet" href="styles/layout.css">
   <link rel="stylesheet" href="styles/panels.css">
 
-  <!-- Preload the default-lite engine WASM + JS so the browser starts
-       fetching them immediately, in parallel with parsing the rest of
-       the page. Brings first-load engine-ready time from ~5 s to ~1-2 s
-       on typical broadband. The `crossorigin` attr is required because
-       the files are later fetched from a cross-origin-isolated worker;
-       without it the browser would double-fetch.
-       Only the default lite variant is preloaded — other variants fetch
-       on demand when the user switches. -->
-  <link rel="preload" href="assets/stockfish/stockfish-18-lite.js"   as="fetch" crossorigin>
-  <link rel="preload" href="assets/stockfish/stockfish-18-lite.wasm" as="fetch" crossorigin type="application/wasm">
+  <!-- Preload the engine the user will actually boot — the inline
+       script runs synchronously BEFORE the HTML parser moves on to the
+       body, so the fetches start before anything else loads.
+       Reads the persisted flavor (localStorage) or falls back to lite.
+       fetchpriority=high nudges Chrome to prioritise these above
+       later script/css. crossorigin is required because the same
+       files are later fetched from a cross-origin-isolated worker;
+       without it the browser double-fetches. -->
+  <script>
+    (function preloadEngine() {
+      try {
+        var flavor = localStorage.getItem('stockfish-explain.engine-flavor') || 'lite';
+        // If a previously-saved flavor crashed boot, bootEngine will
+        // reset it to the default on next load; we still preload what
+        // it would actually try first.
+        var base = 'assets/stockfish/stockfish-';
+        var map = {
+          'lite':               '18-lite',
+          'lite-single':        '18-lite-single',
+          'full':               '18',
+          'stock-single':       'stock-single',
+          'kaufman':            'kaufman',             'kaufman-single':        'kaufman-single',         'kaufman-lite-single':        'kaufman-lite-single',
+          'classical':          'classical',           'classical-single':      'classical-single',       'classical-lite-single':      'classical-lite-single',
+          'alphazero':          'alphazero',           'alphazero-single':      'alphazero-single',       'alphazero-lite-single':      'alphazero-lite-single',
+          'avrukh':             'avrukh',              'avrukh-single':         'avrukh-single',          'avrukh-lite-single':         'avrukh-lite-single',
+          'avrukhplus':         'avrukhplus',          'avrukhplus-single':     'avrukhplus-single',      'avrukhplus-lite':            'avrukhplus-lite',   'avrukhplus-lite-single': 'avrukhplus-lite-single'
+        };
+        var name = map[flavor] || '18-lite';
+        var jsHref   = base + name + '.js';
+        var wasmHref = base + name + '.wasm';
+        function add(href, type) {
+          var link = document.createElement('link');
+          link.rel = 'preload';
+          link.as = 'fetch';
+          link.href = href;
+          link.crossOrigin = 'anonymous';
+          if (type) link.type = type;
+          link.setAttribute('fetchpriority', 'high');
+          document.head.appendChild(link);
+        }
+        add(jsHref);
+        add(wasmHref, 'application/wasm');
+      } catch (e) { /* localStorage blocked? just skip preload */ }
+    })();
+  </script>
 </head>
 <body>
   <header class="site-header">
@@ -197,19 +232,12 @@
           <p class="confidence-reason muted">The engine hasn't thought yet.</p>
         </div>
       </div>
-      <div class="side-card">
-        <h3>Save position</h3>
-        <button id="btn-save-as-opening" class="practice-btn save-btn" style="width:100%;">💾 Save as practice opening</button>
-        <p class="muted" style="font-size:11px;margin:6px 0 0;">Capture the current line as a named variation. It'll appear in the practice opening list next time.</p>
-      </div>
 
-      <!-- Practice game-flow controls — hidden unless a practice game is
-           active. Splits into TWO states: in-progress (Resign / Offer
-           Draw) and finished (result banner + Save PGN + instruction to
-           use nav arrows to review with full engine eval visible). -->
-      <!-- Chess clock (#19) — visible only when practice has a clock
-           time control. Shows both sides' remaining time, lights up
-           red when low on time, and triggers timeout loss at 0. -->
+      <!-- Chess clock — positioned BETWEEN Confidence and Save position so
+           it's high up in the column and immediately visible during a
+           practice game. Visible only when practice has a clock time
+           control; shows both sides' remaining time, lights up red when
+           low, and triggers timeout loss at 0. -->
       <div class="side-card practice-card" id="practice-clock" hidden>
         <div class="clock-header">
           <h3 style="margin:0;">⏱ Clock</h3>
@@ -250,6 +278,12 @@
         </div>
 
         <p class="clock-format-line" id="clock-format">—</p>
+      </div>
+
+      <div class="side-card">
+        <h3>Save position</h3>
+        <button id="btn-save-as-opening" class="practice-btn save-btn" style="width:100%;">💾 Save as practice opening</button>
+        <p class="muted" style="font-size:11px;margin:6px 0 0;">Capture the current line as a named variation. It'll appear in the practice opening list next time.</p>
       </div>
 
       <div class="side-card practice-card" id="practice-actions" hidden>
