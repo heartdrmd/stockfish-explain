@@ -2437,66 +2437,209 @@ async function main() {
         : 'Star this opening as a favourite for the side selected in "Play as".';
     };
 
-    const populateOpeningSelect = (filter = '') => {
-      const f = (filter || '').trim().toLowerCase();
-      const favsOnly = pFavsOnly && pFavsOnly.checked;
-      const favs = loadFavs();
-      pSel.innerHTML = '';
-      let shown = 0, total = 0;
-      const allGroups = mergedOpenings();
+    const pTree = document.getElementById('practice-opening-tree');
 
-      // "⭐ Favourites" pseudo-group at the top (when user has any).
-      const favEntries = [];
-      for (const group of allGroups) {
-        group.items.forEach((o, i) => {
-          const key = `${group.group}//${i}`;
-          if (favs[key]) favEntries.push({ key, o, group: group.group });
+    // Build a tree from the flat opening list using the Lichess
+    // naming convention "Family Name: Subfamily, Variation" (also
+    // works for our curated entries that follow the same pattern).
+    // Example tree depth:
+    //   Sicilian Defense
+    //     Najdorf Variation
+    //       English Attack
+    //       Polugaevsky Variation
+    //     Dragon Variation
+    //       Yugoslav Attack, 9.Bc4
+    //       Yugoslav Attack, 9.Bc4 Soltis
+    //
+    // We parse each name by splitting on ": " for family/subfamily
+    // separation, then ", " for sibling sub-variations.
+    const parseNameToPath = (name) => {
+      const colonSplit = name.split(/:\s*/);
+      const family = colonSplit[0] || name;
+      const tail = colonSplit.slice(1).join(': ');
+      const parts = [family];
+      if (tail) {
+        for (const piece of tail.split(/,\s*/)) parts.push(piece);
+      }
+      return parts.map(s => s.trim()).filter(Boolean);
+    };
+
+    // Collect all (key, opening, group, path) tuples from merged
+    // sources. Each entry keeps its original key so the hidden
+    // <select> and downstream code still work.
+    const collectAllEntries = () => {
+      const out = [];
+      for (const grp of mergedOpenings()) {
+        grp.items.forEach((o, i) => {
+          const key = `${grp.group}//${i}`;
+          out.push({ key, o, group: grp.group, path: parseNameToPath(o.name) });
         });
       }
-      if (favEntries.length) {
-        const og = document.createElement('optgroup');
-        og.label = '⭐ Favourites';
-        for (const { key, o } of favEntries) {
-          if (f && !o.name.toLowerCase().includes(f)) continue;
-          const opt = document.createElement('option');
-          opt.value = key;
-          opt.textContent = `★ ${o.name}${o._custom ? ' (custom)' : ''}`;
-          og.appendChild(opt);
-          shown++;
+      return out;
+    };
+
+    // Build a nested map from path → leaves. Each node has:
+    //   { children: Map<string, node>, leaves: [] }
+    const buildTree = (entries) => {
+      const root = { children: new Map(), leaves: [], count: 0 };
+      for (const entry of entries) {
+        let node = root;
+        node.count++;
+        for (let i = 0; i < entry.path.length - 1; i++) {
+          const seg = entry.path[i];
+          if (!node.children.has(seg)) node.children.set(seg, { children: new Map(), leaves: [], count: 0 });
+          node = node.children.get(seg);
+          node.count++;
         }
-        if (og.children.length) pSel.appendChild(og);
+        node.leaves.push(entry);
+      }
+      return root;
+    };
+
+    const renderTree = () => {
+      if (!pTree) return;
+      const f = (pSearch?.value || '').trim().toLowerCase();
+      const favsOnly = pFavsOnly && pFavsOnly.checked;
+      const favs = loadFavs();
+      const selected = pSel.value;
+
+      let entries = collectAllEntries();
+      const total = entries.length;
+      // Filter.
+      if (f) {
+        entries = entries.filter(e =>
+          e.o.name.toLowerCase().includes(f) ||
+          e.group.toLowerCase().includes(f) ||
+          (e.o.eco && e.o.eco.toLowerCase().includes(f))
+        );
+      }
+      if (favsOnly) {
+        entries = entries.filter(e => favs[e.key]);
       }
 
-      for (const group of allGroups) {
-        total += group.items.length;
-        if (favsOnly) continue; // favourites-only mode — skip the rest
-        const matches = group.items
-          .map((o, i) => ({ o, i, key: `${group.group}//${i}` }))
-          .filter(({ o, key }) =>
-            (!f || o.name.toLowerCase().includes(f) || group.group.toLowerCase().includes(f)));
-        if (!matches.length) continue;
-        const og = document.createElement('optgroup');
-        og.label = group.group;
-        for (const { o, i, key } of matches) {
-          const opt = document.createElement('option');
-          opt.value = key;
-          const star = favs[key] ? '★ ' : '';
-          opt.textContent = `${star}${o.name}${o._custom ? ' (custom)' : ''}`;
-          og.appendChild(opt);
-          shown++;
+      // Also mirror every entry into the hidden <select> so the form
+      // contract stays intact (pickedPracticeOpening and last-settings
+      // restore all read from pSel.value).
+      pSel.innerHTML = '';
+      for (const e of collectAllEntries()) {
+        const opt = document.createElement('option');
+        opt.value = e.key;
+        opt.textContent = e.o.name;
+        pSel.appendChild(opt);
+      }
+      if (selected) pSel.value = selected;
+
+      // Show favourites as a collapsible "⭐ Favourites" group at the top.
+      const container = document.createDocumentFragment();
+      const favEntries = collectAllEntries().filter(e => favs[e.key])
+        .filter(e => !f || e.o.name.toLowerCase().includes(f) ||
+                          e.group.toLowerCase().includes(f) ||
+                          (e.o.eco && e.o.eco.toLowerCase().includes(f)));
+      if (favEntries.length) {
+        const favDetails = document.createElement('details');
+        favDetails.open = true;
+        favDetails.innerHTML = `<summary>⭐ Favourites <span class="tree-family-count">${favEntries.length}</span></summary>`;
+        for (const e of favEntries) favDetails.appendChild(renderLeaf(e, favs, selected));
+        container.appendChild(favDetails);
+      }
+
+      if (favsOnly) {
+        if (!favEntries.length) {
+          const empty = document.createElement('div');
+          empty.className = 'tree-empty';
+          empty.textContent = 'No favourites yet — browse the tree and click a ☆ to star one.';
+          container.appendChild(empty);
         }
-        pSel.appendChild(og);
+        pTree.innerHTML = '';
+        pTree.appendChild(container);
+        if (pSearchCount) pSearchCount.textContent = `${favEntries.length} favourites`;
+        refreshToggleFavButton();
+        return;
       }
+
+      const tree = buildTree(entries);
+      // Auto-expand first level when filtering (user wants to see the
+      // matches); keep it collapsed by default otherwise.
+      const autoExpand = !!f;
+      // Top-level nodes sorted by count desc so big families are first.
+      const topNodes = Array.from(tree.children.entries())
+        .sort((a, b) => b[1].count - a[1].count);
+      for (const [name, node] of topNodes) {
+        container.appendChild(renderNode(name, node, favs, selected, autoExpand));
+      }
+
+      pTree.innerHTML = '';
+      pTree.appendChild(container);
+
       if (pSearchCount) {
-        pSearchCount.textContent = favsOnly
-          ? `${favEntries.length} favourites`
-          : (f ? `${shown} of ${total} matches` : `${total} openings`);
-      }
-      if (pSel.options.length && (!pSel.value || !pSel.querySelector(`option[value="${CSS.escape(pSel.value)}"]`))) {
-        pSel.selectedIndex = 0;
+        pSearchCount.textContent = f
+          ? `${entries.length} of ${total} match`
+          : `${total} openings · ${Object.keys(favs).length} starred`;
       }
       refreshToggleFavButton();
     };
+
+    const renderNode = (name, node, favs, selected, autoExpand) => {
+      const details = document.createElement('details');
+      if (autoExpand) details.open = true;
+      const summary = document.createElement('summary');
+      summary.innerHTML = `<span>${escapeHtml(name)}</span><span class="tree-family-count">${node.count}</span>`;
+      details.appendChild(summary);
+      // First render any direct leaves at this level.
+      for (const e of node.leaves) details.appendChild(renderLeaf(e, favs, selected));
+      // Then recurse into children.
+      const childNodes = Array.from(node.children.entries())
+        .sort((a, b) => b[1].count - a[1].count);
+      for (const [childName, childNode] of childNodes) {
+        details.appendChild(renderNode(childName, childNode, favs, selected, autoExpand));
+      }
+      return details;
+    };
+
+    const renderLeaf = (entry, favs, selected) => {
+      const leaf = document.createElement('div');
+      leaf.className = 'tree-leaf' + (entry.key === selected ? ' selected' : '');
+      leaf.dataset.key = entry.key;
+      const starred = !!favs[entry.key];
+      const badge = entry.o._source === 'lichess' ? '<span class="tree-lichess-badge">DB</span>' : '';
+      const custom = entry.o._custom ? '<span class="tree-lichess-badge">custom</span>' : '';
+      const leafName = entry.path[entry.path.length - 1] || entry.o.name;
+      leaf.innerHTML =
+        `<span class="tree-leaf-fav${starred ? ' starred' : ''}" data-fav="${entry.key}" title="${starred ? 'Unstar' : 'Star as favourite'}">${starred ? '★' : '☆'}</span>` +
+        `<span class="tree-leaf-name">${escapeHtml(leafName)}</span>` +
+        `<span class="tree-leaf-eco">${escapeHtml(entry.o.eco || '')}</span>` +
+        badge + custom;
+      return leaf;
+    };
+
+    // Click handlers on the tree.
+    if (pTree) {
+      pTree.addEventListener('click', (ev) => {
+        const favBtn = ev.target.closest('.tree-leaf-fav');
+        if (favBtn) {
+          const key = favBtn.dataset.fav;
+          const favs = loadFavs();
+          if (favs[key]) delete favs[key];
+          else favs[key] = pColor.value || 'white';
+          saveFavs(favs);
+          renderTree();
+          ev.stopPropagation();
+          return;
+        }
+        const leaf = ev.target.closest('.tree-leaf');
+        if (!leaf) return;
+        pSel.value = leaf.dataset.key;
+        updatePMoves();
+        refreshToggleFavButton();
+        // Mark selected visually.
+        pTree.querySelectorAll('.tree-leaf.selected').forEach(el => el.classList.remove('selected'));
+        leaf.classList.add('selected');
+      });
+    }
+
+    // Legacy adapter — keep the flat-select populator as a no-op so
+    // existing calls compile. Everything now flows through renderTree.
+    const populateOpeningSelect = () => { renderTree(); };
     populateOpeningSelect();
 
     if (pSearch) {

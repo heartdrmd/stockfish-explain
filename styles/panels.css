@@ -2059,6 +2059,100 @@ body.practice-mode .practice-card { display: block; }
   color: rgba(255, 170, 90, 0.7);
 }
 
+/* ─── Hierarchical opening tree (practice modal) ─── */
+.practice-opening-tree {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  background: var(--c-bg);
+  padding: 4px 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.practice-opening-tree summary {
+  cursor: pointer;
+  padding: 3px 0;
+  list-style: none;
+  user-select: none;
+  color: var(--c-font);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.practice-opening-tree summary::marker,
+.practice-opening-tree summary::-webkit-details-marker { display: none; }
+.practice-opening-tree summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 10px;
+  color: var(--c-font-dim);
+  transition: transform 0.15s;
+}
+.practice-opening-tree details[open] > summary::before { transform: rotate(90deg); }
+.practice-opening-tree details { margin-left: 0; }
+.practice-opening-tree details details { margin-left: 14px; }
+.practice-opening-tree .tree-family-eco {
+  font-family: var(--font-mono);
+  color: var(--c-font-dim);
+  font-size: 10px;
+  margin-left: 6px;
+  font-weight: 400;
+}
+.practice-opening-tree .tree-family-count {
+  margin-left: auto;
+  color: var(--c-font-dim);
+  font-size: 10px;
+  font-weight: 400;
+}
+.practice-opening-tree .tree-leaf {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 24px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.08s;
+}
+.practice-opening-tree .tree-leaf:hover { background: var(--c-bg-zebra2); }
+.practice-opening-tree .tree-leaf.selected {
+  background: rgba(122,167,255,0.2);
+  border-left: 2px solid var(--c-accent, #7aa7ff);
+}
+.practice-opening-tree .tree-leaf-name { flex: 1; }
+.practice-opening-tree .tree-leaf-eco {
+  font-family: var(--font-mono);
+  color: var(--c-font-dim);
+  font-size: 10px;
+}
+.practice-opening-tree .tree-leaf-fav {
+  cursor: pointer;
+  color: var(--c-font-dim);
+  opacity: 0.5;
+  padding: 0 4px;
+}
+.practice-opening-tree .tree-leaf-fav.starred {
+  color: #ffc107;
+  opacity: 1;
+}
+.practice-opening-tree .tree-leaf-fav:hover { opacity: 1; }
+.practice-opening-tree .tree-lichess-badge {
+  font-size: 9px;
+  color: #7aa7ff;
+  font-weight: 600;
+  background: rgba(122,167,255,0.12);
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.practice-opening-tree .tree-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--c-font-dim);
+  font-style: italic;
+}
+
 /* ─── Analog Garde clock ─── */
 .clock-analog {
   padding: 8px;

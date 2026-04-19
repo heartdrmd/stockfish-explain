@@ -487,16 +487,23 @@
         </div>
         <div class="setting" id="practice-opening-row" style="grid-column: 1 / -1;">
           <label for="practice-opening">Opening</label>
-          <input id="practice-opening-search" type="search" placeholder="🔎 Search openings… (try 'Najdorf', 'London', 'Maroczy')" autocomplete="off" spellcheck="false">
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+          <input id="practice-opening-search" type="search" placeholder="🔎 Search 3,950 openings… (Najdorf, London, Maroczy, Benoni Four Pawns, Ruy Open St Petersburg…)" autocomplete="off" spellcheck="false">
+          <div style="display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;">
             <small class="muted" id="practice-opening-search-count" style="font-size: 11px; flex:1;"></small>
             <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="practice-opening-favs-only"> ⭐ Favourites only</label>
-            <button type="button" id="practice-pick-random" class="btn" style="font-size:11px;padding:3px 8px;" title="Pick a random opening from your favourites (uses the side you starred it with)">🎲 Random favourite</button>
+            <button type="button" id="practice-pick-random" class="btn" style="font-size:11px;padding:3px 8px;" title="Pick a random opening from your favourites">🎲 Random favourite</button>
           </div>
-          <select id="practice-opening" class="tourn-select" size="8" style="min-height:180px;"></select>
+          <!-- Tree-view with collapsible parent families. Replaces the
+               flat <select> — the full 3,950-entry list is unreadable
+               as a dropdown. -->
+          <div id="practice-opening-tree" class="practice-opening-tree"></div>
+          <!-- Hidden native select keeps the form contract working and
+               stores the picked value in the same "Group//index" format
+               the rest of the app expects. -->
+          <select id="practice-opening" class="tourn-select" style="display:none;"></select>
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0;">
             <small class="muted" id="practice-opening-moves" style="font-family: var(--font-mono); font-size: 11px; flex:1;"></small>
-            <button type="button" id="practice-toggle-fav" class="btn" style="font-size:11px;padding:4px 10px;" title="Star this opening as a favourite (playing the colour below)">⭐ Star</button>
+            <button type="button" id="practice-toggle-fav" class="btn" style="font-size:11px;padding:4px 10px;" title="Star the currently selected opening">⭐ Star</button>
           </div>
         </div>
         <div class="setting">
