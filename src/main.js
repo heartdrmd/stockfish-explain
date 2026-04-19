@@ -779,12 +779,24 @@ async function main() {
       // Friendly label: variant name + thread count
       const spec = ENGINE_FLAVORS[info.flavor];
       const shortName = (spec?.label || info.flavor).split(/[·—(]/)[0].trim();
+      const netSuffix = info.activeNet === 'small' ? ' · smallnet' : '';
       ui.engineMode.textContent = info.threaded
-        ? `${shortName} · ${info.threads} thread${info.threads === 1 ? '' : 's'}`
-        : `${shortName} · 1 thread`;
+        ? `${shortName} · ${info.threads} thread${info.threads === 1 ? '' : 's'}${netSuffix}`
+        : `${shortName} · 1 thread${netSuffix}`;
       ui.engineMode.title = spec?.label || info.flavor;
       if (info.threaded) ui.engineMode.classList.add('threaded');
       ui.narrationText.textContent = 'Engine ready. Make a move — I\'ll explain what I see.';
+      // Hot-swap notification: when the bignet finishes loading in
+      // the background, update the engine-mode pill so the user sees
+      // that max strength is now active.
+      if (info.activeNet === 'small') {
+        const onSwap = (ev) => {
+          engine.removeEventListener('nnue-swapped', onSwap);
+          const txt = ui.engineMode.textContent.replace(' · smallnet', ' · bignet');
+          ui.engineMode.textContent = txt;
+        };
+        engine.addEventListener('nnue-swapped', onSwap);
+      }
       // Kick off an analysis on the current position
       fireAnalysis();
     } catch (err) {

@@ -6,7 +6,7 @@ services:
     region: ohio                # Closest to Central US (user's timezone).
     # Build: install node deps, pull the 108 MB full-NNUE WASMs from the
     # GitHub Release (they can't live in the repo — GitHub rejects >100 MB).
-    buildCommand: "npm install && bash scripts/fetch-full-wasms.sh"
+    buildCommand: "npm install && bash scripts/fetch-full-wasms.sh && bash scripts/fetch-lichess-stockfish.sh"
     startCommand: "node server.js"
     # Auto-deploy whenever main branch is pushed.
     autoDeploy: true

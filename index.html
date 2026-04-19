@@ -77,7 +77,10 @@
            drawer used to own; moved here for one-click access. -->
       <select id="select-flavor" class="header-flavor"
               title="Switch engine variant (Stockfish build + piece-value tweaks)">
-        <optgroup label="Stock Stockfish 17 (unmodified, recommended)">
+        <optgroup label="Recommended — fast boot + max strength via background NNUE swap">
+          <option value="sf-fast">★ Fast — smallnet boot (6 MB) → bignet (75 MB) hot-swap</option>
+        </optgroup>
+        <optgroup label="Stock Stockfish 17 (unmodified)">
           <option value="lite" selected>Stock · Lite · MT (7 MB)</option>
           <option value="lite-single">Stock · Lite · ST (7 MB)</option>
           <option value="full">Stock · Full NNUE · MT (108 MB)</option>

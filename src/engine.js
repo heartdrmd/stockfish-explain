@@ -6,6 +6,21 @@
 //   - full:      108 MB, full NNUE, multi-thread (strongest)
 
 export const ENGINE_FLAVORS = {
+  // ─── Fast-boot: lichess-org/stockfish-web + smallnet ───
+  // Boots with the 6 MB small NNUE (external file, not embedded),
+  // swaps to the 75 MB big NNUE in the background once it's cached.
+  // ~1-2 s cold boot vs 10-60 s for embedded 108 MB variants.
+  'sf-fast': {
+    js: 'assets/stockfish-web/sf_18.js',
+    label: '★ Fast — lichess stockfish-web (smallnet → bignet hot-swap)',
+    size: '6 MB (boot) + 75 MB (background)',
+    threaded: true,
+    externalNnue: {
+      small: 'assets/nnue/small.nnue',
+      big:   'assets/nnue/big.nnue',
+    },
+  },
+
   // ─── Stock (no source patches) ───
   'lite-single': {
     js: 'assets/stockfish/stockfish-18-lite-single.js',
@@ -227,13 +242,63 @@ export class Engine extends EventTarget {
     this._send('setoption name UCI_AnalyseMode value true'); // cleaner analysis output
     this._send('setoption name Use NNUE value true');        // belt-and-braces
     this._send(`setoption name Skill Level value ${this.skill}`);
+
+    // External-NNUE flavors (e.g. sf-fast using lichess stockfish-web):
+    // load the smallnet IMMEDIATELY so the engine is usable fast, then
+    // background-fetch the bignet and hot-swap via EvalFile setoption.
+    if (spec.externalNnue) {
+      this._send(`setoption name EvalFile value ${spec.externalNnue.small}`);
+      this.activeNet = 'small';
+      this._swapToBignetWhenReady(spec.externalNnue.big);
+    }
+
     this._send('isready');
     await this._waitFor('readyok');
     this.ready = true;
     this.dispatchEvent(new CustomEvent('ready', {
-      detail: { flavor, threaded: spec.threaded, threads: this.threads }
+      detail: { flavor, threaded: spec.threaded, threads: this.threads, activeNet: this.activeNet || null }
     }));
     return { flavor, threaded: spec.threaded, threads: this.threads };
+  }
+
+  /**
+   * Background-fetch the big NNUE and hot-swap via UCI setoption.
+   * Fire-and-forget — failure just means we keep using smallnet.
+   */
+  async _swapToBignetWhenReady(bigUrl) {
+    try {
+      // Prime the browser HTTP cache with a warm fetch so the engine's
+      // subsequent open of EvalFile completes instantly. The actual
+      // file load happens in the WASM worker when we post setoption.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort('timeout'), 5 * 60 * 1000);
+      const resp = await fetch(bigUrl, { signal: ctrl.signal, priority: 'low' });
+      clearTimeout(timer);
+      if (!resp.ok) return;
+      await resp.arrayBuffer().catch(() => {});
+      // Only swap if we haven't been terminated in the meantime and
+      // no search is in flight (switching EvalFile mid-search is a
+      // UCI spec violation).
+      if (!this.worker) return;
+      if (this.searching) {
+        // Defer until current search ends.
+        const onDone = () => {
+          this.removeEventListener('bestmove', onDone);
+          if (this.worker && !this.searching) this._actuallySwapToBig(bigUrl);
+        };
+        this.addEventListener('bestmove', onDone);
+        return;
+      }
+      this._actuallySwapToBig(bigUrl);
+    } catch {}
+  }
+
+  _actuallySwapToBig(bigUrl) {
+    this._send(`setoption name EvalFile value ${bigUrl}`);
+    this._send('isready');
+    this.activeNet = 'big';
+    this.dispatchEvent(new CustomEvent('nnue-swapped', { detail: { activeNet: 'big' } }));
+    console.log('[engine] hot-swapped to bignet');
   }
 
   /** Tear down the worker — for switching engine flavor. */
