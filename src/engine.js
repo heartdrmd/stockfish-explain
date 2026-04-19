@@ -170,6 +170,15 @@ export class Engine extends EventTarget {
       throw err;
     }
 
+    // Strict lifecycle flags (lichess pattern):
+    //   uciokReceived — gates _send(); anything before uciok is dropped
+    //   stopRequested — set by stop(); info lines from the old search
+    //                   are ignored until bestmove arrives to re-arm.
+    // Violating either of these is the documented cause of Stockfish
+    // WASM "RuntimeError: unreachable" (assertion failure).
+    this.uciokReceived = false;
+    this.stopRequested = false;
+
     this.worker.onmessage = (e) => this._handleLine(e.data);
     this.worker.onerror   = (e) => {
       console.error('Stockfish worker error:', e);
@@ -266,6 +275,12 @@ export class Engine extends EventTarget {
 
   _send(cmd) {
     if (!this.worker) return;
+    // Gate everything except 'uci' until we've received uciok. Pre-
+    // uciok commands like 'stop', 'setoption', 'position', 'go' are
+    // undefined behaviour per UCI spec and cause Stockfish WASM to
+    // trap with RuntimeError: unreachable. This mirrors lichess's
+    // pattern of keeping `send` undefined until connected().
+    if (!this.uciokReceived && cmd !== 'uci') return;
     this.worker.postMessage(cmd);
   }
 
@@ -315,6 +330,10 @@ export class Engine extends EventTarget {
 
   stop() {
     if (!this.worker) return;
+    // Set stopRequested BEFORE sending stop so any info line in the
+    // worker's outbound queue that arrives after we post stop is
+    // ignored. Cleared when bestmove arrives (in _handleLine).
+    if (this.searching) this.stopRequested = true;
     this._send('stop');
     this.searching = false;
   }
@@ -347,7 +366,15 @@ export class Engine extends EventTarget {
   _handleLine(line) {
     if (typeof line !== 'string') return;
 
+    // First, latch uciok as early as possible so subsequent _send()
+    // calls stop being blocked by the pre-uciok gate.
+    if (line.startsWith('uciok')) this.uciokReceived = true;
+
     if (line.startsWith('info')) {
+      // Drop info lines that arrive AFTER we've asked to stop. They
+      // belong to the old search; using them mutates state under a
+      // position the UI has moved on from.
+      if (this.stopRequested) return;
       const info = parseInfo(line);
       if (!info || info.pv == null) return;
 
@@ -377,6 +404,9 @@ export class Engine extends EventTarget {
     }
     else if (line.startsWith('bestmove')) {
       this.searching = false;
+      // bestmove always clears the stop guard — a new search is safe
+      // to start from this point.
+      this.stopRequested = false;
       const m = line.match(/^bestmove\s+(\S+)(?:\s+ponder\s+(\S+))?/);
       const detail = {
         best:     m ? m[1] : null,
