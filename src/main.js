@@ -2269,38 +2269,95 @@ async function main() {
 
     const pSearch      = document.getElementById('practice-opening-search');
     const pSearchCount = document.getElementById('practice-opening-search-count');
+    const pFavsOnly    = document.getElementById('practice-opening-favs-only');
+    const pToggleFav   = document.getElementById('practice-toggle-fav');
+    const pPickRandom  = document.getElementById('practice-pick-random');
+
+    // ─── Favourite openings store ──────────────────────────────────
+    // Keyed by "Group//index" (same format as pSel.value). Value is
+    // the side the user prefers to play when drilling this opening.
+    //   { "Sicilian//3": "black", "Italian Game//0": "white", ... }
+    const FAVS_KEY = 'stockfish-explain.practice-favourites';
+    const loadFavs = () => {
+      try { const v = JSON.parse(localStorage.getItem(FAVS_KEY) || '{}'); return typeof v === 'object' && v ? v : {}; }
+      catch { return {}; }
+    };
+    const saveFavs = (obj) => { try { localStorage.setItem(FAVS_KEY, JSON.stringify(obj)); } catch {} };
+    const isFav  = (key) => !!loadFavs()[key];
+    const favSide = (key) => loadFavs()[key] || null;
+
+    const refreshToggleFavButton = () => {
+      if (!pToggleFav) return;
+      const key = pSel.value;
+      const starred = isFav(key);
+      pToggleFav.textContent = starred ? '★ Starred' : '⭐ Star';
+      pToggleFav.style.background = starred
+        ? 'rgba(255,193,7,0.25)' : '';
+      pToggleFav.style.borderColor = starred ? '#ffc107' : '';
+      pToggleFav.title = starred
+        ? 'Unstar this opening. (Tip: star applies to the side currently selected in "Play as".)'
+        : 'Star this opening as a favourite for the side selected in "Play as".';
+    };
 
     const populateOpeningSelect = (filter = '') => {
       const f = (filter || '').trim().toLowerCase();
+      const favsOnly = pFavsOnly && pFavsOnly.checked;
+      const favs = loadFavs();
       pSel.innerHTML = '';
       let shown = 0, total = 0;
-      for (const group of mergedOpenings()) {
-        const matches = group.items
-          .map((o, i) => ({ o, i }))
-          .filter(({ o }) => !f || o.name.toLowerCase().includes(f) || group.group.toLowerCase().includes(f));
+      const allGroups = mergedOpenings();
+
+      // "⭐ Favourites" pseudo-group at the top (when user has any).
+      const favEntries = [];
+      for (const group of allGroups) {
+        group.items.forEach((o, i) => {
+          const key = `${group.group}//${i}`;
+          if (favs[key]) favEntries.push({ key, o, group: group.group });
+        });
+      }
+      if (favEntries.length) {
+        const og = document.createElement('optgroup');
+        og.label = '⭐ Favourites';
+        for (const { key, o } of favEntries) {
+          if (f && !o.name.toLowerCase().includes(f)) continue;
+          const opt = document.createElement('option');
+          opt.value = key;
+          opt.textContent = `★ ${o.name}${o._custom ? ' (custom)' : ''}`;
+          og.appendChild(opt);
+          shown++;
+        }
+        if (og.children.length) pSel.appendChild(og);
+      }
+
+      for (const group of allGroups) {
         total += group.items.length;
+        if (favsOnly) continue; // favourites-only mode — skip the rest
+        const matches = group.items
+          .map((o, i) => ({ o, i, key: `${group.group}//${i}` }))
+          .filter(({ o, key }) =>
+            (!f || o.name.toLowerCase().includes(f) || group.group.toLowerCase().includes(f)));
         if (!matches.length) continue;
         const og = document.createElement('optgroup');
         og.label = group.group;
-        for (const { o, i } of matches) {
+        for (const { o, i, key } of matches) {
           const opt = document.createElement('option');
-          opt.value = `${group.group}//${i}`;
-          opt.textContent = o._custom ? `${o.name} ★` : o.name;
+          opt.value = key;
+          const star = favs[key] ? '★ ' : '';
+          opt.textContent = `${star}${o.name}${o._custom ? ' (custom)' : ''}`;
           og.appendChild(opt);
           shown++;
         }
         pSel.appendChild(og);
       }
       if (pSearchCount) {
-        pSearchCount.textContent = f
-          ? `${shown} of ${total} matches`
-          : `${total} openings`;
+        pSearchCount.textContent = favsOnly
+          ? `${favEntries.length} favourites`
+          : (f ? `${shown} of ${total} matches` : `${total} openings`);
       }
-      // If the filter hid the currently-selected option, pick the first
-      // visible one.
       if (pSel.options.length && (!pSel.value || !pSel.querySelector(`option[value="${CSS.escape(pSel.value)}"]`))) {
         pSel.selectedIndex = 0;
       }
+      refreshToggleFavButton();
     };
     populateOpeningSelect();
 
@@ -2308,6 +2365,48 @@ async function main() {
       pSearch.addEventListener('input', () => {
         populateOpeningSelect(pSearch.value);
         updatePMoves();
+      });
+    }
+    if (pFavsOnly) {
+      pFavsOnly.addEventListener('change', () => {
+        populateOpeningSelect(pSearch ? pSearch.value : '');
+        updatePMoves();
+      });
+    }
+    if (pToggleFav) {
+      pToggleFav.addEventListener('click', () => {
+        const key = pSel.value;
+        if (!key) return;
+        const favs = loadFavs();
+        if (favs[key]) {
+          delete favs[key];
+        } else {
+          // Star with the currently selected colour so "pick-random"
+          // replays it with the right side.
+          favs[key] = pColor.value || 'white';
+        }
+        saveFavs(favs);
+        populateOpeningSelect(pSearch ? pSearch.value : '');
+      });
+    }
+    if (pPickRandom) {
+      pPickRandom.addEventListener('click', () => {
+        const favs = loadFavs();
+        const keys = Object.keys(favs);
+        if (!keys.length) {
+          alert('No starred openings yet. Click ⭐ Star on an opening first.');
+          return;
+        }
+        const pickedKey = keys[Math.floor(Math.random() * keys.length)];
+        // Ensure the option exists in the current list — clear search
+        // + favsOnly so everything is populated, then select.
+        if (pSearch) pSearch.value = '';
+        if (pFavsOnly) pFavsOnly.checked = false;
+        populateOpeningSelect('');
+        pSel.value = pickedKey;
+        pColor.value = favs[pickedKey] || 'white';
+        updatePMoves();
+        refreshToggleFavButton();
       });
     }
 
@@ -2322,7 +2421,7 @@ async function main() {
         ? op.moves.map((m, i) => (i % 2 === 0 ? `${Math.floor(i/2)+1}.${m}` : m)).join(' ')
         : '(start from move 1)';
     };
-    pSel.addEventListener('change', updatePMoves);
+    pSel.addEventListener('change', () => { updatePMoves(); refreshToggleFavButton(); });
     updatePMoves();
 
     // ─── Last-settings persistence + Replay button ────────────────
@@ -2346,7 +2445,13 @@ async function main() {
       }
       if (last.color)     pColor.value   = last.color;
       if (last.skill)     { pStren.value = String(last.skill); pStrenV.textContent = String(last.skill); }
-      if (last.limitMode) pMode.value    = last.limitMode;
+      if (last.limitMode === 'clock') {
+        if (pUseClock) pUseClock.checked = true;
+      } else if (last.limitMode) {
+        if (pUseClock) pUseClock.checked = false;
+        pMode.value = last.limitMode;
+      }
+      applyClockToggle();
       if (last.limitVal)  pVal.value     = String(last.limitVal);
       if (last.style) {
         const styleSel = document.getElementById('practice-style');
@@ -2368,9 +2473,18 @@ async function main() {
     pMode.addEventListener('change', () => {
       if (pMode.value === 'depth')    pVal.value = 14;
       if (pMode.value === 'movetime') pVal.value = 1500;
-      const clockRow = document.getElementById('practice-clock-row');
-      if (clockRow) clockRow.style.display = pMode.value === 'clock' ? 'block' : 'none';
     });
+    // ⏱ Use chess clock checkbox — master toggle for clock mode.
+    const pUseClock   = document.getElementById('practice-use-clock');
+    const pLimitRow   = document.getElementById('practice-limit-row');
+    const pClockRow   = document.getElementById('practice-clock-row');
+    const applyClockToggle = () => {
+      const on = pUseClock && pUseClock.checked;
+      if (pClockRow) pClockRow.style.display = on ? 'block' : 'none';
+      if (pLimitRow) pLimitRow.style.display = on ? 'none' : 'block';
+    };
+    if (pUseClock) pUseClock.addEventListener('change', applyClockToggle);
+    applyClockToggle();
     const pClockPreset = document.getElementById('practice-clock-preset');
     const pClockCustom = document.getElementById('practice-clock-custom');
     if (pClockPreset) pClockPreset.addEventListener('change', () => {
@@ -2436,7 +2550,8 @@ async function main() {
       const op = pickedPracticeOpening();
       const color = pColor.value;       // 'white' | 'black'
       const skill = +pStren.value;
-      const limitMode = pMode.value;
+      const useClock  = pUseClock && pUseClock.checked;
+      const limitMode = useClock ? 'clock' : pMode.value;
       const limitVal  = +pVal.value;
       const style     = document.getElementById('practice-style')?.value || 'default';
 

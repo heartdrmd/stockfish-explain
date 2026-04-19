@@ -196,15 +196,17 @@
         <h3>⏱ Clock</h3>
         <div class="clock-display">
           <div class="clock-side" id="clock-black">
+            <div class="clock-piece">♚</div>
             <span class="clock-label">Black</span>
             <span class="clock-time" id="clock-time-b">—</span>
           </div>
           <div class="clock-side" id="clock-white">
+            <div class="clock-piece">♔</div>
             <span class="clock-label">White</span>
             <span class="clock-time" id="clock-time-w">—</span>
           </div>
         </div>
-        <p class="muted" style="font-size:11px;margin:6px 0 0;" id="clock-format">—</p>
+        <p class="clock-format-line" id="clock-format">—</p>
       </div>
 
       <div class="side-card practice-card" id="practice-actions" hidden>
@@ -470,9 +472,16 @@
         <div class="setting" id="practice-opening-row" style="grid-column: 1 / -1;">
           <label for="practice-opening">Opening</label>
           <input id="practice-opening-search" type="search" placeholder="🔎 Search openings… (try 'Najdorf', 'London', 'Maroczy')" autocomplete="off" spellcheck="false">
-          <small class="muted" id="practice-opening-search-count" style="font-size: 11px;"></small>
+          <div style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+            <small class="muted" id="practice-opening-search-count" style="font-size: 11px; flex:1;"></small>
+            <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="practice-opening-favs-only"> ⭐ Favourites only</label>
+            <button type="button" id="practice-pick-random" class="btn" style="font-size:11px;padding:3px 8px;" title="Pick a random opening from your favourites (uses the side you starred it with)">🎲 Random favourite</button>
+          </div>
           <select id="practice-opening" class="tourn-select" size="8" style="min-height:180px;"></select>
-          <small class="muted" id="practice-opening-moves" style="font-family: var(--font-mono); font-size: 11px;"></small>
+          <div style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+            <small class="muted" id="practice-opening-moves" style="font-family: var(--font-mono); font-size: 11px; flex:1;"></small>
+            <button type="button" id="practice-toggle-fav" class="btn" style="font-size:11px;padding:4px 10px;" title="Star this opening as a favourite (playing the colour below)">⭐ Star</button>
+          </div>
         </div>
         <div class="setting">
           <label for="practice-color">Play as</label>
@@ -501,13 +510,19 @@
           </select>
           <small class="muted">Style biases the engine toward a specific type of move from its top candidates. Skill still controls raw strength.</small>
         </div>
-        <div class="setting">
+        <div class="setting" style="grid-column: 1 / -1;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+            <input type="checkbox" id="practice-use-clock">
+            ⏱ Use chess clock (timed game)
+          </label>
+          <small class="muted">Off = engine uses a fixed depth/time per move. On = both sides get a real chess clock (bullet/blitz/rapid presets).</small>
+        </div>
+        <div class="setting" id="practice-limit-row">
           <label for="practice-limit">Engine think time / move</label>
           <div class="row-compact">
             <select id="practice-limit-mode">
               <option value="depth" selected>By depth</option>
               <option value="movetime">By time (ms)</option>
-              <option value="clock">Time control (chess clock)</option>
             </select>
             <input id="practice-limit-value" type="number" min="1" value="14" class="limit-input">
           </div>
