@@ -782,6 +782,12 @@ async function main() {
     editor.open(board.fen());
   });
 
+  // Practice state must be declared BEFORE bootEngine awaits — once
+  // the engine boots it calls fireAnalysis() which references these.
+  // If declared later, fireAnalysis throws a TDZ ReferenceError.
+  let practiceColor       = null;
+  let practiceSearchToken = 0;
+
   await bootEngine(currentFlavor);
 
   // Explainer
@@ -970,12 +976,17 @@ async function main() {
   // Practice mode state:
   //   practiceColor: which color the user plays ('white' | 'black' | null = off)
   //   When set, engine auto-plays the opposite color as soon as it's their turn.
-  let practiceColor = null;
+  // Declared further up (just after collectUI) to avoid a TDZ error
+  // where fireAnalysis (called from bootEngine during init) runs
+  // BEFORE these `let` bindings are reached. See earlier declaration.
+  // Keeping the original line here would be a no-op re-declaration,
+  // which JS forbids with `let`, so just remove.
+  //   let practiceColor = null;  (moved)
   // Incremented whenever the user makes a move or practice ends —
   // bestmove listeners capture the token value at the time they were
   // registered and bail out if it's stale when they finally fire. Prevents
   // a slow engine search from playing an old bestmove onto a new position.
-  let practiceSearchToken = 0;
+  //   let practiceSearchToken = 0;  (moved above bootEngine)
 
   // Defer heavy work until AFTER chessground's slide animation
   // completes. The slide is 120 ms; we delay dissection by 160 ms so
@@ -2901,7 +2912,7 @@ async function main() {
       const queueSet = loadQueueSet();
       const badge = entry.o._source === 'lichess' ? '<span class="tree-lichess-badge">DB</span>' : '';
       const custom = entry.o._custom ? '<span class="tree-lichess-badge">custom</span>' : '';
-      const leafName = entry.path[entry.path.length - 1] || entry.o.name;
+      const leafName = entry.o.name;
       // Queue checkbox — only visible for starred entries. When
       // checked, this favourite is included in the random rotation
       // queue. Default = included (any fav auto-joins rotation).
