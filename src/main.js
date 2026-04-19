@@ -2934,6 +2934,150 @@ async function main() {
     }
   })();
 
+  // ────────── Animated GIF / WebM export (#28) ──────────
+  // Renders each ply of the mainline to an off-screen canvas, captures
+  // the stream via MediaRecorder, and downloads a .webm file. We use
+  // WebM rather than GIF because browsers can produce it natively with
+  // zero dependencies (GIF would require gif.js or similar library).
+  // The output plays in any modern browser, VLC, embed in slides etc.
+  (() => {
+    const btn = document.getElementById('btn-export-gif');
+    if (!btn) return;
+
+    const PIECE_CHAR = {
+      P: '♙', N: '♘', B: '♗', R: '♖', Q: '♕', K: '♔',
+      p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚',
+    };
+
+    const drawBoardFrame = (ctx, fen, cpWhite, ply, sanMove) => {
+      const W = ctx.canvas.width, H = ctx.canvas.height;
+      const BOARD = Math.min(W, H - 80);
+      const SQ = BOARD / 8;
+      const OX = (W - BOARD) / 2;
+      const OY = 10;
+
+      // Background
+      ctx.fillStyle = '#1e1e1e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Board squares
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          ctx.fillStyle = (r + c) % 2 === 0 ? '#e9e1cf' : '#8b7a5c';
+          ctx.fillRect(OX + c * SQ, OY + r * SQ, SQ, SQ);
+        }
+      }
+      // Pieces
+      const rows = (fen.split(' ')[0] || '').split('/');
+      ctx.font = `${SQ * 0.8}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let r = 0; r < 8; r++) {
+        let file = 0;
+        for (const ch of rows[r] || '') {
+          if (/\d/.test(ch)) { file += +ch; continue; }
+          ctx.fillStyle = ch === ch.toUpperCase() ? '#ffffff' : '#111111';
+          ctx.strokeStyle = ch === ch.toUpperCase() ? '#000000' : '#ffffff';
+          ctx.lineWidth = 1.5;
+          const x = OX + file * SQ + SQ / 2;
+          const y = OY + r * SQ + SQ / 2;
+          ctx.strokeText(PIECE_CHAR[ch] || ch, x, y);
+          ctx.fillText(PIECE_CHAR[ch] || ch, x, y);
+          file++;
+        }
+      }
+      // Eval bar along the bottom
+      const barY = OY + BOARD + 16;
+      const barH = 18;
+      const barW = BOARD;
+      const barX = OX;
+      // normalise cpWhite to [-1, +1]
+      const normal = cpWhite == null
+        ? 0
+        : 2 / (1 + Math.exp(-cpWhite / 400)) - 1;
+      const whiteW = Math.max(0, Math.min(1, (normal + 1) / 2)) * barW;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle = '#eee';
+      ctx.fillRect(barX, barY, whiteW, barH);
+      // Eval number
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#fff';
+      const evalStr = cpWhite == null
+        ? 'eval —'
+        : `eval ${cpWhite >= 0 ? '+' : ''}${(cpWhite / 100).toFixed(2)}`;
+      ctx.fillText(`Ply ${ply}${sanMove ? ' · ' + sanMove : ''}  ·  ${evalStr}`, barX + 4, barY + barH + 18);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+    };
+
+    const renderAndExport = async () => {
+      const plies = collectTimelinePlies();
+      if (plies.length < 2) { alert('Need at least one move to export.'); return; }
+
+      const W = 420, H = 500;
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      // Paint an initial frame so the stream has something before
+      // recording starts.
+      drawBoardFrame(ctx, plies[0].fen, plies[0].cpWhite, 0, 'start');
+
+      if (!canvas.captureStream || typeof MediaRecorder === 'undefined') {
+        alert('Your browser does not support canvas.captureStream + MediaRecorder. Try Chrome or Firefox.');
+        return;
+      }
+
+      const fps = 2;
+      const stream = canvas.captureStream(fps);
+      const mime = [
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+      ].find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+      const chunks = [];
+      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 1_500_000 });
+      rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      const done = new Promise(resolve => { rec.onstop = resolve; });
+
+      ui.narrationText.innerHTML = `🎞 <strong>Recording…</strong> ${plies.length} frames at ${fps} fps. Please don't switch tabs.`;
+
+      rec.start();
+      const frameDelay = 1000 / fps;
+      for (let i = 0; i < plies.length; i++) {
+        const p = plies[i];
+        drawBoardFrame(ctx, p.fen, p.cpWhite, p.ply, i === 0 ? 'start' : p.san);
+        await new Promise(r => setTimeout(r, frameDelay));
+      }
+      // Hold the final frame for an extra second.
+      await new Promise(r => setTimeout(r, 1000));
+      rec.stop();
+      stream.getTracks().forEach(t => t.stop());
+      await done;
+
+      const blob = new Blob(chunks, { type: mime });
+      const url  = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `game-${Date.now()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      ui.narrationText.innerHTML = `✅ Exported ${plies.length}-frame WebM video (${Math.round(blob.size / 1024)} KB). Plays in Chrome / Firefox / VLC / most slide apps. For a true GIF, drop the .webm into cloudconvert.com or ffmpeg.`;
+    };
+
+    btn.addEventListener('click', () => {
+      if (!confirm('Export the current game as a short animated video?\n\nThis will record ~' + (collectTimelinePlies().length * 0.5).toFixed(0) + ' seconds. Please don\'t switch tabs during recording.')) return;
+      renderAndExport().catch(err => {
+        console.error('[gif] export failed', err);
+        alert('Export failed: ' + err.message);
+      });
+    });
+  })();
+
   // ────────── Share position URL (#27) ──────────
   // Builds a URL of the form:
   //   https://.../#share=<base64url-json>
