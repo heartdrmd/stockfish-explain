@@ -198,6 +198,14 @@ function showFatalBanner(err) {
 }
 
 async function main() {
+  // Guards against any fireAnalysis() fired DURING main() initialization
+  // (e.g. the one bootEngine kicks off after its await resolves). If
+  // fireAnalysis runs before every `let` it references has been declared,
+  // it throws a TDZ ReferenceError that kills boot. With these flags,
+  // early calls are deferred until main() finishes; one flush at the end.
+  let mainInitDone        = false;
+  let pendingFireAnalysis = false;
+
   // Wire the API-key modal FIRST — before anything else that might fail.
   // If init later crashes, the 🔑 Key button still works.
   wireApiKeyModalEarly();
@@ -2145,6 +2153,11 @@ async function main() {
   }
 
   function fireAnalysis() {
+    // If main() hasn't finished declaring all its state yet, defer.
+    // Flushed once at the end of main(). Prevents TDZ crashes when
+    // bootEngine's post-await fireAnalysis() races the rest of main().
+    if (!mainInitDone) { pendingFireAnalysis = true; return; }
+
     // Invalidate any practice-mode bestmove listener that's still waiting
     // on the previous position — when engine.stop() below triggers, the
     // worker will emit a final bestmove for the OLD search, and without
@@ -5230,6 +5243,13 @@ async function main() {
   renderMoveList();
   renderDissection(board.fen());
   wireTabs();
+
+  // All main() state is now declared — safe to run fireAnalysis.
+  mainInitDone = true;
+  if (pendingFireAnalysis) {
+    pendingFireAnalysis = false;
+    fireAnalysis();
+  }
 }
 
 function flashInput(el, cls) {
