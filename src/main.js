@@ -2026,7 +2026,10 @@ async function main() {
       Result: practiceResultTag || '*',
     };
     try {
-      const pgn = board.tree.pgn({ tags });
+      let pgn = board.tree.pgn({ tags });
+      // Inject NAG annotations + eval comments at every meaningful
+      // swing using the timeline data we already have cached.
+      try { pgn = Archive.annotatePgn(pgn, collectTimelinePlies()); } catch {}
       const filename = `practice-${tags.Date.replace(/\./g, '')}-${practiceColor}-vs-stockfish.pgn`;
       downloadBlob(pgn, filename, 'application/x-chess-pgn');
     } catch (err) {
@@ -2409,7 +2412,7 @@ async function main() {
       flashPill(ui.engineMode, 'No moves yet', 1200);
       return;
     }
-    const pgn = tree.pgn({
+    let pgn = tree.pgn({
       tags: {
         Event: 'Stockfish.explain analysis',
         White: 'User',
@@ -2417,6 +2420,9 @@ async function main() {
         Result: '*',
       },
     });
+    // Auto-annotate with NAGs ($2 = ?, $4 = ??, $6 = ?!) + short
+    // eval-swing comments whenever per-move evals are cached.
+    try { pgn = Archive.annotatePgn(pgn, collectTimelinePlies()); } catch {}
     downloadBlob(pgn, `game-${Date.now()}.pgn`, 'application/x-chess-pgn');
   });
 

@@ -193,3 +193,88 @@ export function clearArchive() {
   try { localStorage.removeItem(GAMES_KEY); return true; }
   catch { return false; }
 }
+
+// ─── Auto-annotation for PGN export (#4) ────────────────────────────
+// Given a raw PGN string (as produced by tree.pgn()) and a list of
+// per-ply records [{ply, san, cpWhite, mate}], inject standard NAG
+// annotations + short brace comments at each meaningful mainline
+// eval swing. Variations (parenthesised) are left untouched — we only
+// annotate the primary game as played.
+//
+// NAG codes used (standard PGN NAGs):
+//   $1  !   (good move)
+//   $2  ?   (mistake)
+//   $3  !!  (brilliant)
+//   $4  ??  (blunder)
+//   $5  !?  (interesting / speculative)
+//   $6  ?!  (dubious / inaccuracy)
+
+export function annotatePgn(rawPgn, plies, options = {}) {
+  if (!rawPgn || !plies || plies.length < 2) return rawPgn;
+  const minSeverity = options.minSeverity || 'inaccuracy'; // show all by default
+  const minRank = { inaccuracy: 1, mistake: 2, blunder: 3 }[minSeverity] || 1;
+
+  // Build annotation list indexed by ply number.
+  // plies[0] is the starting position; the first move is plies[1].
+  const ann = new Map();
+  for (let i = 1; i < plies.length; i++) {
+    const prev = plies[i - 1], cur = plies[i];
+    if (cur.cpWhite == null || prev.cpWhite == null) continue;
+    // POV of the side that just moved = opposite of side-to-move AFTER.
+    const stmAfter = cur.fen.split(' ')[1] || 'w';
+    const moverSign = stmAfter === 'w' ? -1 : 1;
+    const cpBeforeMover = moverSign * prev.cpWhite;
+    const cpAfterMover  = moverSign * cur.cpWhite;
+    const drop = cpBeforeMover - cpAfterMover;
+    let sev = null, nag = null;
+    if      (drop >= 200) { sev = 'blunder';    nag = '$4'; }
+    else if (drop >= 100) { sev = 'mistake';    nag = '$2'; }
+    else if (drop >=  50) { sev = 'inaccuracy'; nag = '$6'; }
+    else continue;
+    if (({ inaccuracy: 1, mistake: 2, blunder: 3 }[sev]) < minRank) continue;
+    const cpBeforeWhite = (prev.cpWhite / 100).toFixed(2);
+    const cpAfterWhite  = (cur.cpWhite  / 100).toFixed(2);
+    ann.set(i, {
+      nag, sev,
+      comment: `eval ${cpBeforeWhite >= 0 ? '+' : ''}${cpBeforeWhite} → ${cpAfterWhite >= 0 ? '+' : ''}${cpAfterWhite}`,
+    });
+  }
+  if (!ann.size) return rawPgn;
+
+  // Split PGN into tag block + body.
+  const splitIdx = rawPgn.indexOf('\n\n');
+  if (splitIdx < 0) return rawPgn;
+  const tagBlock = rawPgn.slice(0, splitIdx);
+  const body     = rawPgn.slice(splitIdx + 2);
+
+  // Tokenize body while tracking paren depth (variations) so we only
+  // annotate mainline moves.
+  const tokens = body.match(/\([^)]*\)|\{[^}]*\}|[^\s()]+|\s+/g) || [];
+  let depth = 0;
+  let plyCount = 0;
+  const out = [];
+  for (const tok of tokens) {
+    if (tok.startsWith('(')) { depth++; out.push(tok); continue; }
+    if (tok === ')')         { depth--; out.push(tok); continue; }
+    if (depth > 0)           { out.push(tok); continue; }
+    // At depth 0 — mainline. Identify SAN move tokens (skip move numbers,
+    // comments, tags, results).
+    if (
+      tok.trim() === '' ||
+      /^\d+\.+$/.test(tok) ||
+      /^\{/.test(tok) ||
+      /^(1-0|0-1|1\/2-1\/2|\*)$/.test(tok)
+    ) {
+      out.push(tok);
+      continue;
+    }
+    // Looks like a SAN move.
+    plyCount++;
+    out.push(tok);
+    const a = ann.get(plyCount);
+    if (a) {
+      out.push(' ', a.nag, ' {', a.comment, '}');
+    }
+  }
+  return tagBlock + '\n\n' + out.join('');
+}
