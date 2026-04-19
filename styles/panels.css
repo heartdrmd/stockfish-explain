@@ -2300,6 +2300,111 @@ body.practice-mode .practice-card { display: block; }
   text-shadow: 0 0 3px #ff5a4a, 0 0 14px rgba(255,90,74,0.9);
 }
 
+/* ─── digital-jumbo — light theme, maximum-contrast big numbers ─── */
+.clock-display[data-style="digital-jumbo"] {
+  padding: 6px;
+  gap: 6px;
+}
+.clock-display[data-style="digital-jumbo"] .clock-side {
+  background: #f3f4f6;
+  border: 2px solid #111;
+  border-radius: 12px;
+  padding: 14px 10px;
+  box-shadow: inset 0 -4px 0 rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.3);
+  position: relative;
+  overflow: hidden;
+}
+.clock-display[data-style="digital-jumbo"] .clock-side.active {
+  background: #fff5d1;
+  border-color: #a67c00;
+  box-shadow: inset 0 -4px 0 rgba(166,124,0,0.2), 0 0 0 3px rgba(255,210,50,0.45);
+}
+.clock-display[data-style="digital-jumbo"] .clock-side.low-time     { background: #ffe7bf; border-color: #a85800; }
+.clock-display[data-style="digital-jumbo"] .clock-side.critical-time { background: #ffd3d3; border-color: #aa0a0a; }
+.clock-display[data-style="digital-jumbo"] .clock-piece {
+  font-size: 22px;
+  line-height: 1;
+  margin-bottom: 2px;
+  background: transparent; border: none; padding: 0;
+}
+.clock-display[data-style="digital-jumbo"] .clock-side#clock-white .clock-piece { color: #0d0d0d; text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff; }
+.clock-display[data-style="digital-jumbo"] .clock-side#clock-black .clock-piece { color: #000; }
+.clock-display[data-style="digital-jumbo"] .clock-time {
+  font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
+  font-size: 72px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #0b0b0b;
+  line-height: 1;
+  padding: 0;
+  background: transparent;
+}
+.clock-display[data-style="digital-jumbo"] .clock-side.critical-time .clock-time { color: #aa0a0a; }
+
+/* ─── digital-stadium — dot-matrix LED scoreboard ─── */
+.clock-display[data-style="digital-stadium"] {
+  padding: 8px 6px;
+  gap: 6px;
+  background: #05060a;
+  border: 2px solid #1a1f2a;
+  border-radius: 8px;
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.9);
+}
+.clock-display[data-style="digital-stadium"] .clock-side {
+  background:
+    radial-gradient(circle at 50% 40%, #0a0f1a 0%, #030407 80%);
+  border: 1px solid #0e1420;
+  border-radius: 6px;
+  padding: 10px 8px 6px;
+  position: relative;
+}
+/* Dot-matrix texture — fine grid overlay so the digits look like LEDs */
+.clock-display[data-style="digital-stadium"] .clock-side::before {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1.5px);
+  background-size: 4px 4px;
+  border-radius: inherit;
+}
+.clock-display[data-style="digital-stadium"] .clock-piece {
+  font-size: 16px;
+  color: #ffae2b;
+  text-shadow: 0 0 4px rgba(255,174,43,0.7);
+  background: transparent; border: none;
+}
+.clock-display[data-style="digital-stadium"] .clock-side#clock-white .clock-piece { color: #ffe0a0; }
+.clock-display[data-style="digital-stadium"] .clock-side#clock-black .clock-piece { color: #b87000; }
+.clock-display[data-style="digital-stadium"] .clock-time {
+  font-family: 'DSEG7 Classic', 'Courier New', monospace;
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #ffb42a;
+  text-shadow:
+    0 0 2px #ffb42a,
+    0 0 10px rgba(255,180,42,0.85),
+    0 0 22px rgba(255,130,0,0.55);
+  padding: 2px 6px;
+  background: transparent;
+}
+.clock-display[data-style="digital-stadium"] .clock-side.active .clock-time {
+  color: #ffe06a;
+  text-shadow:
+    0 0 2px #ffe06a,
+    0 0 12px #ffb42a,
+    0 0 32px rgba(255,180,42,0.85);
+}
+.clock-display[data-style="digital-stadium"] .clock-side.low-time .clock-time {
+  color: #ff7a00;
+  text-shadow: 0 0 3px #ff7a00, 0 0 14px rgba(255,122,0,0.9);
+}
+.clock-display[data-style="digital-stadium"] .clock-side.critical-time .clock-time {
+  color: #ff2a2a;
+  text-shadow: 0 0 3px #ff2a2a, 0 0 14px rgba(255,42,42,0.95);
+}
+
 /* ─── Hierarchical opening tree (practice modal) ─── */
 .practice-opening-tree {
   max-height: 320px;

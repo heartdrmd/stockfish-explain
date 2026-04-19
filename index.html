@@ -202,16 +202,14 @@
       <div class="side-card practice-card" id="practice-clock" hidden>
         <div class="clock-header">
           <h3 style="margin:0;">⏱ Clock</h3>
+          <!-- Curated clock styles — big numbers / tournament-grade only. -->
           <div class="clock-style-switcher" id="clock-style-switcher">
-            <button type="button" class="clock-style-btn active" data-style="digital-dark"  title="Digital dark (default)">●</button>
-            <button type="button" class="clock-style-btn" data-style="digital-light"         title="Digital light (reverse)">○</button>
-            <button type="button" class="clock-style-btn" data-style="digital-led"           title="LED digital — red tactical-clock glow">▣</button>
-            <button type="button" class="clock-style-btn" data-style="digital-mega"          title="Mega digital — huge numbers filling the card">⬛</button>
-            <button type="button" class="clock-style-btn" data-style="digital-neon"          title="Neon tube — glowing cyan/pink">💡</button>
-            <button type="button" class="clock-style-btn" data-style="digital-flip"          title="Flip-card — split-flap airport display">🃏</button>
-            <button type="button" class="clock-style-btn" data-style="digital-chronos"       title="Chronos GX — tournament digital, blue 7-segment, side-by-side">♟</button>
-            <button type="button" class="clock-style-btn" data-style="analog-garde"          title="Classic analog (Garde-style wood)">⏰</button>
-            <button type="button" class="clock-style-btn" data-style="analog-chrome"         title="Modern chrome analog">🔘</button>
+            <button type="button" class="clock-style-btn active" data-style="digital-mega" title="Mega digital — huge crisp white numbers (your favourite)">⬛</button>
+            <button type="button" class="clock-style-btn" data-style="digital-jumbo"        title="Jumbo digital — even bigger, light theme, high-contrast">🔢</button>
+            <button type="button" class="clock-style-btn" data-style="digital-stadium"      title="Stadium scoreboard — dot-matrix LED, giant numerals">🏟</button>
+            <button type="button" class="clock-style-btn" data-style="digital-chronos"      title="Chronos GX — blue 7-segment tournament clock">♟</button>
+            <button type="button" class="clock-style-btn" data-style="analog-garde"         title="Classic Garde analog (your favourite)">⏰</button>
+            <button type="button" class="clock-style-btn" data-style="analog-chrome"        title="Modern chrome analog">🔘</button>
           </div>
         </div>
 
@@ -268,13 +266,19 @@
     </aside>
 
     <section class="board-area">
-      <!-- Upper-left clock slot — empty until a practice game with clock
-           starts. On start, JS reparents #practice-clock into here so the
-           clock appears directly above the board (chess-TV style). -->
-      <div id="board-clock-slot" class="board-clock-slot" hidden></div>
-      <div id="board" class="cg-wrap"></div>
-      <div id="promotion-overlay" class="promotion-overlay" hidden></div>
-      <div id="board-resize" class="board-resize" title="Drag to resize board"></div>
+      <!-- Clock + board laid out side-by-side: a vertical clock column
+           sits to the LEFT of the board (chess-TV / tournament style).
+           The slot stays hidden (zero-width) until a practice game with
+           a clock starts; JS reparents #practice-clock into it and
+           reveals it, which pushes the board right. -->
+      <div class="board-with-clock">
+        <div id="board-clock-slot" class="board-clock-slot" hidden></div>
+        <div class="board-stack">
+          <div id="board" class="cg-wrap"></div>
+          <div id="promotion-overlay" class="promotion-overlay" hidden></div>
+          <div id="board-resize" class="board-resize" title="Drag to resize board"></div>
+        </div>
+      </div>
       <div class="board-nav" role="group" aria-label="Navigate history">
         <button id="board-nav-start" class="nav-btn" title="First (Home)">⏮</button>
         <button id="board-nav-prev"  class="nav-btn" title="Previous (← / wheel up)">◀</button>

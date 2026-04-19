@@ -52,28 +52,67 @@ body.nav-collapsed .always-visible {
 }
 body.nav-collapsed .site-header { min-height: 40px; padding: 6px 14px; }
 
-/* ─── Upper-left clock slot above the board ─── */
-.board-clock-slot {
+/* ─── Left-of-board clock slot (chess-TV / tournament style) ─── */
+/* A vertical clock column lives to the LEFT of the board during a
+   practice game. The board + slot share a flex row so the board
+   simply shifts right when the slot is shown. */
+.board-with-clock {
   display: flex;
-  justify-content: flex-start;
-  margin-bottom: 8px;
-  /* Clock card inside gets its existing styling; we just host it. */
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
 }
+.board-stack {
+  position: relative;   /* holds board, promotion-overlay, resize */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.board-stack > #board { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+.board-clock-slot {
+  flex: 0 0 auto;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;   /* match board height — tall vertical column */
+}
+.board-clock-slot[hidden] { display: none; }
 .board-clock-slot .side-card {
   margin: 0;
   width: 100%;
-  max-width: 560px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
-/* When the clock is hosted here, make the analog SVG bigger + sharper. */
+/* In the slot, the clock-display flexes to fill vertical space so the
+   digital numbers scale large. */
+.board-clock-slot .clock-display {
+  flex: 1 1 auto;
+}
+.board-clock-slot .clock-side {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Analog dials — bigger + sharper in the slot, stacked vertically. */
 .board-clock-slot .clock-analog {
   padding: 4px;
   border-width: 1px;
+  flex: 1 1 auto;
 }
 .board-clock-slot .clock-analog-svg {
-  height: 220px;     /* up from 120 */
+  height: 100%;
+  min-height: 320px;
   shape-rendering: geometricPrecision;
 }
-.board-clock-slot .clock-analog::after { display: none; } /* drop rivets, more dial less wood */
+.board-clock-slot .clock-analog::after { display: none; }
+/* Narrow screens: fall back to the board being on top of the clock. */
+@media (max-width: 720px) {
+  .board-with-clock { flex-direction: column; }
+  .board-clock-slot { width: 100%; }
+}
 
 .depth-ctrl {
   display: inline-flex;
@@ -113,7 +152,7 @@ body.nav-collapsed .site-header { min-height: 40px; padding: 6px 14px; }
   max-width: 560px;
   width: 100%;
 }
-.uniboard .board-area > #board {
+.uniboard .board-area #board {
   aspect-ratio: 1 / 1;
   width: 100%;
   height: auto;
