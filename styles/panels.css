@@ -2812,9 +2812,11 @@ body.practice-mode .practice-card { display: block; }
 .accuracy-pills .acc-best       { background: #22c55e; }  /* best or near-best */
 .accuracy-pills .acc-good       { background: #84cc16; }  /* within 30 cp */
 .accuracy-pills .acc-ok         { background: #facc15; }  /* within 80 cp  */
-.accuracy-pills .acc-inaccuracy { background: #f59e0b; }  /* 50-100 cp drop (mover POV) */
-.accuracy-pills .acc-mistake    { background: #fb7185; }  /* 100-200 cp drop */
-.accuracy-pills .acc-blunder    { background: #dc2626; }  /* 200+ cp drop */
+/* User-requested colour scheme (severity-ascending, muted → sharp):
+     inaccuracy → blue, mistake → gray, blunder → black. */
+.accuracy-pills .acc-inaccuracy { background: #3893e8; }  /* blue */
+.accuracy-pills .acc-mistake    { background: #888888; }  /* gray */
+.accuracy-pills .acc-blunder    { background: #111111; border: 1px solid #444; }  /* black, subtle ring so it's visible on dark bg */
 .accuracy-pills .acc-unknown    { background: #555;    }  /* eval unavailable */
 .accuracy-pills .acc-move-label {
   position: absolute;
