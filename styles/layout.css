@@ -40,6 +40,22 @@
 }
 .btn-toggle-toolbar:hover { filter: brightness(1.1); }
 
+/* Always-visible quick-action buttons — New game + Practice next to
+   the Toolbar toggle. Blue to stand out; always reachable even when
+   the nav is auto-collapsed during a practice game. */
+.btn-quick-action {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  background: linear-gradient(180deg, #3b8bff, #2563cc);
+  color: #fff;
+  border: 1px solid #1d4b99;
+  padding: 6px 14px;
+  font-size: 13px;
+  margin-left: 4px;
+}
+.btn-quick-action:hover { filter: brightness(1.1); }
+.btn-quick-action:active { filter: brightness(0.95); }
+
 /* Collapsed-toolbar state: hide everything in the nav except
    always-visible items. The toggle button lives outside .site-nav so
    it stays clickable regardless. */

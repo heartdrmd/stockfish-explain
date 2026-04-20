@@ -4896,6 +4896,19 @@ async function main() {
       prevNavCollapsed = document.body.classList.contains(BODY_NAV_COLLAPSED);
       try { localStorage.setItem('stockfish-explain.nav-collapsed', prevNavCollapsed ? '1' : '0'); } catch {}
     });
+  }
+  // Wire the always-visible quick-action buttons to the existing
+  // in-nav handlers so user gets one-click New game / Practice
+  // regardless of whether the toolbar is collapsed.
+  const btnQuickNew = document.getElementById('btn-quick-new');
+  if (btnQuickNew) btnQuickNew.addEventListener('click', () => {
+    document.getElementById('btn-new')?.click();
+  });
+  const btnQuickPractice = document.getElementById('btn-quick-practice');
+  if (btnQuickPractice) btnQuickPractice.addEventListener('click', () => {
+    document.getElementById('btn-practice')?.click();
+  });
+  if (btnToggleToolbar) {
     // Restore persisted state.
     try {
       if (localStorage.getItem('stockfish-explain.nav-collapsed') === '1') {

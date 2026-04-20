@@ -64,10 +64,15 @@
   <header class="site-header">
     <h1 class="site-title">Stockfish<span class="accent">.explain</span></h1>
 
-    <!-- Prominent toolbar-visibility toggle — kept OUTSIDE .site-nav so
-         it remains clickable even when the nav is collapsed. -->
+    <!-- Prominent always-visible cluster: Toolbar toggle + quick New
+         game + quick Practice. Sit OUTSIDE .site-nav so they stay
+         reachable even when the nav collapses during a practice game. -->
     <button id="btn-toggle-toolbar" class="btn btn-toggle-toolbar always-visible"
             title="Show or hide the top toolbar — auto-hides during a practice game">⇕ Toolbar</button>
+    <button id="btn-quick-new" class="btn btn-quick-action always-visible"
+            title="Start a new game from the initial position">🆕 New game</button>
+    <button id="btn-quick-practice" class="btn btn-quick-action always-visible"
+            title="Open the practice modal to pick an opening and play the engine">🎯 Practice</button>
 
     <nav class="site-nav">
       <!-- Primary action group (left). New game + Practice marked as
