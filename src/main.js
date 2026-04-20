@@ -214,6 +214,35 @@ async function main() {
   let mainInitDone        = false;
   let pendingFireAnalysis = false;
 
+  // ───── Multi-tab lock (BroadcastChannel) ─────
+  // Prevent multiple tabs of the app from fighting over CPU + localStorage.
+  // Newest tab wins. When a new tab announces itself, any existing tab
+  // terminates its engine and shows a 'tab is inactive' banner. User can
+  // click 'Reactivate this tab' to take the lock back.
+  let __tabIsActive = true;
+  try {
+    const ch = new BroadcastChannel('stockfish-explain-tab-lock');
+    // Announce ourselves as the active tab.
+    ch.postMessage({ type: 'tab-hello', ts: Date.now() });
+    ch.onmessage = (ev) => {
+      if (!ev?.data || ev.data.type !== 'tab-hello') return;
+      // Someone else became active. Step down to avoid CPU contention.
+      if (__tabIsActive) {
+        __tabIsActive = false;
+        try { if (window.engine && window.engine.terminate) window.engine.terminate(); } catch {}
+        const banner = document.createElement('div');
+        banner.id = 'tab-inactive-banner';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10000;background:#8a6d3b;color:#fff;padding:10px 16px;font-family:sans-serif;font-size:13px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);';
+        banner.innerHTML = `⚠ Another tab of this app just opened — this tab's engine has been disabled to avoid CPU contention. <button id="tab-reactivate" style="margin-left:10px;padding:4px 12px;font-size:13px;cursor:pointer;">Reactivate this tab</button>`;
+        document.body.appendChild(banner);
+        document.getElementById('tab-reactivate')?.addEventListener('click', () => {
+          location.reload();
+        });
+      }
+    };
+    window.__stockfishTabChannel = ch;
+  } catch {}
+
   // Wire the API-key modal FIRST — before anything else that might fail.
   // If init later crashes, the 🔑 Key button still works.
   wireApiKeyModalEarly();

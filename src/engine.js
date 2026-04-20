@@ -424,34 +424,14 @@ export class Engine extends EventTarget {
       console.log('[engine] start() ignored — engine not ready yet');
       return;
     }
-    // ALWAYS stop first (user-requested defensive pattern). Stockfish's
-    // stop handler is idempotent: if a search is active, threads.stop
-    // gets flagged and the trailing bestmove drains harmlessly (our
-    // stopRequested guard ignores the stale info lines). If idle, stop
-    // is a pure no-op. Costs: one extra UCI message per search start.
-    const wasSearching = this.searching;
+    // Removed the 50 ms stop→start delay. Log analysis showed it was
+    // adding complexity without helping — the stopRequested guard +
+    // _doStart's explicit clear of that flag are enough to handle
+    // stale info lines. User reported "7mb → full flavor ritual fixes
+    // silent engine" even with the delay in place; simplifying back
+    // to stop + immediate start matches what the ritual effectively
+    // does (fresh worker state) on every search restart.
     this.stop();
-    // Belt-and-braces from ChessScan pattern: if we just interrupted a
-    // real search, give the worker a small delay (post next tick of
-    // event loop) so the trailing bestmove drains BEFORE the new
-    // position/go arrive. Only adds ~0 ms latency when idle; 50 ms
-    // when an active search was preempted. Complements stopRequested
-    // guard — together they eliminate stale-bestmove races.
-    if (wasSearching) {
-      this._pendingStartFen = fen;
-      this._pendingStartOpts = opts;
-      if (this._pendingStartId) clearTimeout(this._pendingStartId);
-      this._pendingStartId = setTimeout(() => {
-        this._pendingStartId = 0;
-        if (this._pendingStartFen) {
-          const f = this._pendingStartFen, o = this._pendingStartOpts;
-          this._pendingStartFen = null;
-          this._pendingStartOpts = null;
-          this._doStart(f, o);
-        }
-      }, 50);
-      return;
-    }
     this._doStart(fen, opts);
   }
 
