@@ -951,10 +951,17 @@ async function main() {
                          'kaufman-lite-single', 'classical-lite-single',
                          'alphazero-lite-single', 'avrukh-lite-single'].includes(_savedFlavor);
   if (_needsRitual) {
-    console.log('[engine] auto-ritual: boot lite first, then switch to', _savedFlavor);
-    ui.narrationText.textContent = `Warming up (lite) before switching to ${_savedFlavor}…`;
+    console.log('[engine] auto-ritual: boot lite-single first, then switch to', _savedFlavor);
+    ui.narrationText.textContent = `Warming up before switching to ${_savedFlavor}…`;
     try {
-      await bootEngine(threadable ? 'lite' : 'lite-single');
+      // Use SINGLE-THREAD lite, not multi-thread. Log analysis showed:
+      //   MT lite → MT full = both boot but SECOND one emits ZERO info
+      //                       (stale SharedArrayBuffer / thread pool
+      //                       state from first worker blocks second)
+      //   ST lite → MT full = clean, full works perfectly
+      // User's manual ritual that 'kicks it in' always used lite-single,
+      // which is why it worked. We now match that exactly.
+      await bootEngine('lite-single');
       await new Promise(r => setTimeout(r, 400));
       // CRITICAL: match what the manual flavor-switch handler does —
       // terminate + new Engine + RE-WIRE EXPLAINER. Without re-wiring,
