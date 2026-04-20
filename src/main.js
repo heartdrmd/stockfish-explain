@@ -4092,8 +4092,28 @@ async function main() {
         startClock(0, incSec, 'up');
       }
 
-      // Kick the loop — if it's engine's turn first, it plays immediately
+      // Kick the loop — if it's engine's turn first, it plays immediately.
+      // User-reported bug: practicing as White with an opening that ends
+      // on White's move (e.g. c3 Sicilian: 1.e4 c5 2.c3) means Black is
+      // to move. Engine should auto-play Black's reply. It was sitting
+      // silent because if the engine wasn't yet ready (mid-boot or
+      // mid-ritual), engine.start() silently bailed and nothing retried.
+      // Fix: retry fireAnalysis when the engine's 'ready' event fires.
       fireAnalysis();
+      if (!engineReady) {
+        const readyRetry = () => {
+          engine.removeEventListener('ready', readyRetry);
+          console.log('[practice] engine became ready — retrying fireAnalysis');
+          fireAnalysis();
+        };
+        engine.addEventListener('ready', readyRetry);
+        // Belt-and-braces: also retry after 1 / 3 / 6 s in case the
+        // 'ready' event fired before we attached (race on auto-ritual
+        // swap). Each retry is cheap — fireAnalysis itself rAF-coalesces.
+        setTimeout(() => fireAnalysis(), 1000);
+        setTimeout(() => fireAnalysis(), 3000);
+        setTimeout(() => fireAnalysis(), 6000);
+      }
     });
   }
 
