@@ -2343,13 +2343,19 @@ body.practice-mode .practice-card { display: block; }
 .clock-display[data-style="digital-jumbo"] .clock-side#clock-black .clock-piece { color: #000; }
 .clock-display[data-style="digital-jumbo"] .clock-time {
   font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
-  font-size: 72px;
+  /* 72 px was getting clipped on narrower side panels; 56 px is still
+     jumbo and fits any seconds string (e.g. 59:59) without truncation. */
+  font-size: 56px;
   font-weight: 900;
   letter-spacing: -0.02em;
   color: #0b0b0b;
   line-height: 1;
-  padding: 0;
+  padding: 0 4px;
   background: transparent;
+  white-space: nowrap;
+  overflow: visible;
+  text-align: center;
+  width: 100%;
 }
 .clock-display[data-style="digital-jumbo"] .clock-side.critical-time .clock-time { color: #aa0a0a; }
 
