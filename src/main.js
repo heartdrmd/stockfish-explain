@@ -789,6 +789,7 @@ async function main() {
       ui.engineMode.title = spec?.label || info.flavor;
       if (info.threaded) ui.engineMode.classList.add('threaded');
       ui.narrationText.textContent = 'Engine ready. Make a move — I\'ll explain what I see.';
+      console.log('[engine] booted', { flavor: info.flavor, threads: info.threads, threaded: info.threaded });
       // Hot-swap notification: when the bignet finishes loading in
       // the background, update the engine-mode pill so the user sees
       // that max strength is now active.

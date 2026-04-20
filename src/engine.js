@@ -387,7 +387,10 @@ export class Engine extends EventTarget {
    * @param {{depth?:number, movetime?:number, searchmoves?:string[]}} opts
    */
   start(fen, opts = {}) {
-    if (!this.ready) return;
+    if (!this.ready) {
+      console.log('[engine] start() ignored — engine not ready yet');
+      return;
+    }
     if (this.searching) this.stop();
 
     this.history  = [];
