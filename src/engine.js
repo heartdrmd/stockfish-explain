@@ -479,10 +479,15 @@ export class Engine extends EventTarget {
 
   stop() {
     if (!this.worker) return;
-    // Set stopRequested BEFORE sending stop so any info line in the
-    // worker's outbound queue that arrives after we post stop is
-    // ignored. Cleared when bestmove arrives (in _handleLine).
-    if (this.searching) this.stopRequested = true;
+    // Log who asked the engine to stop so users can audit unexpected
+    // stops. Stack trace slice captures 3 frames past the stop() call
+    // — enough to identify the caller (e.g. fireAnalysis, lock toggle,
+    // practice-finish, retrospective sweep).
+    if (this.searching) {
+      const caller = (new Error().stack || '').split('\n').slice(2, 4).map(s => s.trim()).join(' ← ');
+      console.log('[engine] stop() called', { wasSearching: true, caller });
+      this.stopRequested = true;
+    }
     this._send('stop');
     this.searching = false;
   }
