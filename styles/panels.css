@@ -1793,7 +1793,11 @@ body.practice-mode:not(.practice-finished) #pv-lines { min-height: 60px; }
 
 /* ─── Practice game-flow card (sidebar) ─── */
 .practice-card { display: none; }
-body.practice-mode .practice-card { display: block; }
+/* Show practice cards only when NOT explicitly hidden — the hidden
+   attribute must still win, else a restored draft auto-shows stale
+   clock/action cards on page load even with no active practice game. */
+body.practice-mode .practice-card:not([hidden]) { display: block; }
+body.practice-mode .practice-card[hidden]       { display: none !important; }
 .practice-btn-row {
   display: flex;
   gap: 6px;
