@@ -1324,7 +1324,16 @@ async function main() {
     clock.msWhite = mode === 'up' ? 0 : clock.initialMs;
     clock.msBlack = mode === 'up' ? 0 : clock.initialMs;
     clock.incMs   = incrementSec * 1000;
-    clock.tickingFor = 'w';
+    // Whose clock ticks at start depends on whose actual move it is,
+    // NOT a hardcoded 'w'. When the chosen opening ends on White's
+    // move (odd half-move count), it's Black to move → Black's clock
+    // ticks. Hardcoding 'w' here caused an off-by-one: every subsequent
+    // switchClock() just flipped the (wrong) initial side.
+    try {
+      clock.tickingFor = (board.chess && typeof board.chess.turn === 'function')
+        ? board.chess.turn()
+        : 'w';
+    } catch { clock.tickingFor = 'w'; }
     clock.lastTickAt = Date.now();
     const clockCard = document.getElementById('practice-clock');
     if (clockCard) clockCard.hidden = false;
