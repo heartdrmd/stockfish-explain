@@ -1007,19 +1007,11 @@ async function main() {
   const _needsRitual = !['lite', 'lite-single', 'avrukhplus-lite', 'avrukhplus-lite-single',
                          'kaufman-lite-single', 'classical-lite-single',
                          'alphazero-lite-single', 'avrukh-lite-single'].includes(_savedFlavor);
-  if (_needsRitual) {
-    console.log('[engine] auto-ritual: literally simulate the manual click sequence');
-    ui.narrationText.textContent = `Warming up before switching to ${_savedFlavor}…`;
-    // Go direct with the target first. The 'manual ritual' only
-    // reliably works when done BY THE USER via the dropdown — so we
-    // boot direct, then if the mismatch detector catches silence, the
-    // auto-recovery listener fires the exact same dropdown-change
-    // event sequence the user would. That listener path is the ONLY
-    // code path proven to reliably kick MT engines in.
-    await bootEngine(_savedFlavor);
-  } else {
-    await bootEngine(currentFlavor);
-  }
+  // Initial boot: just go direct. The reactive auto-recovery catches
+  // silent MT boot within 2 s and kicks in the dropdown ritual —
+  // that path is proven reliable in the latest logs. Keeps first-load
+  // boot snappy when the direct path happens to work.
+  await bootEngine(currentFlavor);
 
   // ───── Shared helper: switch to any flavor with ritual when needed ─────
   // Every code path that wants to change or restart the engine must
