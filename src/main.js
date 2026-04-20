@@ -2417,7 +2417,25 @@ async function main() {
   function _findMistakePlies() {
     const plies = collectTimelinePlies();
     const list = [];
+    // In practice mode, two filters per user request:
+    //   1. Skip opening moves — user didn't play them (book / chosen line).
+    //   2. Only include USER's moves — engine moves aren't 'their'
+    //      mistakes to learn from.
+    // In analysis mode (no practiceColor), include every ply's mistake.
+    const openingLen = window.__practiceOpeningPlies || 0;
+    const userColor = practiceColor; // null when not in practice
     for (let i = 1; i < plies.length; i++) {
+      if (userColor && i <= openingLen) continue;           // skip opening
+      if (userColor) {
+        // Ply `i` is reached by a move played by WHITE if i is odd,
+        // by BLACK if i is even (ply 0 = start, ply 1 = after white's
+        // move). Equivalently: stmAfter = 'b' means white just moved.
+        const stmAfter = plies[i].fen.split(' ')[1] || 'w';
+        const moverWasWhite = stmAfter === 'b';
+        const moverWasUser = (userColor === 'white' &&  moverWasWhite) ||
+                             (userColor === 'black' && !moverWasWhite);
+        if (!moverWasUser) continue;                          // skip opponent moves
+      }
       const q = classifyAccuracy(plies[i - 1], plies[i]);
       if (q === 'inaccuracy' || q === 'mistake' || q === 'blunder') list.push(i);
     }
@@ -3995,6 +4013,9 @@ async function main() {
           fen: board.fen(),
           detectedOpening: pUseCurrent._match ? pUseCurrent._match.name : '(custom)',
         });
+        // Count already-played plies as "opening" — user isn't
+        // accountable for moves they made before practice started.
+        window.__practiceOpeningPlies = board.chess.history().length;
       } else {
         // Load the opening position
         board.newGame();
@@ -4002,6 +4023,10 @@ async function main() {
           const played = playOpening(op.moves);
           if (played) board.playUciMoves(played.uciMoves, { animate: false });
         }
+        // Remember how many plies the opening played so 'Learn from
+        // mistakes' can skip them — opening moves are book, not
+        // user-accountable mistakes.
+        window.__practiceOpeningPlies = op.moves.length || 0;
       }
 
       // Set practice state
