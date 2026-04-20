@@ -70,9 +70,11 @@
             title="Show or hide the top toolbar — auto-hides during a practice game">⇕ Toolbar</button>
 
     <nav class="site-nav">
-      <!-- Primary action group (left) -->
-      <button id="btn-new"    class="btn"       title="New game">New game</button>
-      <button id="btn-undo"   class="btn"       title="Take back last move">Undo</button>
+      <!-- Primary action group (left). New game + Practice marked as
+           always-visible so they stay reachable even when the toolbar
+           is collapsed during a practice game. -->
+      <button id="btn-new"    class="btn always-visible"   title="New game">New game</button>
+      <button id="btn-undo"   class="btn"                  title="Take back last move">Undo</button>
       <!-- Engine flavor selector — top-level, no submenu. Same <select> the
            drawer used to own; moved here for one-click access. -->
       <select id="select-flavor" class="header-flavor"
@@ -113,7 +115,7 @@
       <button id="btn-settings" class="btn" title="Engine settings (skill, threads, hash, arrows, piece values)">⚙ More</button>
       <button id="btn-preload-engines" class="btn" title="Download every engine variant once and keep them in the browser forever — no more waiting on boot">⬇ Preload engines</button>
       <button id="btn-clear-engine-cache" class="btn" title="Wipe cached engine files — use if a preload left bad data and the site is crashing">🗑 Clear engine cache</button>
-      <button id="btn-practice" class="btn" title="Play against the engine from a chosen opening">🎯 Practice</button>
+      <button id="btn-practice" class="btn always-visible" title="Play against the engine from a chosen opening">🎯 Practice</button>
       <button id="btn-my-games" class="btn" title="Browse your archived games with eval timelines and mistake analysis">📚 My Games</button>
       <button id="btn-mistake-bank" class="btn" title="Review positions where you played poorly — spaced repetition">🎓 Mistake Bank</button>
       <button id="btn-drill" class="btn" title="Drill due cards — spaced-repetition review queue">🃏 Drill <span id="drill-badge" class="pill" style="display:none;margin-left:4px;padding:1px 6px;background:#dc3545;color:white;font-size:10px;">0</span></button>
@@ -246,8 +248,8 @@
           <h3 style="margin:0;">⏱ Clock</h3>
           <!-- Curated clock styles — big numbers / tournament-grade only. -->
           <div class="clock-style-switcher" id="clock-style-switcher">
-            <button type="button" class="clock-style-btn active" data-style="digital-mega" title="Mega digital — huge crisp white numbers (your favourite)">⬛</button>
-            <button type="button" class="clock-style-btn" data-style="digital-jumbo"        title="Jumbo digital — even bigger, light theme, high-contrast">🔢</button>
+            <button type="button" class="clock-style-btn" data-style="digital-mega"        title="Mega digital — huge crisp white numbers">⬛</button>
+            <button type="button" class="clock-style-btn active" data-style="digital-jumbo" title="Jumbo digital — even bigger, light theme, high-contrast (default)">🔢</button>
             <button type="button" class="clock-style-btn" data-style="digital-stadium"      title="Stadium scoreboard — dot-matrix LED, giant numerals">🏟</button>
             <button type="button" class="clock-style-btn" data-style="digital-chronos"      title="Chronos GX — blue 7-segment tournament clock">♟</button>
             <button type="button" class="clock-style-btn" data-style="analog-garde"         title="Classic Garde analog (your favourite)">⏰</button>
@@ -280,6 +282,9 @@
                shape-rendering="geometricPrecision"></svg>
         </div>
 
+        <div class="clock-actions">
+          <button id="btn-clock-pause" class="btn clock-pause-btn" title="Pause the clock — stop both sides' time from running. Click again to resume.">⏸ Pause clock</button>
+        </div>
         <p class="clock-format-line" id="clock-format">—</p>
       </div>
 

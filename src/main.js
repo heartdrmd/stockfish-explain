@@ -821,7 +821,12 @@ async function main() {
       const nextFlavor = fallbackChain.find(f => f !== flavor);
       if ((isTimeout || isCrash) && nextFlavor) {
         localStorage.removeItem(FLAVOR_STORAGE);
-        ui.narrationText.innerHTML = `⚠ Engine "${flavor}" failed — falling back to <strong>${nextFlavor}</strong>…`;
+        // Clear the 'engine failed' pill IMMEDIATELY so the user never
+        // sees a persistent error label during an auto-fallback that's
+        // about to succeed. Replaced by 'booting…' inside the recursive
+        // bootEngine call, then by the success name once it finishes.
+        ui.engineMode.textContent = 'switching…';
+        ui.narrationText.innerHTML = `⏳ Trying <strong>${nextFlavor}</strong>…`;
         ui.selectFlavor.value = nextFlavor;
         try { engine.terminate?.(); } catch {}
         engine = new Engine();
@@ -1121,7 +1126,7 @@ async function main() {
     initialMs: 0,
     // Persisted style: user can cycle through digital-dark /
     // digital-light / digital-led / analog-garde
-    style: localStorage.getItem('stockfish-explain.clock-style') || 'digital-dark',
+    style: localStorage.getItem('stockfish-explain.clock-style') || 'digital-jumbo',
   };
   function formatClockTime(ms) {
     if (ms == null || ms < 0) ms = 0;
@@ -1360,11 +1365,34 @@ async function main() {
   function stopClock() {
     clock.active = false;
     clock.tickingFor = null;
+    clock.paused = false;
     if (clock.timerId) { clearInterval(clock.timerId); clock.timerId = 0; }
+    renderClock();
+    const pauseBtn = document.getElementById('btn-clock-pause');
+    if (pauseBtn) { pauseBtn.textContent = '⏸ Pause clock'; pauseBtn.classList.remove('paused'); }
+  }
+  // Pause: freeze both clocks in place (neither side ticks). Resume
+  // continues from the same remaining times. Works in both count-down
+  // and count-up modes. While paused, clock.paused = true and the
+  // timerId is cleared; switchClock early-exits while paused.
+  function togglePauseClock() {
+    if (!clock.active) return;
+    const btn = document.getElementById('btn-clock-pause');
+    if (!clock.paused) {
+      clock.paused = true;
+      if (clock.timerId) { clearInterval(clock.timerId); clock.timerId = 0; }
+      if (btn) { btn.textContent = '▶ Resume clock'; btn.classList.add('paused'); }
+    } else {
+      clock.paused = false;
+      clock.lastTickAt = Date.now();  // don't charge the pause duration
+      clock.timerId = setInterval(() => { clockTick(); }, 100);
+      if (btn) { btn.textContent = '⏸ Pause clock'; btn.classList.remove('paused'); }
+    }
     renderClock();
   }
   function switchClock() {
     if (!clock.active) return;
+    if (clock.paused) return;  // paused = neither side advances
     const now = Date.now();
     // Apply increment to the side that JUST moved (current tickingFor
     // before flip). Works in both count-up and count-down modes.
@@ -1390,6 +1418,7 @@ async function main() {
   // ever gets cleared unexpectedly.
   function clockTick() {
     if (!clock.active || !clock.tickingFor) return;
+    if (clock.paused) return;
     const now = Date.now();
     const elapsed = now - clock.lastTickAt;
     clock.lastTickAt = now;
@@ -1626,13 +1655,13 @@ async function main() {
     let draft;
     try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { return; }
     if (!draft || !draft.pgn) return;
+    // Drafts older than 24h are stale — discard silently instead of
+    // restoring. Fresh drafts auto-restore with no prompt (user found
+    // the modal annoying on every reload; "New game" button + 📚 My
+    // Games archive both still work for starting fresh).
     const age = Math.max(0, Date.now() - (draft.savedAt || 0));
-    const ageMins = Math.round(age / 60000);
-    const ageLabel = ageMins < 1 ? 'just now' : ageMins < 60 ? `${ageMins} min ago` : `${Math.round(ageMins / 60)} h ago`;
-    if (!confirm(`Resume the game in progress (saved ${ageLabel})?\n\nClick Cancel to discard it and start fresh.`)) {
-      clearDraft();
-      return;
-    }
+    const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+    if (age > DRAFT_MAX_AGE_MS) { clearDraft(); return; }
     try {
       board.newGame();
       if (draft.startingFen && draft.startingFen !== board.startingFen) {
@@ -2342,13 +2371,33 @@ async function main() {
             if (engineTurn) {
               console.log('[practice] engine turn — searching', { fen, limits: searchLimits() });
               document.body.classList.add('practice-thinking');
-              ui.narrationText.innerHTML = '⏳ <strong>Engine is thinking…</strong>';
+              ui.narrationText.innerHTML = '⏳ <strong>Engine is thinking…</strong> <span id="practice-calc-live" style="opacity:0.85;"></span>';
+              // Live-calculation ticker: update on each 'thinking' info
+              // event so the user can SEE that the engine is actively
+              // searching (not frozen). Shows depth + nodes, but never
+              // the evaluation or the move — those stay hidden by CSS
+              // until the game ends (anti-cheat).
+              const liveEl = () => document.getElementById('practice-calc-live');
+              const onThinking = (ev) => {
+                const el = liveEl();
+                if (!el) return;
+                const d = ev.detail?.info?.depth;
+                const nodes = ev.detail?.info?.nodes;
+                const nps = ev.detail?.info?.nps;
+                const nodesFmt = nodes > 1e6 ? `${(nodes/1e6).toFixed(1)}M` : nodes > 1000 ? `${Math.round(nodes/1000)}k` : String(nodes || 0);
+                const npsFmt   = nps   > 1e6 ? `${(nps/1e6).toFixed(1)}M/s` : nps > 1000 ? `${Math.round(nps/1000)}k/s` : '';
+                el.textContent = `· depth ${d || '—'} · ${nodesFmt} nodes${npsFmt ? ' · ' + npsFmt : ''}`;
+              };
+              engine.addEventListener('thinking', onThinking);
+              // Detach ticker when search completes or is cancelled.
+              const detachTicker = () => engine.removeEventListener('thinking', onThinking);
               // Token to guard against stale listeners — if the user
               // makes a move before bestmove arrives, the token
               // increments and the old listener bails out.
               const myToken = ++practiceSearchToken;
               const onBest = (ev) => {
                 engine.removeEventListener('bestmove', onBest);
+                detachTicker();
                 if (myToken !== practiceSearchToken) {
                   console.log('[practice] stale bestmove ignored', { myToken, current: practiceSearchToken });
                   return;
@@ -4737,6 +4786,11 @@ async function main() {
     }
   }
   btnLock.addEventListener('click', toggleEngineLocked);
+
+  // Clock pause/resume button — freezes both sides' time when the user
+  // needs to step away. Works in count-up and count-down modes.
+  const btnClockPause = document.getElementById('btn-clock-pause');
+  if (btnClockPause) btnClockPause.addEventListener('click', togglePauseClock);
 
   // Big ENGINE power button in the eval panel — same state as lock.
   const powerBtn = document.getElementById('engine-power');
