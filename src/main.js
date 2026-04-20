@@ -1613,6 +1613,36 @@ async function main() {
       // immediately after a deep analysis.
       if (existing && existing.depth != null && live.depth < existing.depth) return;
       fenEvalCache.set(fen, { cpWhite, mate, depth: live.depth });
+      // Bonus: also hydrate cache with evals for the RESULTING positions
+      // of each MultiPV candidate move. Stockfish's per-candidate score
+      // IS the eval after that move is played (from root STM's POV). This
+      // means every engine thinking event fills in evals for up to N
+      // neighbouring plies — enough to classify the user's own moves in
+      // practice mode without a retrospective sweep. Directly addresses
+      // user report: 'why are accuracy pills blank during practice'.
+      try {
+        const topMoves = Array.from(engine.topMoves?.values?.() || []);
+        if (topMoves.length > 0) {
+          for (const mv of topMoves) {
+            if (!mv.pv || !mv.pv.length) continue;
+            const tmp = new Chess(fen);
+            const uci = mv.pv[0];
+            const played = tmp.move({
+              from: uci.slice(0, 2),
+              to:   uci.slice(2, 4),
+              promotion: uci.slice(4) || undefined,
+            });
+            if (!played) continue;
+            const resultFen = tmp.fen();
+            const mvCpWhite = mv.scoreKind === 'cp' ? stm * mv.score : null;
+            const mvMate    = mv.scoreKind === 'mate' ? stm * mv.score : null;
+            const prev = fenEvalCache.get(resultFen);
+            if (!prev || (prev.depth != null && mv.depth >= prev.depth)) {
+              fenEvalCache.set(resultFen, { cpWhite: mvCpWhite, mate: mvMate, depth: mv.depth });
+            }
+          }
+        }
+      } catch {}
       if (fenEvalCache.size > 500) {
         const first = fenEvalCache.keys().next().value;
         fenEvalCache.delete(first);
@@ -1781,7 +1811,12 @@ async function main() {
     const svg  = document.getElementById('eval-timeline-svg');
     const stats = document.getElementById('eval-timeline-stats');
     if (!root || !svg) return;
-    if (root.dataset.userHidden) { root.hidden = true; return; }
+    // Default: eval timeline stays hidden unless user has explicitly
+    // opted in (userHidden === 'shown'). Accuracy pills carry the
+    // timeline signal in a denser/cleaner form; the line chart was
+    // cluttering the view for most users. Toggle via the Panels menu.
+    const userSetting = root.dataset.userHidden;
+    if (userSetting !== 'shown') { root.hidden = true; return; }
     const plies = collectTimelinePlies();
     if (plies.length < 2) { root.hidden = true; return; }
     root.hidden = false;
