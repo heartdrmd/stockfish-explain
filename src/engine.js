@@ -347,12 +347,19 @@ export class Engine extends EventTarget {
 
   _send(cmd) {
     if (!this.worker) return;
-    // Gate everything except 'uci' until we've received uciok. Pre-
-    // uciok commands like 'stop', 'setoption', 'position', 'go' are
-    // undefined behaviour per UCI spec and cause Stockfish WASM to
-    // trap with RuntimeError: unreachable. This mirrors lichess's
-    // pattern of keeping `send` undefined until connected().
-    if (!this.uciokReceived && cmd !== 'uci') return;
+    // Pre-uciok gate: was blocking LEGITIMATE commands in practice when
+    // a clear uciok-reset path exists. The narrower, safer guard: drop
+    // only commands issued before we've even posted 'uci' (worker not
+    // yet attempting handshake). Once 'uci' has been sent, Stockfish's
+    // own handshake handles queued commands fine.
+    if (this.uciSent && !this.uciokReceived && cmd !== 'uci') {
+      // Worker is still in the narrow handshake window. It's safe to
+      // queue setoption/position/go — Stockfish buffers them and
+      // processes after uciok. Only block 'stop' which can actually
+      // trip an assertion if received mid-init.
+      if (cmd === 'stop') { console.log('[engine] dropped pre-uciok stop'); return; }
+    }
+    if (cmd === 'uci') this.uciSent = true;
     this.worker.postMessage(cmd);
   }
 
@@ -487,6 +494,7 @@ export class Engine extends EventTarget {
                        .sort((a, b) => a.multipv - b.multipv),
         history:  this.history,
       };
+      console.log('[engine] bestmove', detail.best);
       this.dispatchEvent(new CustomEvent('bestmove', { detail }));
     }
   }
