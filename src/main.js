@@ -804,7 +804,9 @@ async function main() {
       ui.engineMode.textContent = 'engine failed';
       const msg = String(err.message || err);
       const isTimeout  = /timed out/i.test(msg);
-      const isCrash    = /unreachable|runtime error|not valid wasm|crashed|failed to boot|syntaxerror|importscripts/i.test(msg);
+      // Broad crash regex — better to auto-fallback once unnecessarily
+      // than leave the user stuck on a silent boot failure.
+      const isCrash    = /unreachable|runtime error|not valid wasm|crashed|failed to boot|syntaxerror|importscripts|failed to fetch|importing|module/i.test(msg);
 
       // Auto-fallback chain: on crash/timeout, walk a priority list
       // of safer flavors until one works. Stops as soon as a flavor
