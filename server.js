@@ -100,12 +100,21 @@ app.use((req, res, next) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   }
   if (req.path.endsWith('.wasm')) res.setHeader('Content-Type', 'application/wasm');
-  // sw.js MUST never be browser-cached — otherwise bug-fix SW deploys
-  // won't reach users until their browser decides to revalidate. This
-  // is the canonical no-cache setup for service workers.
+  // sw.js MUST never be browser-cached.
   if (req.path === '/sw.js') {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Service-Worker-Allowed', '/');
+  }
+  // Engine assets (WASM + JS glue + NNUE files) are content-addressed
+  // via release hash — they NEVER change at a given URL without a
+  // redeploy. Tell Chrome to cache them for 1 year and skip
+  // revalidation (`immutable`). This is the single biggest win for
+  // repeat-visit cold-boot: after the first ever visit, engine files
+  // serve from disk cache with no network round-trip.
+  if (req.path.startsWith('/assets/stockfish/') ||
+      req.path.startsWith('/assets/stockfish-web/') ||
+      req.path.startsWith('/assets/nnue/')) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   }
   next();
 });

@@ -429,7 +429,33 @@ export class Engine extends EventTarget {
     // gets flagged and the trailing bestmove drains harmlessly (our
     // stopRequested guard ignores the stale info lines). If idle, stop
     // is a pure no-op. Costs: one extra UCI message per search start.
+    const wasSearching = this.searching;
     this.stop();
+    // Belt-and-braces from ChessScan pattern: if we just interrupted a
+    // real search, give the worker a small delay (post next tick of
+    // event loop) so the trailing bestmove drains BEFORE the new
+    // position/go arrive. Only adds ~0 ms latency when idle; 50 ms
+    // when an active search was preempted. Complements stopRequested
+    // guard — together they eliminate stale-bestmove races.
+    if (wasSearching) {
+      this._pendingStartFen = fen;
+      this._pendingStartOpts = opts;
+      if (this._pendingStartId) clearTimeout(this._pendingStartId);
+      this._pendingStartId = setTimeout(() => {
+        this._pendingStartId = 0;
+        if (this._pendingStartFen) {
+          const f = this._pendingStartFen, o = this._pendingStartOpts;
+          this._pendingStartFen = null;
+          this._pendingStartOpts = null;
+          this._doStart(f, o);
+        }
+      }, 50);
+      return;
+    }
+    this._doStart(fen, opts);
+  }
+
+  _doStart(fen, opts = {}) {
 
     this.history  = [];
     this.topMoves = new Map();

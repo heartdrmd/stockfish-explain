@@ -4826,6 +4826,21 @@ async function main() {
     } catch {}
   }
 
+  // Graceful shutdown on page unload — send UCI 'quit' so the engine
+  // process exits cleanly instead of being force-killed by the browser
+  // when the tab closes. Matches the ChessScan on_closing pattern.
+  window.addEventListener('beforeunload', () => {
+    try {
+      if (engine && engine.worker) {
+        engine.worker.postMessage('quit');
+        // Terminate worker explicitly — without this, emscripten's
+        // pthread shim sometimes leaves SharedArrayBuffer workers
+        // hanging when the page closes quickly.
+        try { engine.worker.terminate(); } catch {}
+      }
+    } catch {}
+  });
+
   // Clear engine cache — escape hatch if a bad preload left corrupt
   // WASM in the SW cache (symptoms: "Aw Snap! Error 5" on boot).
   // One click wipes the cache + unregisters the SW, then reloads.
