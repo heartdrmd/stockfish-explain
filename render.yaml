@@ -25,12 +25,10 @@ services:
         value: production
       # DATABASE_URL is auto-populated by Render when the web service
       # is linked to the database above via the fromDatabase binding.
+      # When creating the DB manually, paste the Internal Database URL
+      # into the Environment tab instead.
       - key: DATABASE_URL
         fromDatabase:
           name: stockfish-explain-db
           property: connectionString
-      # Secret used by express-session-like cookie signing. Render
-      # will prompt for this on first deploy — pick any 32+ char string.
-      - key: SESSION_SECRET
-        sync: false
     healthCheckPath: /api/whoami
