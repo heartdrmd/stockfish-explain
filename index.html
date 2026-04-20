@@ -632,10 +632,24 @@
           <label for="practice-limit">Engine think time / move</label>
           <div class="row-compact">
             <select id="practice-limit-mode">
-              <option value="depth" selected>By depth</option>
+              <option value="seconds" selected>Seconds / move (fixed)</option>
+              <option value="depth">By depth</option>
               <option value="movetime">By time (ms)</option>
             </select>
-            <input id="practice-limit-value" type="number" min="1" value="14" class="limit-input">
+            <!-- Fixed-seconds preset (shown when mode=seconds) -->
+            <select id="practice-seconds-preset" class="tourn-select">
+              <option value="1">1 s  · instant</option>
+              <option value="2">2 s  · bullet</option>
+              <option value="3" selected>3 s  · blitz</option>
+              <option value="5">5 s  · rapid</option>
+              <option value="10">10 s · thoughtful</option>
+              <option value="15">15 s · deep</option>
+              <option value="20">20 s · tournament</option>
+              <option value="30">30 s · very deep</option>
+              <option value="60">60 s · classical</option>
+            </select>
+            <!-- Legacy numeric input (shown when mode=depth or movetime) -->
+            <input id="practice-limit-value" type="number" min="1" value="14" class="limit-input" hidden>
           </div>
         </div>
         <div class="setting" id="practice-clock-row" style="display:none;">

@@ -2700,6 +2700,15 @@ async function main() {
   }
 
   function searchLimits() {
+    // Practice modal's fixed-seconds-per-move pulldown takes priority
+    // when set — the user-friendliest way to control engine think time.
+    try {
+      const practiceLimitMode = document.getElementById('practice-limit-mode')?.value;
+      if (practiceColor && practiceLimitMode === 'seconds') {
+        const s = +document.getElementById('practice-seconds-preset')?.value || 3;
+        return { movetime: Math.max(500, s * 1000) };
+      }
+    } catch {}
     const mode = ui.limitMode.value;
     if (mode === 'infinite') return { infinite: true };
     // Clock mode — engine uses ~1/30th of its remaining time per move,
@@ -3617,6 +3626,27 @@ async function main() {
     if (pClockPreset) pClockPreset.addEventListener('change', () => {
       if (pClockCustom) pClockCustom.style.display = pClockPreset.value === 'custom' ? 'flex' : 'none';
     });
+
+    // Engine-think-time mode picker: 'seconds' (fixed preset) vs
+    // 'depth' / 'movetime' (legacy numeric). Swap which control is
+    // visible based on the mode.
+    const pLimitMode = document.getElementById('practice-limit-mode');
+    const pSecondsPreset = document.getElementById('practice-seconds-preset');
+    const pLimitValue = document.getElementById('practice-limit-value');
+    const applyLimitModeToggle = () => {
+      const m = pLimitMode?.value || 'seconds';
+      if (pSecondsPreset) pSecondsPreset.hidden = (m !== 'seconds');
+      if (pLimitValue)    pLimitValue.hidden = (m === 'seconds');
+      // Default value flip — depth wants a sane number around 14; ms
+      // wants something around 2000.
+      if (m === 'depth' && pLimitValue && (!pLimitValue.value || +pLimitValue.value > 100)) {
+        pLimitValue.value = 14;
+      } else if (m === 'movetime' && pLimitValue && (+pLimitValue.value < 100)) {
+        pLimitValue.value = 2000;
+      }
+    };
+    if (pLimitMode) pLimitMode.addEventListener('change', applyLimitModeToggle);
+    applyLimitModeToggle();
 
     // Custom starting position: "use current board position" checkbox.
     // When ticked, practice starts from whatever's on the board right now
