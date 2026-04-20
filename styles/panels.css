@@ -1839,46 +1839,6 @@ body.practice-mode .practice-card { display: block; }
   flex-direction: column-reverse;
 }
 
-/* Unambiguous YOU / OPP labels. Practice mode adds body.practice-mode.
-   We show a small tag inside each clock side so it's obvious which
-   clock is whose, no matter the style or orientation.
-   The tag is positioned top-right of each side. */
-.clock-side::after {
-  content: '';
-  display: none;
-}
-body.practice-mode .clock-display[data-user-color="white"] #clock-white::after,
-body.practice-mode .clock-display[data-user-color="black"] #clock-black::after {
-  content: 'YOU';
-  display: inline-block;
-  position: absolute;
-  top: 4px; right: 6px;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(56, 147, 232, 0.85);
-  color: #fff;
-  z-index: 2;
-  pointer-events: none;
-}
-body.practice-mode .clock-display[data-user-color="white"] #clock-black::after,
-body.practice-mode .clock-display[data-user-color="black"] #clock-white::after {
-  content: 'OPP';
-  display: inline-block;
-  position: absolute;
-  top: 4px; right: 6px;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(128, 128, 128, 0.5);
-  color: #fff;
-  z-index: 2;
-  pointer-events: none;
-}
 .clock-side { position: relative; }
 /* Use a single solid king glyph (♚) for both sides, colored to
    distinguish White (light fill) from Black (dark fill). No text label. */
