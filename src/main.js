@@ -5110,9 +5110,12 @@ async function main() {
       ui.boardArea.style.width    = sz + 'px';
       boardElForResize.style.width  = sz + 'px';
       boardElForResize.style.height = sz + 'px';
-      // Nudge chessground to re-measure (it listens on window resize +
-      // custom `chessgroundResize`)
-      window.dispatchEvent(new Event('resize'));
+      // During an active drag, only fire the lightweight chessground
+      // re-measure event — the full window.resize event triggers every
+      // layout-observing listener in the app (eval timeline, accuracy
+      // strip, explainer, etc.) and causes jank. Full re-measure on
+      // pointerup instead.
+      if (!resizing) window.dispatchEvent(new Event('resize'));
       document.dispatchEvent(new Event('chessgroundResize'));
     };
 
@@ -5127,25 +5130,44 @@ async function main() {
       if (!localStorage.getItem(STORAGE_KEY)) applySize(defaultBoardSize());
     });
 
+    // rAF-coalesced resize (lichess-style smooth drag). We batch all
+    // pointermove events into at most one applySize per animation
+    // frame (~16 ms) so DOM writes + chessground relayout don't happen
+    // 120+ times per second on a high-Hz pointer.
+    let pendingSize = 0;
+    let rafId = 0;
+    const scheduleSize = (size) => {
+      pendingSize = size;
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        applySize(pendingSize);
+      });
+    };
+
     resizeHandle.addEventListener('pointerdown', (e) => {
       e.preventDefault(); e.stopPropagation();
       resizing = true;
       startX = e.clientX; startY = e.clientY;
       startW = boardElForResize.getBoundingClientRect().width;
+      // Lock the user preference IMMEDIATELY on drag start so the
+      // window.resize → applySize(default) listener can't fight us.
+      // Previously it would reset the board to default every frame
+      // during a drag that hadn't yet hit pointerup — classic jitter.
+      localStorage.setItem(STORAGE_KEY, String(Math.round(startW)));
       resizeHandle.setPointerCapture(e.pointerId);
     });
     resizeHandle.addEventListener('pointermove', (e) => {
       if (!resizing) return;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
-      // Use the average of dx and dy so diagonal dragging behaves naturally
-      // and both axes contribute
       const delta = (dx + dy) / 2;
-      applySize(startW + delta);
+      scheduleSize(startW + delta);
     });
     resizeHandle.addEventListener('pointerup', (e) => {
       if (!resizing) return;
       resizing = false;
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
       resizeHandle.releasePointerCapture(e.pointerId);
       const finalW = Math.round(boardElForResize.getBoundingClientRect().width);
       localStorage.setItem(STORAGE_KEY, String(finalW));
