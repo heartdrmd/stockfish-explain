@@ -859,11 +859,23 @@ async function main() {
         ui.narrationText.innerHTML = `⏳ Trying <strong>${nextFlavor}</strong>…`;
         ui.selectFlavor.value = nextFlavor;
         try { engine.terminate?.(); } catch {}
+        // Ritual inline for fallbacks: if the fallback target is MT,
+        // insert a lite-single warmup. Prevents MT→MT silent-engine
+        // when the original boot was also MT. Matches switchEngineFlavor
+        // but can't call it from here — helper is defined later.
+        const nextSpec = ENGINE_FLAVORS[nextFlavor];
+        const nextIsMT = !!(nextSpec && nextSpec.threaded);
+        if (nextIsMT) {
+          engine = new Engine();
+          if (typeof explainer !== 'undefined') {
+            explainer.engine = engine;
+            explainer.wire();
+          }
+          try { await bootEngine('lite-single'); } catch {}
+          await new Promise(r => setTimeout(r, 200));
+          try { engine.terminate?.(); } catch {}
+        }
         engine = new Engine();
-        // Re-wire explainer — without this, the listeners on the
-        // terminated old engine stay orphaned and the UI goes silent
-        // after a successful fallback. Same class of bug as the
-        // auto-ritual and manual flavor-switch paths.
         if (typeof explainer !== 'undefined') {
           explainer.engine = engine;
           explainer.wire();
@@ -984,6 +996,38 @@ async function main() {
     }
   } else {
     await bootEngine(currentFlavor);
+  }
+
+  // ───── Shared helper: switch to any flavor with ritual when needed ─────
+  // Every code path that wants to change or restart the engine must
+  // route through this helper. It guarantees:
+  //   1. Old engine properly terminated
+  //   2. If target is multi-thread, we insert a lite-single (ST)
+  //      warmup in between to clear lingering SharedArrayBuffer /
+  //      pthread state from the previous MT worker. Without this, a
+  //      second MT worker reports uciok but emits ZERO info lines —
+  //      the exact 'silent engine' symptom the user hit repeatedly.
+  //   3. New Engine instance + explainer re-wire (else UI stays
+  //      silent because listeners are still on the old engine).
+  async function switchEngineFlavor(targetFlavor) {
+    const spec = ENGINE_FLAVORS[targetFlavor];
+    const targetIsMT = !!(spec && spec.threaded);
+    try { engine.terminate?.(); } catch {}
+    if (targetIsMT) {
+      console.log('[engine] ritual: lite-single → ' + targetFlavor);
+      engine = new Engine();
+      explainer.engine = engine;
+      explainer.wire();
+      try { await bootEngine('lite-single'); } catch (e) {
+        console.warn('[engine] ritual warmup failed, proceeding to direct boot', e);
+      }
+      await new Promise(r => setTimeout(r, 200));
+      try { engine.terminate?.(); } catch {}
+    }
+    engine = new Engine();
+    explainer.engine = engine;
+    explainer.wire();
+    await bootEngine(targetFlavor);
   }
 
   // ────────── Engine control <-> UI ──────────
@@ -1133,13 +1177,9 @@ async function main() {
     const f = ui.selectFlavor.value;
     if (f === currentFlavor) return;
     localStorage.setItem(FLAVOR_STORAGE, f);
-    engine.terminate();
-    engine = new Engine();
+    await switchEngineFlavor(f);
     engine.setSkill(+ui.rangeSkill.value);
     engine.setMultiPV(+ui.rangeMultipv.value);
-    explainer.engine = engine;
-    explainer.wire();
-    await bootEngine(f);
     // Resume analysis of current position automatically
     fireAnalysis();
   });
@@ -4807,13 +4847,9 @@ async function main() {
   // Restart engine button — force-reboots the current flavor
   document.getElementById('btn-restart').addEventListener('click', async () => {
     ui.narrationText.textContent = 'Restarting engine…';
-    engine.terminate();
-    engine = new Engine();
+    await switchEngineFlavor(currentFlavor);
     engine.setSkill(+ui.rangeSkill.value);
     engine.setMultiPV(+ui.rangeMultipv.value);
-    explainer.engine = engine;
-    explainer.wire();
-    await bootEngine(currentFlavor);
   });
 
   // ───── Preload engines (HTTP-cache warming) ─────
