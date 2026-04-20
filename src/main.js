@@ -950,6 +950,36 @@ async function main() {
   explainer.wire();
   explainer.setFen(board.fen());
 
+  // Reactive auto-recovery: if the mismatch detector fires on a live
+  // engine (worker says uciok but emits zero info lines for 2 s),
+  // automatically run the flavor-switch ritual that manually fixes
+  // it. Prevents the 'I have to switch to 7MB and back' dance.
+  let _autoRecovering = false;
+  const _autoRecoverListener = async () => {
+    if (_autoRecovering) return;
+    if (!currentFlavor || currentFlavor === 'lite-single') return; // already ST, nothing to recover to
+    _autoRecovering = true;
+    console.error('[engine] silent-engine detected — auto-running the ritual');
+    try {
+      if (ui.narrationText) ui.narrationText.innerHTML = '⚠ Engine silent — auto-recovering…';
+      // Expose switchEngineFlavor globally once it's defined below;
+      // until then, deferred listener waits.
+      if (typeof window.__switchEngineFlavor === 'function') {
+        await window.__switchEngineFlavor(currentFlavor);
+      }
+    } catch (e) {
+      console.warn('[engine] auto-recovery failed', e);
+    } finally {
+      _autoRecovering = false;
+    }
+  };
+  // We can't attach the listener to `engine` yet because the Engine
+  // object gets replaced on every flavor switch. Wire it through a
+  // window event that engine.js dispatches when the mismatch detector
+  // fires. (Engine.js code will dispatch on `window` in the health
+  // check.)
+  window.addEventListener('engine-silent-detected', _autoRecoverListener);
+
   // ───── Auto-ritual boot ─────
   // User-confirmed: directly booting the full 108 MB variant sometimes
   // leaves the engine silent (no info/bestmove events reach the UI even
@@ -1009,20 +1039,32 @@ async function main() {
   //      the exact 'silent engine' symptom the user hit repeatedly.
   //   3. New Engine instance + explainer re-wire (else UI stays
   //      silent because listeners are still on the old engine).
+  // Expose for the reactive auto-recovery listener (defined earlier).
+  window.__switchEngineFlavor = (flavor) => switchEngineFlavor(flavor);
   async function switchEngineFlavor(targetFlavor) {
     const spec = ENGINE_FLAVORS[targetFlavor];
     const targetIsMT = !!(spec && spec.threaded);
     try { engine.terminate?.(); } catch {}
+    // Give the browser time to actually release the old MT worker's
+    // pthread children + SharedArrayBuffer. 200 ms wasn't enough —
+    // new log showed lite-single → avrukh still going silent.
+    // 1500 ms matches the human-click delay of a manual ritual that
+    // reliably works.
+    await new Promise(r => setTimeout(r, 1500));
     if (targetIsMT) {
       console.log('[engine] ritual: lite-single → ' + targetFlavor);
       engine = new Engine();
       explainer.engine = engine;
       explainer.wire();
       try { await bootEngine('lite-single'); } catch (e) {
-        console.warn('[engine] ritual warmup failed, proceeding to direct boot', e);
+        console.warn('[engine] ritual warmup failed', e);
       }
-      await new Promise(r => setTimeout(r, 200));
+      // Let the ST worker produce a few info lines before we kill
+      // it — user's manual ritual has seconds of actual engine work
+      // in between, which may be why it settles correctly.
+      await new Promise(r => setTimeout(r, 1500));
       try { engine.terminate?.(); } catch {}
+      await new Promise(r => setTimeout(r, 1500));
     }
     engine = new Engine();
     explainer.engine = engine;

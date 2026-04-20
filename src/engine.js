@@ -489,6 +489,9 @@ export class Engine extends EventTarget {
       };
       if (this._infoReceived === 0) {
         console.error('[engine] ⚠ MISMATCH: 2 s passed, _doStart fired, but worker emitted ZERO info lines. Worker may be wedged or command gate dropped position/go.', state);
+        // Fire a window event so main.js's reactive auto-recovery
+        // can pick it up and run the flavor-switch ritual.
+        try { window.dispatchEvent(new CustomEvent('engine-silent-detected', { detail: state })); } catch {}
       } else if (this._infoDispatched === 0 && this._infoDropped > 0) {
         console.error('[engine] ⚠ MISMATCH: info lines arriving BUT all dropped by stopRequested guard. Flag stuck true.', state);
       } else {
