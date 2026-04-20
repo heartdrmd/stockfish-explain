@@ -2347,11 +2347,14 @@ async function main() {
   // wheel, or setup editor placing pieces rapidly) collapse into ONE
   // actual search restart at frame end. Prevents engine churn where
   // stop+start is called faster than the worker can finish anything.
-  let _fireAnalysisScheduled = 0;
+  // NOTE: `_fireAnalysisScheduled` lives on `window.__fireScheduled`
+  // instead of a `let` binding, because fireAnalysis() is called from
+  // bootEngine()'s post-await path (before main() reaches this line),
+  // and a `let` here throws TDZ. Hoisted global avoids the dance.
   function fireAnalysis() {
-    if (_fireAnalysisScheduled) return;
-    _fireAnalysisScheduled = requestAnimationFrame(() => {
-      _fireAnalysisScheduled = 0;
+    if (window.__fireScheduled) return;
+    window.__fireScheduled = requestAnimationFrame(() => {
+      window.__fireScheduled = 0;
       _fireAnalysisNow();
     });
   }
