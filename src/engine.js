@@ -424,14 +424,15 @@ export class Engine extends EventTarget {
       console.log('[engine] start() ignored — engine not ready yet');
       return;
     }
-    // Removed the 50 ms stop→start delay. Log analysis showed it was
-    // adding complexity without helping — the stopRequested guard +
-    // _doStart's explicit clear of that flag are enough to handle
-    // stale info lines. User reported "7mb → full flavor ritual fixes
-    // silent engine" even with the delay in place; simplifying back
-    // to stop + immediate start matches what the ritual effectively
-    // does (fresh worker state) on every search restart.
+    // If we just interrupted an active search, Stockfish will emit
+    // TWO bestmoves: one for the OLD (just-stopped) search then one
+    // for the NEW search. Without suppressing the first, our onBest
+    // listener catches the OLD bestmove within milliseconds and
+    // plays the OLD search's move onto the NEW position — the
+    // 'engine plays instantly even though I asked for 10 s' bug.
+    const wasSearching = this.searching;
     this.stop();
+    this._skipNextBestmove = wasSearching ? ((this._skipNextBestmove || 0) + 1) : 0;
     this._doStart(fen, opts);
   }
 
@@ -628,6 +629,14 @@ export class Engine extends EventTarget {
       }));
     }
     else if (line.startsWith('bestmove')) {
+      // Suppress trailing bestmoves from a prior stopped search.
+      // start() sets _skipNextBestmove = number of stale bestmoves we
+      // expect BEFORE the real one for the current search arrives.
+      if (this._skipNextBestmove && this._skipNextBestmove > 0) {
+        this._skipNextBestmove--;
+        console.log('[engine] suppressed stale bestmove from prior search', line);
+        return;
+      }
       this.searching = false;
       this.stopRequested = false;
       if (this._healthCheckId) { clearTimeout(this._healthCheckId); this._healthCheckId = 0; }
