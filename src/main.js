@@ -930,7 +930,39 @@ async function main() {
   explainer.wire();
   explainer.setFen(board.fen());
 
-  await bootEngine(currentFlavor);
+  // ───── Auto-ritual boot ─────
+  // User-confirmed: directly booting the full 108 MB variant sometimes
+  // leaves the engine silent (no info/bestmove events reach the UI even
+  // though the worker is searching). The workaround they found: switch
+  // to the 7 MB Stock Lite variant and back. Now we do that rite
+  // automatically for every non-lite flavor so users never hit the
+  // silent-engine state. Costs: ~1 extra second of boot for a Lite
+  // WASM handshake the user wasn't otherwise doing.
+  const _savedFlavor = currentFlavor;
+  const _needsRitual = !['lite', 'lite-single', 'avrukhplus-lite', 'avrukhplus-lite-single',
+                         'kaufman-lite-single', 'classical-lite-single',
+                         'alphazero-lite-single', 'avrukh-lite-single'].includes(_savedFlavor);
+  if (_needsRitual) {
+    console.log('[engine] auto-ritual: boot lite first, then switch to', _savedFlavor);
+    ui.narrationText.textContent = `Warming up (lite) before switching to ${_savedFlavor}…`;
+    try {
+      await bootEngine(threadable ? 'lite' : 'lite-single');
+      // Brief settling pause so the lite engine's worker is fully
+      // initialised before we tear it down.
+      await new Promise(r => setTimeout(r, 400));
+      // Terminate + fresh Engine, same as the flavor-switch ritual.
+      try { engine.terminate(); } catch {}
+      engine = new Engine();
+      await bootEngine(_savedFlavor);
+    } catch (err) {
+      console.warn('[engine] auto-ritual failed, falling back to direct boot', err);
+      try { engine.terminate?.(); } catch {}
+      engine = new Engine();
+      await bootEngine(_savedFlavor);
+    }
+  } else {
+    await bootEngine(currentFlavor);
+  }
 
   // ────────── Engine control <-> UI ──────────
 
