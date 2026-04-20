@@ -170,15 +170,17 @@ export class Engine extends EventTarget {
 
     this.flavor = flavor;
     this.scriptPath = spec.js;
-    // Default: 75% of available cores, capped at N-1 AND at 32.
-    // Stockfish WASM pthread pools are typically compiled with a
-    // 32-thread ceiling — requesting more crashes the worker without
-    // a useful error. Beyond ~24 threads scaling plateaus anyway.
-    // User can crank the UI slider up to whatever they want later.
+    // Default: 6 threads is the sweet spot for Stockfish on WASM.
+    // Beyond ~8 threads the Elo curve flattens; beyond ~12 the UI
+    // thread gets starved on macOS and the user gets click-lag when
+    // playing against the engine. We still respect hw limits and the
+    // 32-thread WASM pthread pool cap. User can crank higher via the
+    // threads slider for pure analysis work.
     const hw = navigator.hardwareConcurrency || 4;
     const WASM_THREAD_CAP = 32;
+    const DEFAULT_THREADS = 6;
     this.threads = spec.threaded
-      ? Math.max(1, Math.min(hw - 1, Math.ceil(hw * 0.75), WASM_THREAD_CAP))
+      ? Math.max(1, Math.min(hw - 2, DEFAULT_THREADS, WASM_THREAD_CAP))
       : 1;
 
     try {
