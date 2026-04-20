@@ -2342,7 +2342,20 @@ async function main() {
     return ok;
   }
 
+  // Public fireAnalysis: rAF-coalesced wrapper. Multiple triggers in
+  // the same animation frame (e.g. scrubbing history with the mouse
+  // wheel, or setup editor placing pieces rapidly) collapse into ONE
+  // actual search restart at frame end. Prevents engine churn where
+  // stop+start is called faster than the worker can finish anything.
+  let _fireAnalysisScheduled = 0;
   function fireAnalysis() {
+    if (_fireAnalysisScheduled) return;
+    _fireAnalysisScheduled = requestAnimationFrame(() => {
+      _fireAnalysisScheduled = 0;
+      _fireAnalysisNow();
+    });
+  }
+  function _fireAnalysisNow() {
     // If main() hasn't finished declaring all its state yet, defer.
     // Flushed once at the end of main(). Prevents TDZ crashes when
     // bootEngine's post-await fireAnalysis() races the rest of main().
