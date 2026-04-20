@@ -4017,15 +4017,24 @@ async function main() {
         // accountable for moves they made before practice started.
         window.__practiceOpeningPlies = board.chess.history().length;
       } else {
-        // Load the opening position
+        // DEFENSIVE RESET — user reported new practice games showing
+        // old PGN merged with new. Force-clear all game state before
+        // loading the new opening line.
+        //   board.newGame()    → fresh GameTree, resets chess, fires event
+        //   clearDraft()       → wipes any auto-saved PGN draft
+        //   fenEvalCache.clear → fresh eval cache (old evals were for
+        //                        positions that no longer exist)
+        //   __practiceOpeningPlies reset below after opening plays
         board.newGame();
+        try { clearDraft(); } catch {}
+        try { if (typeof fenEvalCache !== 'undefined') fenEvalCache.clear(); } catch {}
+        // Clear any stale analysis-mode 'archived' marker so the new
+        // game can archive fresh on end.
+        document.body.classList.remove('analysis-archived');
         if (op.moves.length) {
           const played = playOpening(op.moves);
           if (played) board.playUciMoves(played.uciMoves, { animate: false });
         }
-        // Remember how many plies the opening played so 'Learn from
-        // mistakes' can skip them — opening moves are book, not
-        // user-accountable mistakes.
         window.__practiceOpeningPlies = op.moves.length || 0;
       }
 
@@ -4116,6 +4125,9 @@ async function main() {
           : 0;
         startClock(0, incSec, 'up');
       }
+
+      // Explicit move-list re-render to match the fresh tree state.
+      try { renderMoveList(); } catch {}
 
       // Kick the loop — if it's engine's turn first, it plays immediately.
       // User-reported bug: practicing as White with an opening that ends
