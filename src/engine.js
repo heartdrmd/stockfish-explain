@@ -398,7 +398,12 @@ export class Engine extends EventTarget {
       console.log('[engine] start() ignored — engine not ready yet');
       return;
     }
-    if (this.searching) this.stop();
+    // ALWAYS stop first (user-requested defensive pattern). Stockfish's
+    // stop handler is idempotent: if a search is active, threads.stop
+    // gets flagged and the trailing bestmove drains harmlessly (our
+    // stopRequested guard ignores the stale info lines). If idle, stop
+    // is a pure no-op. Costs: one extra UCI message per search start.
+    this.stop();
 
     this.history  = [];
     this.topMoves = new Map();
