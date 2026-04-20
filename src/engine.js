@@ -440,14 +440,61 @@ export class Engine extends EventTarget {
     this.history  = [];
     this.topMoves = new Map();
     this.searching = true;
-    // CRITICAL: clear stopRequested here too. Without this, info lines
-    // from the NEW search can be dropped because the flag set by the
-    // preceding stop() never got cleared (bestmove from old search
-    // may not have arrived yet in the 50 ms window). Starting a new
-    // search is the other natural re-arm point besides bestmove.
     this.stopRequested = false;
     this.currentFen = fen;
-    console.log('[engine] _doStart', { fen: fen.slice(0, 30) + '…', opts, uciokReceived: this.uciokReceived });
+
+    // ───── Mismatch detector ─────
+    // Track per-search diagnostics so we can catch the "engine should
+    // be analyzing, nothing appearing" state. Counters:
+    //   infoReceived  — total 'info' lines from worker
+    //   infoDropped   — lines dropped by stopRequested guard
+    //   infoDispatched — lines that fired 'thinking' event
+    // A silent engine = infoReceived stays 0 despite _doStart firing,
+    // OR infoDispatched stays 0 while infoDropped climbs. Either way
+    // we log a clear warning after 2 seconds.
+    this._searchId = (this._searchId || 0) + 1;
+    const myId = this._searchId;
+    this._infoReceived = 0;
+    this._infoDropped = 0;
+    this._infoDispatched = 0;
+    this._lastInfoAt = 0;
+
+    console.log('[engine] _doStart', {
+      searchId: myId,
+      fen: fen.slice(0, 40) + '…',
+      opts,
+      uciokReceived: this.uciokReceived,
+      workerAlive: !!this.worker,
+    });
+
+    // Health check 2 seconds after _doStart: if the engine is still
+    // marked as searching but produced nothing (or everything got
+    // dropped), scream loud so the next log file tells us exactly
+    // which code path broke.
+    if (this._healthCheckId) clearTimeout(this._healthCheckId);
+    this._healthCheckId = setTimeout(() => {
+      this._healthCheckId = 0;
+      if (this._searchId !== myId) return; // superseded
+      if (!this.searching) return; // completed naturally
+      const state = {
+        searchId: myId,
+        elapsed_ms: 2000,
+        infoReceived: this._infoReceived,
+        infoDropped: this._infoDropped,
+        infoDispatched: this._infoDispatched,
+        stopRequested: this.stopRequested,
+        uciokReceived: this.uciokReceived,
+        workerAlive: !!this.worker,
+        lastInfoAgo_ms: this._lastInfoAt ? Date.now() - this._lastInfoAt : null,
+      };
+      if (this._infoReceived === 0) {
+        console.error('[engine] ⚠ MISMATCH: 2 s passed, _doStart fired, but worker emitted ZERO info lines. Worker may be wedged or command gate dropped position/go.', state);
+      } else if (this._infoDispatched === 0 && this._infoDropped > 0) {
+        console.error('[engine] ⚠ MISMATCH: info lines arriving BUT all dropped by stopRequested guard. Flag stuck true.', state);
+      } else {
+        console.log('[engine] health check OK', state);
+      }
+    }, 2000);
 
     // Bestmove watchdog (lichess lacks this — see lila #11373 stuck-
     // engine reports). If bestmove doesn't arrive in a reasonable
@@ -492,13 +539,15 @@ export class Engine extends EventTarget {
 
   stop() {
     if (!this.worker) return;
-    // Log who asked the engine to stop so users can audit unexpected
-    // stops. Stack trace slice captures 3 frames past the stop() call
-    // — enough to identify the caller (e.g. fireAnalysis, lock toggle,
-    // practice-finish, retrospective sweep).
     if (this.searching) {
       const caller = (new Error().stack || '').split('\n').slice(2, 4).map(s => s.trim()).join(' ← ');
-      console.log('[engine] stop() called', { wasSearching: true, caller });
+      console.log('[engine] stop() called', {
+        wasSearching: true,
+        caller,
+        searchId: this._searchId,
+        infoReceivedSoFar: this._infoReceived,
+        infoDispatchedSoFar: this._infoDispatched,
+      });
       this.stopRequested = true;
     }
     this._send('stop');
@@ -541,9 +590,15 @@ export class Engine extends EventTarget {
       // Drop info lines that arrive AFTER we've asked to stop. They
       // belong to the old search; using them mutates state under a
       // position the UI has moved on from.
-      if (this.stopRequested) return;
+      this._infoReceived = (this._infoReceived || 0) + 1;
+      this._lastInfoAt = Date.now();
+      if (this.stopRequested) {
+        this._infoDropped = (this._infoDropped || 0) + 1;
+        return;
+      }
       const info = parseInfo(line);
       if (!info || info.pv == null) return;
+      this._infoDispatched = (this._infoDispatched || 0) + 1;
 
       this.topMoves.set(info.multipv, info);
 
@@ -572,10 +627,8 @@ export class Engine extends EventTarget {
     else if (line.startsWith('bestmove')) {
       this.searching = false;
       this.stopRequested = false;
-      // Cancel the bestmove watchdog — search completed normally.
+      if (this._healthCheckId) { clearTimeout(this._healthCheckId); this._healthCheckId = 0; }
       if (this._watchdogId) { clearTimeout(this._watchdogId); this._watchdogId = 0; }
-      // Flush any option changes queued during the search. This is the
-      // idle transition where options are safe to mutate (per lichess).
       this._applyPending();
       const m = line.match(/^bestmove\s+(\S+)(?:\s+ponder\s+(\S+))?/);
       const detail = {
@@ -585,7 +638,13 @@ export class Engine extends EventTarget {
                        .sort((a, b) => a.multipv - b.multipv),
         history:  this.history,
       };
-      console.log('[engine] bestmove', detail.best);
+      console.log('[engine] bestmove', {
+        best: detail.best,
+        searchId: this._searchId,
+        infoReceived: this._infoReceived,
+        infoDropped: this._infoDropped,
+        infoDispatched: this._infoDispatched,
+      });
       this.dispatchEvent(new CustomEvent('bestmove', { detail }));
     }
   }
