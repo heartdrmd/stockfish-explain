@@ -957,16 +957,27 @@ async function main() {
   let _autoRecovering = false;
   const _autoRecoverListener = async () => {
     if (_autoRecovering) return;
-    if (!currentFlavor || currentFlavor === 'lite-single') return; // already ST, nothing to recover to
+    if (!currentFlavor || currentFlavor === 'lite-single') return;
     _autoRecovering = true;
-    console.error('[engine] silent-engine detected — auto-running the ritual');
+    console.error('[engine] silent-engine detected — simulating user ritual (lite-single → ' + currentFlavor + ')');
     try {
-      if (ui.narrationText) ui.narrationText.innerHTML = '⚠ Engine silent — auto-recovering…';
-      // Expose switchEngineFlavor globally once it's defined below;
-      // until then, deferred listener waits.
-      if (typeof window.__switchEngineFlavor === 'function') {
-        await window.__switchEngineFlavor(currentFlavor);
-      }
+      if (ui.narrationText) ui.narrationText.innerHTML = '⚠ Engine silent — auto-recovering (ritual)…';
+      const target = currentFlavor;
+      // LITERAL simulation of the user's manual click ritual:
+      // click #1: dropdown → lite-single (fires the existing change
+      // listener which terminates + new Engine + rewire + boot lite-single)
+      // click #2: dropdown → target (same listener again)
+      // This is the ONLY code path proven to reliably kick MT engines
+      // in. We intentionally go through the exact same UI handler the
+      // user was using because NO amount of programmatic switchEngineFlavor
+      // trickery has been as reliable.
+      ui.selectFlavor.value = 'lite-single';
+      ui.selectFlavor.dispatchEvent(new Event('change'));
+      // Wait for the ST boot to complete. ~3 s is more than enough.
+      await new Promise(r => setTimeout(r, 3000));
+      ui.selectFlavor.value = target;
+      ui.selectFlavor.dispatchEvent(new Event('change'));
+      console.log('[engine] auto-recovery ritual dispatched — waiting for target boot');
     } catch (e) {
       console.warn('[engine] auto-recovery failed', e);
     } finally {
@@ -993,37 +1004,15 @@ async function main() {
                          'kaufman-lite-single', 'classical-lite-single',
                          'alphazero-lite-single', 'avrukh-lite-single'].includes(_savedFlavor);
   if (_needsRitual) {
-    console.log('[engine] auto-ritual: boot lite-single first, then switch to', _savedFlavor);
+    console.log('[engine] auto-ritual: literally simulate the manual click sequence');
     ui.narrationText.textContent = `Warming up before switching to ${_savedFlavor}…`;
-    try {
-      // Use SINGLE-THREAD lite, not multi-thread. Log analysis showed:
-      //   MT lite → MT full = both boot but SECOND one emits ZERO info
-      //                       (stale SharedArrayBuffer / thread pool
-      //                       state from first worker blocks second)
-      //   ST lite → MT full = clean, full works perfectly
-      // User's manual ritual that 'kicks it in' always used lite-single,
-      // which is why it worked. We now match that exactly.
-      await bootEngine('lite-single');
-      await new Promise(r => setTimeout(r, 400));
-      // CRITICAL: match what the manual flavor-switch handler does —
-      // terminate + new Engine + RE-WIRE EXPLAINER. Without re-wiring,
-      // the explainer's 'thinking'/'bestmove' listeners are still
-      // attached to the terminated old engine; the new engine fires
-      // events into the void and the UI stays silent (the exact bug
-      // the user kept hitting with the 'silent engine' complaint).
-      try { engine.terminate(); } catch {}
-      engine = new Engine();
-      explainer.engine = engine;
-      explainer.wire();
-      await bootEngine(_savedFlavor);
-    } catch (err) {
-      console.warn('[engine] auto-ritual failed, falling back to direct boot', err);
-      try { engine.terminate?.(); } catch {}
-      engine = new Engine();
-      explainer.engine = engine;
-      explainer.wire();
-      await bootEngine(_savedFlavor);
-    }
+    // Go direct with the target first. The 'manual ritual' only
+    // reliably works when done BY THE USER via the dropdown — so we
+    // boot direct, then if the mismatch detector catches silence, the
+    // auto-recovery listener fires the exact same dropdown-change
+    // event sequence the user would. That listener path is the ONLY
+    // code path proven to reliably kick MT engines in.
+    await bootEngine(_savedFlavor);
   } else {
     await bootEngine(currentFlavor);
   }
