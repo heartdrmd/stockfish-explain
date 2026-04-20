@@ -1940,16 +1940,15 @@ async function main() {
   }
   function classifySeverityForPly(prev, cur) {
     if (!prev || cur.cpWhite == null || prev.cpWhite == null) return null;
-    // POV of the side that just moved = opposite of side-to-move AFTER
-    // the move. fen.split(' ')[1] gives side to move after. Flip it.
+    // Match classifyAccuracy: lichess-style win-chances delta instead
+    // of raw cp. Keeps timeline/archive labels consistent with pills.
+    const cpWin = (cp) => 2 / (1 + Math.exp(-0.004 * cp)) - 1;
     const stmAfter = cur.fen.split(' ')[1] || 'w';
-    const moverSign = stmAfter === 'w' ? -1 : 1; // mover was black if stmAfter=w
-    const cpBeforeMover = moverSign * prev.cpWhite;
-    const cpAfterMover  = moverSign * cur.cpWhite;
-    const drop = cpBeforeMover - cpAfterMover;
-    if (drop >= 200) return 'blunder';
-    if (drop >= 100) return 'mistake';
-    if (drop >=  50) return 'inaccuracy';
+    const moverSign = stmAfter === 'w' ? -1 : 1;
+    const drop = moverSign * cpWin(prev.cpWhite) - moverSign * cpWin(cur.cpWhite);
+    if (drop >= 0.20) return 'blunder';
+    if (drop >= 0.12) return 'mistake';
+    if (drop >= 0.06) return 'inaccuracy';
     return null;
   }
   // Convert cp (White POV) to a normalised "win-probability" value in
@@ -2218,17 +2217,27 @@ async function main() {
   // Lichess's move-classification vocabulary.
   function classifyAccuracy(prev, cur) {
     if (!prev || prev.cpWhite == null || cur.cpWhite == null) return 'unknown';
-    // POV of the side that moved = opposite of side-to-move AFTER.
+    // Lichess-matched classification: winning-chances delta, not raw cp.
+    // cpWin(cp) = 2/(1+exp(-0.004*cp)) - 1 maps eval to (-1, +1) win%
+    // range. Thresholds are lichess's nodeFinder defaults:
+    //   drop ≥ 0.06 → inaccuracy (6% win-% loss)
+    //   drop ≥ 0.12 → mistake    (12% win-% loss)
+    //   drop ≥ 0.20 → blunder    (20% win-% loss)
+    // Practical effect: a 100 cp drop at equality = ~20% win-%, so
+    // blunder. A 100 cp drop at +8 = ~2% win-%, so NOT flagged. Matches
+    // the acceptance criteria our Learn-from-mistakes retro mode uses.
+    const cpWin = (cp) => 2 / (1 + Math.exp(-0.004 * cp)) - 1;
     const stmAfter = cur.fen.split(' ')[1] || 'w';
+    // Mover just moved; POV is opposite of stmAfter.
     const moverSign = stmAfter === 'w' ? -1 : 1;
-    const cpBeforeMover = moverSign * prev.cpWhite;
-    const cpAfterMover  = moverSign * cur.cpWhite;
-    const drop = cpBeforeMover - cpAfterMover;
-    if (drop >= 200) return 'blunder';
-    if (drop >= 100) return 'mistake';
-    if (drop >=  50) return 'inaccuracy';
-    if (drop >=  20) return 'ok';
-    if (drop >=   0) return 'good';
+    const winBefore = moverSign * cpWin(prev.cpWhite);
+    const winAfter  = moverSign * cpWin(cur.cpWhite);
+    const drop = winBefore - winAfter;                 // positive if move got worse
+    if (drop >= 0.20) return 'blunder';
+    if (drop >= 0.12) return 'mistake';
+    if (drop >= 0.06) return 'inaccuracy';
+    if (drop >= 0.02) return 'ok';
+    if (drop >= 0)    return 'good';
     return 'best';
   }
   function renderAccuracyStrip() {
