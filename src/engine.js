@@ -328,25 +328,51 @@ export class Engine extends EventTarget {
     this.ready = false;
   }
 
+  // Option setters: NEVER send setoption while a search is in flight.
+  // Per lichess protocol.ts research — options are only safe to mutate
+  // between searches (in the idle transition). If the engine is
+  // currently searching, we queue the option and flush it in the next
+  // bestmove handler. Eliminates mid-search UCI protocol violations.
+  _applyPending() {
+    if (!this._pendingOpts) return;
+    const p = this._pendingOpts;
+    this._pendingOpts = null;
+    if (p.multipv  != null) this._send(`setoption name MultiPV value ${p.multipv}`);
+    if (p.skill    != null) this._send(`setoption name Skill Level value ${p.skill}`);
+    if (p.threads  != null) this._send(`setoption name Threads value ${p.threads}`);
+    if (p.hashMB   != null) this._send(`setoption name Hash value ${p.hashMB}`);
+  }
+  _queueOrApply(kv) {
+    if (!this.ready) return;
+    if (this.searching) {
+      this._pendingOpts = { ...(this._pendingOpts || {}), ...kv };
+    } else {
+      if (kv.multipv  != null) this._send(`setoption name MultiPV value ${kv.multipv}`);
+      if (kv.skill    != null) this._send(`setoption name Skill Level value ${kv.skill}`);
+      if (kv.threads  != null) this._send(`setoption name Threads value ${kv.threads}`);
+      if (kv.hashMB   != null) this._send(`setoption name Hash value ${kv.hashMB}`);
+    }
+  }
+
   setMultiPV(n) {
     this.multipv = n;
-    if (this.ready) this._send(`setoption name MultiPV value ${n}`);
+    this._queueOrApply({ multipv: n });
   }
 
   setSkill(level) {
     this.skill = level;
-    if (this.ready) this._send(`setoption name Skill Level value ${level}`);
+    this._queueOrApply({ skill: level });
   }
 
   setThreads(n) {
     this.threads = n;
-    if (this.ready) this._send(`setoption name Threads value ${n}`);
+    this._queueOrApply({ threads: n });
   }
 
   /** Resize Stockfish's transposition table ("hash"). Unit = MB. */
   setHash(mb) {
     this.hashMB = Math.max(1, +mb | 0);
-    if (this.ready) this._send(`setoption name Hash value ${this.hashMB}`);
+    this._queueOrApply({ hashMB: this.hashMB });
   }
 
   /** Clear the transposition table — forgets all previously-analysed
@@ -408,10 +434,33 @@ export class Engine extends EventTarget {
     this.history  = [];
     this.topMoves = new Map();
     this.searching = true;
-    // Track the FEN currently under search so downstream consumers
-    // (eval cache, explainers) can pair events with the right position
-    // even if the live board moves on while we're searching.
     this.currentFen = fen;
+
+    // Bestmove watchdog (lichess lacks this — see lila #11373 stuck-
+    // engine reports). If bestmove doesn't arrive in a reasonable
+    // window, emit a synthetic bestmove so downstream callers don't
+    // hang forever. Budget: 3x expected movetime for bounded searches,
+    // 60 s for infinite searches (rare in real UX — stop is sent on
+    // move/nav/etc).
+    if (this._watchdogId) clearTimeout(this._watchdogId);
+    const budget = opts.movetime
+      ? Math.max(3000, opts.movetime * 3)
+      : (opts.depth ? 60_000 : 60_000);
+    this._watchdogId = setTimeout(() => {
+      if (!this.searching) return;
+      console.warn('[engine] bestmove watchdog fired — forcing stop');
+      this.stop();
+      // If stop itself hangs, dispatch a synthetic bestmove so callers
+      // unlatch. Consumers should treat best=null as "engine stuck".
+      setTimeout(() => {
+        if (!this.searching) return;
+        console.error('[engine] worker appears wedged — emitting synthetic bestmove');
+        this.searching = false;
+        this.dispatchEvent(new CustomEvent('bestmove', {
+          detail: { best: null, ponder: null, topMoves: [], history: this.history, stuck: true }
+        }));
+      }, 1500);
+    }, budget);
 
     this._send(`position fen ${fen}`);
 
@@ -504,9 +553,12 @@ export class Engine extends EventTarget {
     }
     else if (line.startsWith('bestmove')) {
       this.searching = false;
-      // bestmove always clears the stop guard — a new search is safe
-      // to start from this point.
       this.stopRequested = false;
+      // Cancel the bestmove watchdog — search completed normally.
+      if (this._watchdogId) { clearTimeout(this._watchdogId); this._watchdogId = 0; }
+      // Flush any option changes queued during the search. This is the
+      // idle transition where options are safe to mutate (per lichess).
+      this._applyPending();
       const m = line.match(/^bestmove\s+(\S+)(?:\s+ponder\s+(\S+))?/);
       const detail = {
         best:     m ? m[1] : null,
