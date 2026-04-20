@@ -860,6 +860,14 @@ async function main() {
         ui.selectFlavor.value = nextFlavor;
         try { engine.terminate?.(); } catch {}
         engine = new Engine();
+        // Re-wire explainer — without this, the listeners on the
+        // terminated old engine stay orphaned and the UI goes silent
+        // after a successful fallback. Same class of bug as the
+        // auto-ritual and manual flavor-switch paths.
+        if (typeof explainer !== 'undefined') {
+          explainer.engine = engine;
+          explainer.wire();
+        }
         return bootEngine(nextFlavor);
       }
 
