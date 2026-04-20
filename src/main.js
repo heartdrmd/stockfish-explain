@@ -1907,34 +1907,63 @@ async function main() {
     }, 60);
   }
   function collectTimelinePlies() {
-    // Replay the mainline from startingFen, harvesting each ply's FEN
-    // and the cached engine eval for that FEN (if any).
-    const history = board.chess.history({ verbose: true });
-    if (!history.length) return [];
-    const replay = new Chess(board.startingFen);
-    // Starting position is ply 0 — record it so the line extends from
-    // the baseline rather than starting at move 1.
+    // Walk the MAINLINE of the tree (not board.chess.history). Reading
+    // from chess.history used to drop plies whenever the user clicked
+    // a pill to review past position and then made an exploratory move
+    // — chess.js was rebuilt to a shorter history for the branch, so
+    // pills after the clicked point disappeared. The tree's mainline
+    // is preserved regardless of branching, so pills stay stable.
     const plies = [];
-    const startEval = fenEvalCache.get(board.startingFen);
+    const startFen = board.startingFen;
+    const startEval = fenEvalCache.get(startFen);
     plies.push({
       ply:     0,
       san:     'start',
-      fen:     board.startingFen,
+      fen:     startFen,
       cpWhite: startEval?.cpWhite ?? 0,
       mate:    startEval?.mate ?? null,
     });
-    for (let i = 0; i < history.length; i++) {
-      const res = replay.move(history[i].san, { sloppy: true });
-      if (!res) break;
-      const fen = replay.fen();
-      const ev = fenEvalCache.get(fen);
-      plies.push({
-        ply:     i + 1,
-        san:     history[i].san,
-        fen,
-        cpWhite: ev?.cpWhite ?? null,
-        mate:    ev?.mate ?? null,
-      });
+    // Prefer tree mainline; fall back to chess.js history if the tree
+    // is somehow empty (shouldn't happen but defensive).
+    const tree = board.tree;
+    let i = 0;
+    if (tree && tree.root) {
+      let cur = tree.root;
+      while (cur.children && cur.children.length) {
+        const main = cur.children[0];
+        if (!main || !main.fen) break;
+        const ev = fenEvalCache.get(main.fen);
+        plies.push({
+          ply:     i + 1,
+          san:     main.san,
+          fen:     main.fen,
+          cpWhite: ev?.cpWhite ?? null,
+          mate:    ev?.mate ?? null,
+        });
+        cur = main;
+        i++;
+      }
+    }
+    if (plies.length === 1) {
+      // Fallback: tree empty. Try reading chess.history so analysis
+      // mode with an un-tracked game still renders pills.
+      const history = board.chess.history({ verbose: true });
+      if (history.length) {
+        const replay = new Chess(startFen);
+        for (let j = 0; j < history.length; j++) {
+          const res = replay.move(history[j].san, { sloppy: true });
+          if (!res) break;
+          const fen = replay.fen();
+          const ev = fenEvalCache.get(fen);
+          plies.push({
+            ply:     j + 1,
+            san:     history[j].san,
+            fen,
+            cpWhite: ev?.cpWhite ?? null,
+            mate:    ev?.mate ?? null,
+          });
+        }
+      }
     }
     return plies;
   }
@@ -2334,13 +2363,49 @@ async function main() {
     const w = _cpToWinChance(cpWhite);
     return color === 'w' ? w : -w;
   };
+  function _positionLearnPanel(p) {
+    // Anchor the panel to the top-right corner of the board rather
+    // than the viewport. Closer to the action, easier to read while
+    // looking at the position. Falls back to top-right of viewport
+    // on narrow mobile where the board takes the full width.
+    try {
+      const boardEl = document.getElementById('board');
+      if (!boardEl) return;
+      const r = boardEl.getBoundingClientRect();
+      const panelWidth = 420;
+      const viewportW = window.innerWidth;
+      // Ideal: panel's LEFT edge starts 12px to the right of the board.
+      let left = Math.round(r.right + 12);
+      let top  = Math.round(r.top);
+      // If that would overflow the viewport, switch to floating
+      // top-right pinned.
+      if (left + panelWidth > viewportW - 12) {
+        left = Math.max(12, viewportW - panelWidth - 12);
+        top = 60;
+      }
+      p.style.left = left + 'px';
+      p.style.top  = top + 'px';
+      p.style.right = 'auto';
+      p.style.width = panelWidth + 'px';
+    } catch {}
+  }
   function _ensureLearnPanel() {
-    if (_learn.panel && document.body.contains(_learn.panel)) return _learn.panel;
+    if (_learn.panel && document.body.contains(_learn.panel)) {
+      _positionLearnPanel(_learn.panel);
+      return _learn.panel;
+    }
     const p = document.createElement('div');
     p.id = 'learn-panel';
-    p.style.cssText = 'position:fixed;top:70px;right:14px;width:320px;z-index:9999;background:#1a1a1a;border:1px solid #2a2a2a;box-shadow:0 8px 28px rgba(0,0,0,0.75);color:#eee;';
+    p.style.cssText = 'position:fixed;z-index:9999;background:#1a1a1a;border:1px solid #2a2a2a;box-shadow:0 10px 32px rgba(0,0,0,0.8);color:#eee;font-size:15px;';
     document.body.appendChild(p);
     _learn.panel = p;
+    _positionLearnPanel(p);
+    // Reposition on window resize / scroll so it stays glued to board.
+    if (!_learn._resizeBound) {
+      _learn._resizeBound = true;
+      window.addEventListener('resize', () => { if (_learn.panel) _positionLearnPanel(_learn.panel); });
+      window.addEventListener('scroll',  () => { if (_learn.panel) _positionLearnPanel(_learn.panel); }, { passive: true });
+    }
     return p;
   }
   function _closeLearnPanel() {
