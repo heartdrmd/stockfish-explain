@@ -21,6 +21,8 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runMigrations, dbEnabled } from './src/server/db.js';
+import { wireAuth } from './src/server/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT       = Number(process.env.PORT || 8000);
@@ -209,6 +211,10 @@ app.post('/api/ai', async (req, res) => {
   }
 });
 
+// Wire DB-backed auth endpoints BEFORE the static handler so
+// /api/auth/* hits the JSON endpoints, not the static site.
+wireAuth(app);
+
 // ───── static site ─────
 // Served after the API routes so /api/* takes precedence.
 app.use(express.static(__dirname, {
@@ -218,8 +224,21 @@ app.use(express.static(__dirname, {
   },
 }));
 
-app.listen(PORT, () => {
-  console.log(`stockfish-explain server listening on :${PORT}`);
-  console.log(`today's site password:    ${expectedSitePassword()}`);
-  console.log(`today's premium password: ${expectedPremiumPassword()}`);
-});
+// Boot: run DB migrations (idempotent) then start listening.
+(async () => {
+  try {
+    if (dbEnabled()) {
+      await runMigrations();
+      console.log('[db] connected + migrations applied');
+    } else {
+      console.log('[db] DATABASE_URL not set — running in localStorage-only mode');
+    }
+  } catch (err) {
+    console.error('[db] migration failed — server will still start, DB features will 500', err);
+  }
+  app.listen(PORT, () => {
+    console.log(`stockfish-explain server listening on :${PORT}`);
+    console.log(`today's site password:    ${expectedSitePassword()}`);
+    console.log(`today's premium password: ${expectedPremiumPassword()}`);
+  });
+})();

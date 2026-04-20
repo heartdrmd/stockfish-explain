@@ -1,21 +1,36 @@
+databases:
+  # Postgres for multi-user game archives, mistakes, SRS, favourites.
+  # Starter plan is $7/mo (0.5 GB storage, 97 connection limit). More
+  # than enough for a friend-group: ~10 KB/game × 1000 games = 10 MB
+  # per user. Swap to 'basic' ($12) if we hit the storage cap later.
+  - name: stockfish-explain-db
+    plan: starter
+    region: ohio
+    databaseName: stockfish_explain
+    user: stockfish_explain
+
 services:
   - type: web
     name: stockfish-explain
     runtime: node
-    plan: starter               # $7/mo, no cold starts. Swap to "free" to save money but users wait ~30s on first hit.
-    region: ohio                # Closest to Central US (user's timezone).
-    # Build: install node deps, pull the 108 MB full-NNUE WASMs from the
-    # GitHub Release (they can't live in the repo — GitHub rejects >100 MB).
+    plan: starter
+    region: ohio
     buildCommand: "npm install && bash scripts/fetch-full-wasms.sh && bash scripts/fetch-lichess-stockfish.sh"
     startCommand: "node server.js"
-    # Auto-deploy whenever main branch is pushed.
     autoDeploy: true
-    # ANTHROPIC_API_KEY must be set in the Render dashboard (Environment tab).
-    # It's encrypted at rest and never checked into git.
     envVars:
       - key: ANTHROPIC_API_KEY
-        sync: false             # Render will prompt you to enter it in the dashboard
+        sync: false
       - key: NODE_ENV
         value: production
-    # Health check hits the root — /api/whoami is cheap and returns JSON.
+      # DATABASE_URL is auto-populated by Render when the web service
+      # is linked to the database above via the fromDatabase binding.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: stockfish-explain-db
+          property: connectionString
+      # Secret used by express-session-like cookie signing. Render
+      # will prompt for this on first deploy — pick any 32+ char string.
+      - key: SESSION_SECRET
+        sync: false
     healthCheckPath: /api/whoami
