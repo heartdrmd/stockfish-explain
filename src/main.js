@@ -947,17 +947,24 @@ async function main() {
     ui.narrationText.textContent = `Warming up (lite) before switching to ${_savedFlavor}…`;
     try {
       await bootEngine(threadable ? 'lite' : 'lite-single');
-      // Brief settling pause so the lite engine's worker is fully
-      // initialised before we tear it down.
       await new Promise(r => setTimeout(r, 400));
-      // Terminate + fresh Engine, same as the flavor-switch ritual.
+      // CRITICAL: match what the manual flavor-switch handler does —
+      // terminate + new Engine + RE-WIRE EXPLAINER. Without re-wiring,
+      // the explainer's 'thinking'/'bestmove' listeners are still
+      // attached to the terminated old engine; the new engine fires
+      // events into the void and the UI stays silent (the exact bug
+      // the user kept hitting with the 'silent engine' complaint).
       try { engine.terminate(); } catch {}
       engine = new Engine();
+      explainer.engine = engine;
+      explainer.wire();
       await bootEngine(_savedFlavor);
     } catch (err) {
       console.warn('[engine] auto-ritual failed, falling back to direct boot', err);
       try { engine.terminate?.(); } catch {}
       engine = new Engine();
+      explainer.engine = engine;
+      explainer.wire();
       await bootEngine(_savedFlavor);
     }
   } else {
