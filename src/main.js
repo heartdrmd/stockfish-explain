@@ -1931,7 +1931,11 @@ async function main() {
     const rowEl = document.getElementById('pawn-strip-row');
     const stats = document.getElementById('pawn-strip-stats');
     if (!root || !rowEl) return;
-    if (root.dataset.userHidden) { root.hidden = true; return; }
+    // Default hidden — opt in via Panels menu (same pattern as eval
+    // timeline). Many games don't need this view and it crowds the
+    // side column.
+    const userSetting = root.dataset.userHidden;
+    if (userSetting !== 'shown') { root.hidden = true; return; }
     const plies = collectTimelinePlies();
     if (plies.length < 4) { root.hidden = true; return; }
     root.hidden = false;
