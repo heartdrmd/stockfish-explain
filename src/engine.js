@@ -252,9 +252,16 @@ export class Engine extends EventTarget {
     this._send(`setoption name MultiPV value ${this.multipv}`);
     this._send(`setoption name Threads value ${this.threads}`);
     this._send(`setoption name Hash value ${this.hashMB}`);  // transposition-table size
-    this._send('setoption name UCI_AnalyseMode value true'); // cleaner analysis output
-    this._send('setoption name Use NNUE value true');        // belt-and-braces
     this._send(`setoption name Skill Level value ${this.skill}`);
+    // Dropped: 'setoption name UCI_AnalyseMode value true' and
+    // 'setoption name Use NNUE value true'. Neither option exists in
+    // Stockfish 17+ (confirmed by reading src/engine.cpp option list).
+    // They were no-ops; removing cleans up the log.
+    // Defensive stop: any refresh/crash remnants cleared before the
+    // first real search. Safe — if no search is running, stop is a
+    // no-op. If one IS running (e.g. user refreshed mid-analysis and
+    // the OPFS-backed NNUE cache warmed a ghost state), this drains it.
+    this._send('stop');
 
     // External-NNUE flavors (e.g. sf-fast using lichess stockfish-web):
     // load the smallnet IMMEDIATELY so the engine is usable fast, then

@@ -2370,6 +2370,22 @@ async function main() {
             const playerChar = practiceColor[0];
             const engineTurn = chessNow.turn() !== playerChar;
             if (engineTurn) {
+              // Forced-move short-circuit: if there's exactly one legal
+              // move, play it instantly without invoking the engine at
+              // all. Stockfish itself caps forced-reply searches at
+              // ~500 ms (search.cpp), but skipping the round-trip is
+              // strictly faster. Per Stockfish research recommendations.
+              const legal = chessNow.moves({ verbose: true });
+              if (legal.length === 1) {
+                const only = legal[0];
+                const uci = only.from + only.to + (only.promotion || '');
+                console.log('[practice] single legal move — playing instantly', uci);
+                // 150ms delay so the user visually registers "opponent
+                // thought about it and moved" rather than a jarring
+                // instant-reply. Tune if it feels too fast/slow.
+                setTimeout(() => board.playEngineMove(uci), 150);
+                return;
+              }
               console.log('[practice] engine turn — searching', { fen, limits: searchLimits() });
               document.body.classList.add('practice-thinking');
               ui.narrationText.innerHTML = '⏳ <strong>Engine is thinking…</strong> <span id="practice-calc-live" style="opacity:0.85;"></span>';
@@ -2399,6 +2415,27 @@ async function main() {
               const onBest = (ev) => {
                 engine.removeEventListener('bestmove', onBest);
                 detachTicker();
+                // Critical-position detector for the NEXT move's time
+                // budget. Look at the search's history (one entry per
+                // info ply): (1) how many times the #1 move changed;
+                // (2) how far the cp score moved between mid-search and
+                // end. Either signal = tactically unstable position.
+                try {
+                  const hist = ev.detail.history || [];
+                  if (hist.length >= 3) {
+                    const midIdx = Math.max(0, hist.length - 5);
+                    const midCp = hist[midIdx]?.score ?? 0;
+                    const endCp = hist[hist.length - 1]?.score ?? 0;
+                    const cpSwing = Math.abs(endCp - midCp);
+                    let moveChanges = 0;
+                    for (let i = 1; i < hist.length; i++) {
+                      if (hist[i].best !== hist[i-1].best) moveChanges++;
+                    }
+                    window.__lastSearchInstable = (cpSwing > 100) || (moveChanges >= 3);
+                  } else {
+                    window.__lastSearchInstable = false;
+                  }
+                } catch { window.__lastSearchInstable = false; }
                 if (myToken !== practiceSearchToken) {
                   console.log('[practice] stale bestmove ignored', { myToken, current: practiceSearchToken });
                   return;
@@ -2454,7 +2491,15 @@ async function main() {
     // Clamped so it never exceeds 12s (keeps practice games flowing).
     if (clock.active && practiceColor) {
       const engineMs = practiceColor === 'white' ? clock.msBlack : clock.msWhite;
-      const budget = Math.max(300, Math.min(12_000, Math.floor(engineMs / 30)));
+      let budget = Math.max(300, Math.min(12_000, Math.floor(engineMs / 30)));
+      // Critical-position boost: if the engine's PREVIOUS search showed
+      // bestmove instability (the #1 PV kept changing late in the search,
+      // or the score swung >100 cp between depth 10 and final), the
+      // current position is tactically sharp — spend 2x budget, capped
+      // at 18 s so clock still flows.
+      if (window.__lastSearchInstable) {
+        budget = Math.min(18_000, budget * 2);
+      }
       return { movetime: budget };
     }
     const v = +ui.limitValue.value || (mode === 'depth' ? 18 : 2000);
