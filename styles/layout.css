@@ -56,6 +56,87 @@
 .btn-quick-action:hover { filter: brightness(1.1); }
 .btn-quick-action:active { filter: brightness(0.95); }
 
+/* Auth area in the header — green 'Sign in' pill / compact logout. */
+.auth-area { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
+.btn-auth {
+  font-weight: 700;
+  background: linear-gradient(180deg, #4ec9b0, #2ea88c);
+  color: #0b2a23;
+  border: 1px solid #2a8975;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.btn-auth:hover { filter: brightness(1.08); }
+.auth-user {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--c-font-dim);
+}
+.auth-user .auth-username {
+  color: #4ec9b0; font-weight: 700; padding: 0 4px;
+}
+.btn-auth-mini {
+  font-size: 11px;
+  padding: 3px 8px;
+  background: transparent;
+  color: var(--c-font-dim);
+  border: 1px solid var(--c-border);
+}
+.btn-auth-mini:hover { color: #e06; border-color: #e06; }
+
+/* Auth modal + download modal — compact card on a dim backdrop. */
+.modal-backdrop.auth-backdrop, .modal-backdrop {
+  /* fallback styling in case base doesn't cover it */
+}
+.modal-card.auth-card { width: 340px; max-width: 92vw; }
+.auth-label {
+  display: block;
+  margin: 10px 0 2px;
+  font-size: 12px;
+  color: var(--c-font-dim);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.auth-label input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  font-size: 14px;
+  background: var(--c-bg-low, #1e1e1e);
+  color: var(--c-font, #eee);
+  border: 1px solid var(--c-border, #333);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.auth-label input:focus { outline: none; border-color: #4ec9b0; }
+.auth-error {
+  color: #f48771;
+  font-size: 12px;
+  margin: 8px 0 0;
+  min-height: 14px;
+}
+.auth-actions {
+  display: flex; gap: 8px; margin-top: 14px;
+}
+.auth-actions .btn { flex: 1; }
+.btn-auth-primary {
+  background: linear-gradient(180deg, #4ec9b0, #2ea88c);
+  color: #0b2a23;
+  border: 1px solid #2a8975;
+  font-weight: 700;
+}
+.btn-auth-primary:hover { filter: brightness(1.08); }
+.auth-toggle-line {
+  margin: 12px 0 0;
+  font-size: 11px;
+  text-align: center;
+  color: var(--c-font-dim);
+}
+.auth-toggle-line a {
+  color: #4ec9b0; text-decoration: none;
+}
+.auth-toggle-line a:hover { text-decoration: underline; }
+
 /* Collapsed-toolbar state: hide everything in the nav except
    always-visible items. The toggle button lives outside .site-nav so
    it stays clickable regardless. */

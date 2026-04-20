@@ -73,6 +73,14 @@
             title="Start a new game from the initial position">🆕 New game</button>
     <button id="btn-quick-practice" class="btn btn-quick-action always-visible"
             title="Open the practice modal to pick an opening and play the engine">🎯 Practice</button>
+    <!-- Auth area — single slot that flips between 'Sign in' and 'Hi, user / Logout'. -->
+    <span id="auth-area" class="always-visible auth-area">
+      <button id="btn-signin"   class="btn btn-auth always-visible" title="Sign in to sync games across devices">👤 Sign in</button>
+      <span    id="auth-user"   class="auth-user" hidden>
+        <span class="auth-username"></span>
+        <button id="btn-logout" class="btn btn-auth-mini">Logout</button>
+      </span>
+    </span>
 
     <nav class="site-nav">
       <!-- Primary action group (left). New game + Practice marked as
@@ -322,6 +330,8 @@
           </button>
           <div class="practice-btn-row">
             <button id="btn-practice-save"  class="practice-btn save-btn" title="Download this game as PGN">💾 Save PGN</button>
+            <button id="btn-dont-save"      class="practice-btn" title="Delete the auto-saved copy from the cloud — the local archive entry is untouched" hidden>🗑 Don't save</button>
+            <button id="btn-download-games" class="practice-btn" title="Download all your saved games as a single PGN file, optionally by date range">📥 Download games</button>
             <button id="btn-practice-next-fav" class="practice-btn again-btn" title="Start another practice game with a random favourite opening (using your last settings)" hidden>⏭ Next random favourite</button>
             <button id="btn-practice-again" class="practice-btn again-btn" title="Open practice modal to pick new settings">⚙ New game</button>
           </div>
@@ -893,6 +903,47 @@
       <p id="why-summary" class="muted"></p>
       <div class="modal-narration" id="why-narration"></div>
       <div class="modal-line muted"><strong>Line:</strong> <span id="why-line"></span></div>
+    </div>
+  </div>
+
+  <!-- Sign-in / sign-up modal. Single form; a toggle link at the
+       bottom flips between modes. -->
+  <div id="auth-modal" class="modal-backdrop" hidden>
+    <div class="modal-card auth-card">
+      <h3 id="auth-title">Sign in</h3>
+      <p class="muted" style="font-size:12px;margin:4px 0 12px;">Sync your games + mistakes + favourites across devices.</p>
+      <form id="auth-form">
+        <label class="auth-label">Username
+          <input id="auth-username" type="text" autocomplete="username" required minlength="2" maxlength="32" pattern="[a-zA-Z0-9_][a-zA-Z0-9_.\-]*">
+        </label>
+        <label class="auth-label">Password
+          <input id="auth-password" type="password" autocomplete="current-password" required minlength="6" maxlength="128">
+        </label>
+        <div class="auth-error" id="auth-error"></div>
+        <div class="auth-actions">
+          <button type="submit" id="auth-submit" class="btn btn-auth-primary">Sign in</button>
+          <button type="button" id="auth-close" class="btn">Cancel</button>
+        </div>
+        <p class="auth-toggle-line">
+          <a href="#" id="auth-toggle">Need an account? Sign up</a>
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Download-games-by-date modal. -->
+  <div id="dl-games-modal" class="modal-backdrop" hidden>
+    <div class="modal-card">
+      <h3>📥 Download my games</h3>
+      <p class="muted" style="font-size:12px;margin:4px 0 12px;">Exports as a single PGN file — imports cleanly into ChessBase, lichess, chess.com.</p>
+      <div class="auth-label"><label>From <input type="date" id="dl-from"></label></div>
+      <div class="auth-label"><label>To   <input type="date" id="dl-to"></label></div>
+      <p class="muted" style="font-size:11px;margin:8px 0;">Leave dates blank to export everything.</p>
+      <div class="auth-actions">
+        <button id="dl-submit" class="btn btn-auth-primary">Download</button>
+        <button id="dl-close"  class="btn">Cancel</button>
+      </div>
+      <div id="dl-status" class="auth-error"></div>
     </div>
   </div>
 

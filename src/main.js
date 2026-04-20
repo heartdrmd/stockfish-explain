@@ -1,6 +1,7 @@
 // main.js — entry point. Wires UI controls, engine events, and the
 // engine ↔ board loop.
 
+import { api, currentUser }       from './api.js';
 import { Engine, ENGINE_FLAVORS } from './engine.js';
 import { BoardController, toDests as toDestsFrom } from './board.js';
 import { Explainer }              from './explain.js';
@@ -2852,6 +2853,46 @@ async function main() {
         ui.narrationText.innerHTML += suffix;
       }
     }
+    // ── Cloud autosave — if user is logged in, also save to Postgres
+    //    so they can sync across devices + download by date range.
+    //    The server-side ID is stashed on window so the 'Don't save'
+    //    button can DELETE it if user doesn't want to keep the game.
+    if (window.__currentUser) {
+      const mistakesCount = (plies.filter((p, i) => {
+        if (!i) return false;
+        const q = classifyAccuracy(plies[i - 1], p);
+        return q === 'inaccuracy' || q === 'mistake';
+      })).length;
+      const blundersCount = (plies.filter((p, i) => {
+        if (!i) return false;
+        return classifyAccuracy(plies[i - 1], p) === 'blunder';
+      })).length;
+      api.saveGame({
+        pgn:            game.pgn,
+        result:         game.result,
+        opening_name:   opening?.name || null,
+        opening_eco:    opening?.eco  || null,
+        white_name:     mode === 'practice'
+                         ? (practiceColor === 'white' ? userInfo.name : 'Stockfish')
+                         : null,
+        black_name:     mode === 'practice'
+                         ? (practiceColor === 'black' ? userInfo.name : 'Stockfish')
+                         : null,
+        user_color:     userColor,
+        mode:           mode || 'analysis',
+        plies,
+        mistakes_count: mistakesCount,
+        blunders_count: blundersCount,
+      }).then(res => {
+        window.__lastSavedGameId = res.id;
+        console.log('[cloud] game saved to DB', { id: res.id });
+        // Reveal the 'Don't save' button in the post-game panel.
+        const dontSaveBtn = document.getElementById('btn-dont-save');
+        if (dontSaveBtn) dontSaveBtn.hidden = false;
+      }).catch(err => {
+        console.warn('[cloud] save failed', err);
+      });
+    }
     return ok;
   }
 
@@ -5409,6 +5450,144 @@ async function main() {
   const btnQuickPractice = document.getElementById('btn-quick-practice');
   if (btnQuickPractice) btnQuickPractice.addEventListener('click', () => {
     document.getElementById('btn-practice')?.click();
+  });
+
+  // ───── Auth (login / signup) + Download-games modal ─────
+  // Exposes window.__currentUser so other code can check if user is
+  // logged in before attempting DB writes. Null when logged out.
+  window.__currentUser = null;
+  const authArea    = document.getElementById('auth-area');
+  const authSignin  = document.getElementById('btn-signin');
+  const authUser    = document.getElementById('auth-user');
+  const authUserEl  = authArea?.querySelector('.auth-username');
+  const authLogout  = document.getElementById('btn-logout');
+  const authModal   = document.getElementById('auth-modal');
+  const authTitle   = document.getElementById('auth-title');
+  const authForm    = document.getElementById('auth-form');
+  const authUname   = document.getElementById('auth-username');
+  const authPwd     = document.getElementById('auth-password');
+  const authError   = document.getElementById('auth-error');
+  const authSubmit  = document.getElementById('auth-submit');
+  const authClose   = document.getElementById('auth-close');
+  const authToggle  = document.getElementById('auth-toggle');
+  let authMode = 'signin'; // 'signin' | 'signup'
+
+  function renderAuthUi() {
+    const u = window.__currentUser;
+    if (u) {
+      if (authSignin) authSignin.hidden = true;
+      if (authUser)   authUser.hidden = false;
+      if (authUserEl) authUserEl.textContent = '👤 ' + u.username;
+    } else {
+      if (authSignin) authSignin.hidden = false;
+      if (authUser)   authUser.hidden = true;
+    }
+  }
+  function openAuth(mode = 'signin') {
+    authMode = mode;
+    if (authTitle)  authTitle.textContent  = mode === 'signup' ? 'Create account' : 'Sign in';
+    if (authSubmit) authSubmit.textContent = mode === 'signup' ? 'Create account' : 'Sign in';
+    if (authToggle) authToggle.textContent = mode === 'signup' ? 'Have an account? Sign in' : 'Need an account? Sign up';
+    if (authError)  authError.textContent  = '';
+    if (authPwd)    authPwd.value = '';
+    if (authModal)  authModal.hidden = false;
+    setTimeout(() => authUname?.focus(), 50);
+  }
+  function closeAuth() { if (authModal) authModal.hidden = true; }
+
+  if (authSignin) authSignin.addEventListener('click', () => openAuth('signin'));
+  if (authToggle) authToggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    openAuth(authMode === 'signin' ? 'signup' : 'signin');
+  });
+  if (authClose)  authClose.addEventListener('click', closeAuth);
+  if (authModal)  authModal.addEventListener('click', (e) => { if (e.target === authModal) closeAuth(); });
+  if (authForm) {
+    authForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (authError) authError.textContent = '';
+      const u = (authUname?.value || '').trim();
+      const p = authPwd?.value || '';
+      try {
+        const res = authMode === 'signup' ? await api.signup(u, p) : await api.login(u, p);
+        window.__currentUser = res.user;
+        renderAuthUi();
+        closeAuth();
+        console.log('[auth] signed in as', res.user.username);
+      } catch (err) {
+        if (authError) authError.textContent = err.message || 'Something went wrong';
+      }
+    });
+  }
+  if (authLogout) authLogout.addEventListener('click', async () => {
+    try { await api.logout(); } catch {}
+    window.__currentUser = null;
+    renderAuthUi();
+  });
+
+  // On page load, check if we have an existing session.
+  (async () => {
+    const u = await currentUser();
+    window.__currentUser = u;
+    renderAuthUi();
+  })();
+
+  // Download-games modal.
+  const dlModal = document.getElementById('dl-games-modal');
+  const dlFrom  = document.getElementById('dl-from');
+  const dlTo    = document.getElementById('dl-to');
+  const dlClose = document.getElementById('dl-close');
+  const dlSubmit = document.getElementById('dl-submit');
+  const dlStatus = document.getElementById('dl-status');
+  window.__openDownloadGamesModal = () => {
+    if (!window.__currentUser) { openAuth('signin'); return; }
+    if (dlStatus) dlStatus.textContent = '';
+    if (dlModal)  dlModal.hidden = false;
+  };
+  if (dlClose) dlClose.addEventListener('click', () => { if (dlModal) dlModal.hidden = true; });
+  if (dlModal) dlModal.addEventListener('click', (e) => { if (e.target === dlModal && dlModal) dlModal.hidden = true; });
+  // 'Don't save' button — deletes the cloud-saved copy of the just-
+  // finished game. Local localStorage archive is untouched so the
+  // user can still review it in '📚 My Games' if they want.
+  const dontSaveBtn = document.getElementById('btn-dont-save');
+  if (dontSaveBtn) {
+    dontSaveBtn.addEventListener('click', async () => {
+      const id = window.__lastSavedGameId;
+      if (!id) { dontSaveBtn.hidden = true; return; }
+      if (!confirm('Delete the cloud-saved copy of this game? Local archive entry will stay.')) return;
+      try {
+        await api.deleteGame(id);
+        window.__lastSavedGameId = null;
+        dontSaveBtn.textContent = '🗑 Removed from cloud';
+        dontSaveBtn.disabled = true;
+      } catch (err) {
+        alert('Delete failed: ' + (err.message || err));
+      }
+    });
+  }
+  // Download games button — opens the date-range modal.
+  const dlGamesBtn = document.getElementById('btn-download-games');
+  if (dlGamesBtn) dlGamesBtn.addEventListener('click', () => {
+    window.__openDownloadGamesModal?.();
+  });
+
+  if (dlSubmit) dlSubmit.addEventListener('click', async () => {
+    if (!window.__currentUser) { openAuth('signin'); return; }
+    const q = {};
+    if (dlFrom?.value) q.from = dlFrom.value;
+    if (dlTo?.value)   q.to   = dlTo.value;
+    const url = api.exportUrl(q);
+    // Use a hidden <a download> so the browser streams it and the
+    // session cookie goes along (fetch + blob would work too but this
+    // preserves the filename from Content-Disposition).
+    const a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    if (dlStatus) dlStatus.textContent = '✓ Download started. If nothing happens, check browser downloads.';
+    setTimeout(() => { if (dlModal) dlModal.hidden = true; }, 1200);
   });
   if (btnToggleToolbar) {
     // Restore persisted state.
