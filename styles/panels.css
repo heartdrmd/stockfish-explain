@@ -2312,6 +2312,146 @@ body.practice-mode .practice-card { display: block; }
   text-shadow: 0 0 3px #ff5a4a, 0 0 14px rgba(255,90,74,0.9);
 }
 
+/* ─── Learn-from-mistakes — lichess-inspired visual language ─── */
+/* Colors pulled from lichess _theme.default.scss:
+     $c-primary   hsl(209, 79%, 56%)   #3893e8  (accent blue)
+     $c-good      hsl(88, 62%, 37%)    #759900  (win green)
+     $c-bad       hsl(0, 60%, 50%)     #cc3333  (fail red) */
+.practice-btn.learn-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 8px 0 10px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, #3893e8 0%, #2a78c4 100%);
+  color: #fff;
+  border: 1px solid #1f5e9e;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: filter 0.15s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+}
+.practice-btn.learn-btn:hover    { filter: brightness(1.08); }
+.practice-btn.learn-btn:active   { filter: brightness(0.95); }
+.practice-btn.learn-btn[disabled] {
+  background: #444;
+  border-color: #333;
+  color: #888;
+  cursor: not-allowed;
+  filter: none;
+}
+.practice-btn.learn-btn .learn-btn-icon  { font-size: 20px; line-height: 1; }
+.practice-btn.learn-btn .learn-btn-label { flex: 1; text-align: left; text-transform: uppercase; }
+.practice-btn.learn-btn .learn-btn-count {
+  background: rgba(255,255,255,0.22);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* The floating retro panel — matches lichess retro-box aesthetic.
+   Square corners, tight padding, clear state colors. */
+#learn-panel {
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  overflow: hidden;
+  min-width: 300px;
+}
+.retro-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  line-height: 1.9em;
+  padding: 0 10px;
+  background: rgba(56, 147, 232, 0.4);
+  color: #fff;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.retro-title .retro-counter {
+  font-size: 0.85em;
+  font-weight: 600;
+  opacity: 0.9;
+}
+.retro-title .retro-close {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.retro-title .retro-close:hover { opacity: 0.8; }
+.retro-body {
+  padding: 14px 14px 10px;
+}
+.retro-body .retro-prompt   { font-weight: 700; font-size: 15px; margin: 0 0 6px; }
+.retro-body .retro-played   { opacity: 0.75; font-size: 13px; margin: 0 0 8px; }
+.retro-body strong          { font-weight: 800; }
+
+.retro-icon-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+.retro-icon-line .retro-icon { font-size: 36px; line-height: 1; }
+.retro-win  { color: #759900; }
+.retro-fail { color: #cc3333; }
+
+.retro-choices {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.retro-choices .retro-btn {
+  flex: 1;
+  padding: 7px 10px;
+  background: #2a2a2a;
+  color: #eee;
+  border: 1px solid #444;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: filter 0.15s;
+}
+.retro-choices .retro-btn:hover { filter: brightness(1.15); }
+.retro-choices .retro-btn.retro-continue {
+  background: rgba(56, 147, 232, 0.85);
+  color: #fff;
+  border-color: #1f5e9e;
+}
+.retro-choices .retro-btn.retro-continue:hover {
+  background: rgba(56, 147, 232, 1);
+}
+
+.retro-progress {
+  height: 4px;
+  background: hsl(0, 0%, 20%);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 10px 0 0;
+}
+.retro-progress > div {
+  height: 100%;
+  width: 25%;
+  background: hsl(209, 79%, 56%);
+  transition: width 0.25s;
+}
+
 /* ─── digital-jumbo — light theme, maximum-contrast big numbers ─── */
 .clock-display[data-style="digital-jumbo"] {
   padding: 6px;

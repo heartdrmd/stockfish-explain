@@ -2329,7 +2329,7 @@ async function main() {
     if (_learn.panel && document.body.contains(_learn.panel)) return _learn.panel;
     const p = document.createElement('div');
     p.id = 'learn-panel';
-    p.style.cssText = 'position:fixed;top:60px;right:12px;width:300px;z-index:9999;background:var(--c-bg-low,#1e1e1e);border:1px solid var(--c-border,#333);border-radius:8px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,0.6);font-family:sans-serif;color:var(--c-font,#ddd);';
+    p.style.cssText = 'position:fixed;top:70px;right:14px;width:320px;z-index:9999;background:#1a1a1a;border:1px solid #2a2a2a;box-shadow:0 8px 28px rgba(0,0,0,0.75);color:#eee;';
     document.body.appendChild(p);
     _learn.panel = p;
     return p;
@@ -2338,47 +2338,81 @@ async function main() {
     _learn.active = false;
     if (_learn.panel) { _learn.panel.remove(); _learn.panel = null; }
   }
+  function _countMistakeTotal() {
+    return _findMistakePlies().length;
+  }
+  function _currentMistakeIndex() {
+    const all = _findMistakePlies();
+    const idx = all.indexOf(_learn.targetPly);
+    return idx < 0 ? 0 : idx + 1;
+  }
   function _renderLearnPanel(state) {
     const p = _ensureLearnPanel();
     const color = _learn.solverColor === 'w' ? 'White' : 'Black';
-    let body = '';
+    const idx = _currentMistakeIndex();
+    const total = _countMistakeTotal();
+    const titleBar = `<div class="retro-title">
+        <span>🎓 Learn from mistakes</span>
+        <span class="retro-counter">${idx} / ${total}</span>
+        <button class="retro-close" id="learn-close" title="Close">×</button>
+      </div>`;
+    let inner = '';
     if (state === 'find') {
-      body = `<div style="font-size:13px;opacity:0.8;margin-bottom:6px;">🎓 Learn from mistake</div>
-        <div style="font-size:14px;font-weight:600;margin-bottom:10px;">Find a better move for <strong>${color}</strong></div>
-        <div style="font-size:12px;opacity:0.8;margin-bottom:12px;">You played <strong>${_learn.playedSan || '?'}</strong>. Try any move — any response within ~4 win-% of the best is accepted.</div>
-        <div style="display:flex;gap:6px;">
-          <button id="learn-solution" class="btn" style="flex:1;">Show solution</button>
-          <button id="learn-close" class="btn" style="flex:1;">Close</button>
+      inner = `
+        <p class="retro-prompt">Find a better move for <strong>${color}</strong></p>
+        <p class="retro-played">You played <strong>${_learn.playedSan || '?'}</strong>.<br>
+           <span style="opacity:0.6;font-size:11px;">Any move within ~4 % win-probability of the best is accepted.</span></p>
+        <div class="retro-choices">
+          <button class="retro-btn" id="learn-solution">View solution</button>
+          <button class="retro-btn" id="learn-skip">Skip</button>
         </div>`;
     } else if (state === 'eval') {
-      body = `<div style="font-size:13px;opacity:0.8;margin-bottom:6px;">🎓 Learn from mistake</div>
-        <div style="font-size:14px;margin-bottom:12px;">⏳ Evaluating your move…</div>`;
+      inner = `
+        <p class="retro-prompt">Evaluating your move…</p>
+        <div class="retro-progress"><div id="learn-progress-fill"></div></div>`;
     } else if (state === 'win') {
-      body = `<div style="color:#4caf50;font-size:18px;font-weight:700;margin-bottom:8px;">✓ Good move!</div>
-        <div style="font-size:12px;opacity:0.8;margin-bottom:12px;">That keeps you in the game.</div>
-        <div style="display:flex;gap:6px;">
-          <button id="learn-next" class="btn" style="flex:1;background:#2e7d32;color:#fff;">Next mistake ▶</button>
-          <button id="learn-close" class="btn" style="flex:1;">Close</button>
+      inner = `
+        <div class="retro-icon-line retro-win">
+          <span class="retro-icon">✓</span>
+          <span>Good move!</span>
+        </div>
+        <p class="retro-played" style="opacity:0.8;">That keeps you in the game.</p>
+        <div class="retro-choices">
+          <button class="retro-btn retro-continue" id="learn-next">Next ▶</button>
         </div>`;
     } else if (state === 'fail') {
-      body = `<div style="color:#f44336;font-size:18px;font-weight:700;margin-bottom:8px;">✗ Not quite</div>
-        <div style="font-size:12px;opacity:0.8;margin-bottom:12px;">Try a different move — or click below to see the best.</div>
-        <div style="display:flex;gap:6px;">
-          <button id="learn-solution" class="btn" style="flex:1;">Show solution</button>
-          <button id="learn-close" class="btn" style="flex:1;">Close</button>
+      inner = `
+        <div class="retro-icon-line retro-fail">
+          <span class="retro-icon">✗</span>
+          <span>Not quite</span>
+        </div>
+        <p class="retro-played" style="opacity:0.8;">Try a different move — or click below to see the best.</p>
+        <div class="retro-choices">
+          <button class="retro-btn" id="learn-solution">View solution</button>
+          <button class="retro-btn" id="learn-retry">Try again</button>
         </div>`;
     } else if (state === 'view') {
-      body = `<div style="font-size:13px;opacity:0.8;margin-bottom:6px;">🎓 Solution</div>
-        <div style="font-size:14px;margin-bottom:12px;">Best was <strong>${_learn.bestSan || '?'}</strong> — ${_learn.bestEvalFmt || ''}.</div>
-        <div style="display:flex;gap:6px;">
-          <button id="learn-next" class="btn" style="flex:1;">Next mistake ▶</button>
-          <button id="learn-close" class="btn" style="flex:1;">Close</button>
+      inner = `
+        <p class="retro-prompt">Best was <strong>${_learn.bestSan || '?'}</strong></p>
+        <p class="retro-played">Evaluation after best: <strong>${_learn.bestEvalFmt || '?'}</strong></p>
+        <div class="retro-choices">
+          <button class="retro-btn retro-continue" id="learn-next">Next mistake ▶</button>
+        </div>`;
+    } else if (state === 'end') {
+      inner = `
+        <p class="retro-prompt">🎉 All mistakes reviewed</p>
+        <p class="retro-played">You worked through all ${total} mistake${total === 1 ? '' : 's'} from this game.</p>
+        <div class="retro-choices">
+          <button class="retro-btn retro-continue" id="learn-close-end">Done</button>
         </div>`;
     }
-    p.innerHTML = body;
+    p.innerHTML = titleBar + `<div class="retro-body">${inner}</div>`;
     p.querySelector('#learn-close')?.addEventListener('click', _closeLearnPanel);
+    p.querySelector('#learn-close-end')?.addEventListener('click', _closeLearnPanel);
     p.querySelector('#learn-next')?.addEventListener('click', _goNextMistake);
+    p.querySelector('#learn-skip')?.addEventListener('click', _goNextMistake);
     p.querySelector('#learn-solution')?.addEventListener('click', _showSolution);
+    p.querySelector('#learn-retry')?.addEventListener('click', () => _enterLearnMode(_learn.targetPly));
   }
   function _findMistakePlies() {
     const plies = collectTimelinePlies();
@@ -2393,10 +2427,7 @@ async function main() {
     const all = _findMistakePlies();
     const next = all.find(p => p > _learn.targetPly);
     if (next == null) {
-      _ensureLearnPanel().innerHTML =
-        `<div style="font-size:16px;font-weight:700;margin-bottom:8px;">🎉 All mistakes reviewed</div>
-        <button id="learn-close" class="btn" style="width:100%;">Close</button>`;
-      _learn.panel.querySelector('#learn-close')?.addEventListener('click', _closeLearnPanel);
+      _renderLearnPanel('end');
       return;
     }
     _enterLearnMode(next);
@@ -2480,6 +2511,39 @@ async function main() {
     board.addEventListener('move', onMove);
   }
   window.__enterLearnMode = _enterLearnMode;
+
+  // Wire the 🎓 Learn-from-mistakes button in the post-game panel.
+  // Clicking it jumps to the FIRST mistake in the mainline and
+  // starts the retro walk. The label is updated with the mistake
+  // count whenever the accuracy strip re-renders.
+  const btnLearnMistakes = document.getElementById('btn-learn-mistakes');
+  const learnCountBadge = document.getElementById('learn-btn-count');
+  if (btnLearnMistakes) {
+    btnLearnMistakes.addEventListener('click', () => {
+      const plies = _findMistakePlies();
+      if (plies.length === 0) return;
+      _enterLearnMode(plies[0]);
+    });
+  }
+  const updateLearnButton = () => {
+    if (!btnLearnMistakes || !learnCountBadge) return;
+    const count = _findMistakePlies().length;
+    if (count === 0) {
+      btnLearnMistakes.disabled = true;
+      learnCountBadge.textContent = '';
+      btnLearnMistakes.title = 'No mistakes found in this game — clean play!';
+    } else {
+      btnLearnMistakes.disabled = false;
+      learnCountBadge.textContent = count;
+      btnLearnMistakes.title = `Walk through ${count} mistake${count === 1 ? '' : 's'}`;
+    }
+  };
+  // Refresh the button badge whenever accuracy strip re-renders (covers
+  // game-end, live moves, navigation).
+  board.addEventListener('move', updateLearnButton);
+  board.addEventListener('new-game', updateLearnButton);
+  board.addEventListener('nav', updateLearnButton);
+  setTimeout(updateLearnButton, 400);
 
   // Back-compat stub so the panel-toggle code that references the old
   // king-safety scheduler doesn't crash. Renamed callers will still

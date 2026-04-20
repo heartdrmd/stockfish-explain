@@ -314,6 +314,12 @@
           <p class="muted" style="font-size:11px;margin:4px 0 8px;">
             Analysis unlocked — use ⏮ ◀ ▶ ⏭ and the move list to step through. Engine evaluation is now visible on every position.
           </p>
+          <!-- Lichess-style "Learn from your mistakes" entry point. -->
+          <button id="btn-learn-mistakes" class="practice-btn learn-btn" title="Walk through each mistake/blunder — try to find a better move">
+            <span class="learn-btn-icon">🎓</span>
+            <span class="learn-btn-label">Learn from your mistakes</span>
+            <span class="learn-btn-count" id="learn-btn-count"></span>
+          </button>
           <div class="practice-btn-row">
             <button id="btn-practice-save"  class="practice-btn save-btn" title="Download this game as PGN">💾 Save PGN</button>
             <button id="btn-practice-next-fav" class="practice-btn again-btn" title="Start another practice game with a random favourite opening (using your last settings)" hidden>⏭ Next random favourite</button>
