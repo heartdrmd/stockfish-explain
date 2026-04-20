@@ -2267,12 +2267,27 @@ async function main() {
       `${counts.inaccuracy} inaccuracies · ${counts.mistake} mistakes · ${counts.blunder} blunders` +
       (counts.unknown ? ` · ${counts.unknown} unanalysed` : '');
 
-    // Click a pill → jump to that ply.
+    // Click a pill:
+    //   - During a live game: just jump to that ply (inspect only)
+    //   - After game ends (practice-finished OR analysis-archived OR
+    //     non-practice analysis): if the ply is a real mistake
+    //     (inaccuracy / mistake / blunder), enter Learn Mode on it.
+    //     Otherwise jump only.
     container.onclick = (ev) => {
       const pill = ev.target.closest('.acc-pill');
       if (!pill) return;
       const ply = +pill.dataset.ply;
-      if (board.goToPly) board.goToPly(ply);
+      const isOverClass = pill.classList.contains('acc-inaccuracy') ||
+                          pill.classList.contains('acc-mistake') ||
+                          pill.classList.contains('acc-blunder');
+      const gameOver = document.body.classList.contains('practice-finished') ||
+                       document.body.classList.contains('analysis-archived') ||
+                       !document.body.classList.contains('practice-mode');
+      if (isOverClass && gameOver && typeof window.__enterLearnMode === 'function') {
+        window.__enterLearnMode(ply);
+      } else if (board.goToPly) {
+        board.goToPly(ply);
+      }
     };
   }
   let accuracyTimer = 0;
@@ -2284,6 +2299,187 @@ async function main() {
   board.addEventListener('new-game', scheduleAccuracyRender);
   board.addEventListener('nav',      scheduleAccuracyRender);
   setTimeout(renderAccuracyStrip, 300);
+
+  // ───── Learn From Mistakes mode ─────
+  // Triggered by clicking an inaccuracy/mistake/blunder pill after a
+  // game ends. Jumps the board to the PRE-mistake position, asks the
+  // user to find a better move. Acceptance uses winning-chances delta
+  // (lichess-inspired) so any move keeping win-% within 4 pts wins.
+  //   cpWinningChances(cp) = 2 / (1 + exp(-0.004*cp)) - 1   ∈ (-1, +1)
+  //   pov(color, cp) = cp mapped then signed to color
+  //   accept if pov(played) - pov(bestBefore) > -0.04
+  const _learn = {
+    active: false,
+    targetPly: 0,
+    solverColor: 'w',
+    prevFen: null,
+    playedUci: null,
+    bestBeforeCpWhite: 0,
+    panel: null,
+  };
+  const _cpToWinChance = (cp) => {
+    if (cp == null) return 0;
+    return 2 / (1 + Math.exp(-0.004 * cp)) - 1;
+  };
+  const _povWin = (color, cpWhite) => {
+    const w = _cpToWinChance(cpWhite);
+    return color === 'w' ? w : -w;
+  };
+  function _ensureLearnPanel() {
+    if (_learn.panel && document.body.contains(_learn.panel)) return _learn.panel;
+    const p = document.createElement('div');
+    p.id = 'learn-panel';
+    p.style.cssText = 'position:fixed;top:60px;right:12px;width:300px;z-index:9999;background:var(--c-bg-low,#1e1e1e);border:1px solid var(--c-border,#333);border-radius:8px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,0.6);font-family:sans-serif;color:var(--c-font,#ddd);';
+    document.body.appendChild(p);
+    _learn.panel = p;
+    return p;
+  }
+  function _closeLearnPanel() {
+    _learn.active = false;
+    if (_learn.panel) { _learn.panel.remove(); _learn.panel = null; }
+  }
+  function _renderLearnPanel(state) {
+    const p = _ensureLearnPanel();
+    const color = _learn.solverColor === 'w' ? 'White' : 'Black';
+    let body = '';
+    if (state === 'find') {
+      body = `<div style="font-size:13px;opacity:0.8;margin-bottom:6px;">🎓 Learn from mistake</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:10px;">Find a better move for <strong>${color}</strong></div>
+        <div style="font-size:12px;opacity:0.8;margin-bottom:12px;">You played <strong>${_learn.playedSan || '?'}</strong>. Try any move — any response within ~4 win-% of the best is accepted.</div>
+        <div style="display:flex;gap:6px;">
+          <button id="learn-solution" class="btn" style="flex:1;">Show solution</button>
+          <button id="learn-close" class="btn" style="flex:1;">Close</button>
+        </div>`;
+    } else if (state === 'eval') {
+      body = `<div style="font-size:13px;opacity:0.8;margin-bottom:6px;">🎓 Learn from mistake</div>
+        <div style="font-size:14px;margin-bottom:12px;">⏳ Evaluating your move…</div>`;
+    } else if (state === 'win') {
+      body = `<div style="color:#4caf50;font-size:18px;font-weight:700;margin-bottom:8px;">✓ Good move!</div>
+        <div style="font-size:12px;opacity:0.8;margin-bottom:12px;">That keeps you in the game.</div>
+        <div style="display:flex;gap:6px;">
+          <button id="learn-next" class="btn" style="flex:1;background:#2e7d32;color:#fff;">Next mistake ▶</button>
+          <button id="learn-close" class="btn" style="flex:1;">Close</button>
+        </div>`;
+    } else if (state === 'fail') {
+      body = `<div style="color:#f44336;font-size:18px;font-weight:700;margin-bottom:8px;">✗ Not quite</div>
+        <div style="font-size:12px;opacity:0.8;margin-bottom:12px;">Try a different move — or click below to see the best.</div>
+        <div style="display:flex;gap:6px;">
+          <button id="learn-solution" class="btn" style="flex:1;">Show solution</button>
+          <button id="learn-close" class="btn" style="flex:1;">Close</button>
+        </div>`;
+    } else if (state === 'view') {
+      body = `<div style="font-size:13px;opacity:0.8;margin-bottom:6px;">🎓 Solution</div>
+        <div style="font-size:14px;margin-bottom:12px;">Best was <strong>${_learn.bestSan || '?'}</strong> — ${_learn.bestEvalFmt || ''}.</div>
+        <div style="display:flex;gap:6px;">
+          <button id="learn-next" class="btn" style="flex:1;">Next mistake ▶</button>
+          <button id="learn-close" class="btn" style="flex:1;">Close</button>
+        </div>`;
+    }
+    p.innerHTML = body;
+    p.querySelector('#learn-close')?.addEventListener('click', _closeLearnPanel);
+    p.querySelector('#learn-next')?.addEventListener('click', _goNextMistake);
+    p.querySelector('#learn-solution')?.addEventListener('click', _showSolution);
+  }
+  function _findMistakePlies() {
+    const plies = collectTimelinePlies();
+    const list = [];
+    for (let i = 1; i < plies.length; i++) {
+      const q = classifyAccuracy(plies[i - 1], plies[i]);
+      if (q === 'inaccuracy' || q === 'mistake' || q === 'blunder') list.push(i);
+    }
+    return list;
+  }
+  function _goNextMistake() {
+    const all = _findMistakePlies();
+    const next = all.find(p => p > _learn.targetPly);
+    if (next == null) {
+      _ensureLearnPanel().innerHTML =
+        `<div style="font-size:16px;font-weight:700;margin-bottom:8px;">🎉 All mistakes reviewed</div>
+        <button id="learn-close" class="btn" style="width:100%;">Close</button>`;
+      _learn.panel.querySelector('#learn-close')?.addEventListener('click', _closeLearnPanel);
+      return;
+    }
+    _enterLearnMode(next);
+  }
+  function _showSolution() {
+    // Jump board forward one ply, showing the played move, then ask
+    // engine for top candidate from the pre-mistake position.
+    const plies = collectTimelinePlies();
+    const cur = plies[_learn.targetPly];
+    const prev = plies[_learn.targetPly - 1];
+    if (!prev || !cur) return;
+    if (board.goToPly) board.goToPly(_learn.targetPly - 1);
+    // Fast engine probe at pre-mistake fen, 1.5 s.
+    engine.setMultiPV(1);
+    const onBest = (ev) => {
+      engine.removeEventListener('bestmove', onBest);
+      const hist = engine.history || [];
+      const last = hist[hist.length - 1];
+      const cp = last?.score ?? 0;
+      const stm = prev.fen.split(' ')[1];
+      const cpPov = stm === 'w' ? cp : -cp;
+      const bestUci = ev.detail?.best;
+      if (bestUci) {
+        try {
+          const c = new Chess(prev.fen);
+          const m = c.move({ from: bestUci.slice(0,2), to: bestUci.slice(2,4), promotion: bestUci[4] || undefined });
+          _learn.bestSan = m ? m.san : bestUci;
+        } catch { _learn.bestSan = bestUci; }
+      }
+      _learn.bestEvalFmt = `${cpPov >= 0 ? '+' : ''}${(cpPov/100).toFixed(2)}`;
+      _renderLearnPanel('view');
+    };
+    engine.addEventListener('bestmove', onBest);
+    engine.start(prev.fen, { movetime: 1500 });
+  }
+  function _enterLearnMode(targetPly) {
+    const plies = collectTimelinePlies();
+    if (targetPly < 1 || targetPly >= plies.length) return;
+    const cur = plies[targetPly];
+    const prev = plies[targetPly - 1];
+    if (!prev || !cur) return;
+    _learn.active = true;
+    _learn.targetPly = targetPly;
+    _learn.prevFen = prev.fen;
+    _learn.playedSan = cur.san;
+    _learn.bestBeforeCpWhite = prev.cpWhite ?? 0;
+    const stm = prev.fen.split(' ')[1];
+    _learn.solverColor = stm === 'w' ? 'w' : 'b';
+    // Jump board to pre-mistake position.
+    if (board.goToPly) board.goToPly(targetPly - 1);
+    if (board.orientation !== (_learn.solverColor === 'w' ? 'white' : 'black')) {
+      try { board.flipBoard(); } catch {}
+    }
+    _renderLearnPanel('find');
+    // Listen for the user's next move on the LIVE board.
+    const onMove = async (ev) => {
+      if (!_learn.active) { board.removeEventListener('move', onMove); return; }
+      board.removeEventListener('move', onMove);
+      _renderLearnPanel('eval');
+      // Compute post-move FEN from board state
+      const postFen = board.fen();
+      // Ask engine to evaluate postFen
+      engine.setMultiPV(1);
+      const onBest = (ev2) => {
+        engine.removeEventListener('bestmove', onBest);
+        const hist = engine.history || [];
+        const last = hist[hist.length - 1];
+        const cpAfter = last?.score ?? 0;
+        const stmAfter = postFen.split(' ')[1];
+        const cpAfterWhite = stmAfter === 'w' ? cpAfter : -cpAfter;
+        // Winning-chances delta from solver's POV.
+        const before = _povWin(_learn.solverColor, _learn.bestBeforeCpWhite);
+        const after  = _povWin(_learn.solverColor, cpAfterWhite);
+        const diff = after - before;
+        if (diff > -0.04) _renderLearnPanel('win');
+        else _renderLearnPanel('fail');
+      };
+      engine.addEventListener('bestmove', onBest);
+      engine.start(postFen, { movetime: 1500 });
+    };
+    board.addEventListener('move', onMove);
+  }
+  window.__enterLearnMode = _enterLearnMode;
 
   // Back-compat stub so the panel-toggle code that references the old
   // king-safety scheduler doesn't crash. Renamed callers will still
