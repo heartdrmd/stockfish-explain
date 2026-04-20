@@ -871,6 +871,8 @@ async function main() {
             explainer.engine = engine;
             explainer.wire();
           }
+          if (typeof window.__wireEngineCaptureListeners === 'function')
+            window.__wireEngineCaptureListeners(engine);
           try { await bootEngine('lite-single'); } catch {}
           await new Promise(r => setTimeout(r, 200));
           try { engine.terminate?.(); } catch {}
@@ -880,6 +882,8 @@ async function main() {
           explainer.engine = engine;
           explainer.wire();
         }
+        if (typeof window.__wireEngineCaptureListeners === 'function')
+          window.__wireEngineCaptureListeners(engine);
         return bootEngine(nextFlavor);
       }
 
@@ -1045,6 +1049,7 @@ async function main() {
       engine = new Engine();
       explainer.engine = engine;
       explainer.wire();
+      wireEngineCaptureListeners(engine);
       try { await bootEngine('lite-single'); } catch (e) {
         console.warn('[engine] ritual warmup failed', e);
       }
@@ -1058,6 +1063,7 @@ async function main() {
     engine = new Engine();
     explainer.engine = engine;
     explainer.wire();
+    if (typeof wireEngineCaptureListeners === 'function') wireEngineCaptureListeners(engine);
     await bootEngine(targetFlavor);
   }
 
@@ -1257,16 +1263,25 @@ async function main() {
   }
 
   // Piggyback on the engine's thinking events to capture evals for
-  // the game archive. Runs regardless of __engineMuted so that even in
-  // practice mode the per-move data is recorded silently.
-  engine.addEventListener('thinking', () => {
-    captureEngineThinkingEval();
-    scheduleTimelineRender();
-  });
-  engine.addEventListener('bestmove', () => {
-    captureEngineThinkingEval();
-    scheduleTimelineRender();
-  });
+  // the game archive (incl. MultiPV candidate hydration — see
+  // captureEngineThinkingEval). Runs regardless of __engineMuted so
+  // even in practice mode the per-move data is recorded silently.
+  // Packaged as a helper so every new Engine instance (switch flavor,
+  // restart, auto-ritual) gets these re-attached — same stale-listener
+  // class of bug that blanked accuracy pills during practice after any
+  // engine-switch.
+  function wireEngineCaptureListeners(eng) {
+    eng.addEventListener('thinking', () => {
+      captureEngineThinkingEval();
+      scheduleTimelineRender();
+    });
+    eng.addEventListener('bestmove', () => {
+      captureEngineThinkingEval();
+      scheduleTimelineRender();
+    });
+  }
+  window.__wireEngineCaptureListeners = wireEngineCaptureListeners;
+  wireEngineCaptureListeners(engine);
 
   // ────────── Chess clock (#19) ─────────────────────────────────────
   const clock = {
