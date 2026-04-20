@@ -23,6 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMigrations, dbEnabled } from './src/server/db.js';
 import { wireAuth } from './src/server/auth.js';
+import { wireGames } from './src/server/games.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT       = Number(process.env.PORT || 8000);
@@ -211,9 +212,10 @@ app.post('/api/ai', async (req, res) => {
   }
 });
 
-// Wire DB-backed auth endpoints BEFORE the static handler so
-// /api/auth/* hits the JSON endpoints, not the static site.
+// Wire DB-backed API endpoints BEFORE the static handler so
+// /api/auth/* and /api/games/* hit the JSON endpoints, not static.
 wireAuth(app);
+wireGames(app);
 
 // ───── static site ─────
 // Served after the API routes so /api/* takes precedence.
