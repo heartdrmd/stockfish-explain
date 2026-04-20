@@ -5335,30 +5335,57 @@ async function main() {
     let startX = 0, startY = 0, startW = 0;
     const STORAGE_KEY = 'stockfish-explain.board-size';
 
+    // Recursion guard — critical on mobile. Without this:
+    //   applySize → dispatches 'resize' → our own resize listener
+    //   fires applySize again → dispatches resize → ... → stack
+    //   overflow (RangeError reported from mobile Safari).
+    let _applyingSize = false;
     const applySize = (size) => {
-      const sz = Math.max(300, Math.min(1100, Math.round(size)));
-      ui.boardArea.style.maxWidth = sz + 'px';
-      ui.boardArea.style.width    = sz + 'px';
-      boardElForResize.style.width  = sz + 'px';
-      boardElForResize.style.height = sz + 'px';
-      // During an active drag, only fire the lightweight chessground
-      // re-measure event — the full window.resize event triggers every
-      // layout-observing listener in the app (eval timeline, accuracy
-      // strip, explainer, etc.) and causes jank. Full re-measure on
-      // pointerup instead.
-      if (!resizing) window.dispatchEvent(new Event('resize'));
-      document.dispatchEvent(new Event('chessgroundResize'));
+      if (_applyingSize) return;
+      _applyingSize = true;
+      try {
+        const sz = Math.max(300, Math.min(1100, Math.round(size)));
+        ui.boardArea.style.maxWidth = sz + 'px';
+        ui.boardArea.style.width    = sz + 'px';
+        boardElForResize.style.width  = sz + 'px';
+        boardElForResize.style.height = sz + 'px';
+        // During an active drag, only fire the lightweight chessground
+        // re-measure event — the full window.resize event triggers every
+        // layout-observing listener in the app (eval timeline, accuracy
+        // strip, explainer, etc.) and causes jank. Full re-measure on
+        // pointerup instead.
+        if (!resizing) window.dispatchEvent(new Event('resize'));
+        document.dispatchEvent(new Event('chessgroundResize'));
+      } finally {
+        _applyingSize = false;
+      }
     };
 
-    // Apply saved size OR a sensible default. Without this, the board column
-    // (which is `auto` in the grid) collapses to the content's intrinsic size
-    // and the board ends up tiny.
+    // Apply saved size OR a sensible default. Write to localStorage
+    // immediately so the window.resize listener's fallback doesn't
+    // re-enter applySize with the default value (mobile-safari bug
+    // where no saved key → fallback fires → applySize dispatches
+    // resize → fallback fires → infinite recursion).
     const saved = parseInt(localStorage.getItem(STORAGE_KEY) || '', 10);
-    applySize(saved || defaultBoardSize());
+    const initial = saved || defaultBoardSize();
+    try { localStorage.setItem(STORAGE_KEY, String(Math.round(initial))); } catch {}
+    applySize(initial);
 
-    // Also re-fit on window resize if the user hasn't set a preference
+    // Also re-fit on window resize if the user hasn't explicitly set a
+    // preference via the drag handle. The guard + localStorage write
+    // above ensure this can never recurse.
+    let _windowResizeHandling = false;
     window.addEventListener('resize', () => {
-      if (!localStorage.getItem(STORAGE_KEY)) applySize(defaultBoardSize());
+      if (_windowResizeHandling || _applyingSize) return;
+      _windowResizeHandling = true;
+      try {
+        // If user has dragged at least once, we don't auto-refit; they
+        // own the size preference. Only auto-fit before any manual drag.
+        // Skip if localStorage already has a user-set value different
+        // from the default — we detect 'user has dragged' by checking
+        // the user-touched flag set on pointerdown below.
+        if (!window.__boardSizeUserTouched) applySize(defaultBoardSize());
+      } finally { _windowResizeHandling = false; }
     });
 
     // rAF-coalesced resize (lichess-style smooth drag). We batch all
@@ -5381,11 +5408,8 @@ async function main() {
       resizing = true;
       startX = e.clientX; startY = e.clientY;
       startW = boardElForResize.getBoundingClientRect().width;
-      // Lock the user preference IMMEDIATELY on drag start so the
-      // window.resize → applySize(default) listener can't fight us.
-      // Previously it would reset the board to default every frame
-      // during a drag that hadn't yet hit pointerup — classic jitter.
       localStorage.setItem(STORAGE_KEY, String(Math.round(startW)));
+      window.__boardSizeUserTouched = true;
       resizeHandle.setPointerCapture(e.pointerId);
     });
     resizeHandle.addEventListener('pointermove', (e) => {
