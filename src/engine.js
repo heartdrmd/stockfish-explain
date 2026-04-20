@@ -157,8 +157,11 @@ export class Engine extends EventTarget {
     // Pick flavor
     const threadable = typeof SharedArrayBuffer !== 'undefined'
                     && typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
-    // Default to the STRONGEST available engine.
-    if (flavor === 'auto') flavor = threadable ? 'full' : 'lite-single';
+    // Default to Avrukh 108 MT (user-preferred) when threadable,
+    // Avrukh-single otherwise. 'Strongest' without caveats is 'avrukh'
+    // per user testing — the stock 'full' variant has been flaky for
+    // this user. Falls back through the main.js chain on crash.
+    if (flavor === 'auto') flavor = threadable ? 'avrukh' : 'avrukh-single';
     if (!ENGINE_FLAVORS[flavor]) throw new Error(`Unknown flavor ${flavor}`);
     const spec = ENGINE_FLAVORS[flavor];
     if (spec.threaded && !threadable) {

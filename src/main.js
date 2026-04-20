@@ -697,9 +697,12 @@ async function main() {
   const savedFlavor = localStorage.getItem(FLAVOR_STORAGE);
   const flavorOptions = [...ui.selectFlavor.querySelectorAll('option')].map(o => o.value);
   const flavorValid = savedFlavor && flavorOptions.includes(savedFlavor);
+  // Default: Avrukh 108 MT when threadable (user-confirmed as the
+  // smoothest/strongest variant). Falls back to lite on Pages host
+  // (no custom binaries there) and avrukh-single if no threads.
   let currentFlavor = flavorValid
     ? savedFlavor
-    : (threadable ? (isPagesHost ? 'lite' : 'full') : 'lite-single');
+    : (threadable ? (isPagesHost ? 'lite' : 'avrukh') : 'avrukh-single');
   ui.selectFlavor.value = currentFlavor;
 
   // Disable multi-thread flavors if the page isn't cross-origin-isolated
@@ -811,9 +814,10 @@ async function main() {
       // Auto-fallback chain: on crash/timeout, walk a priority list
       // of safer flavors until one works. Stops as soon as a flavor
       // boots — doesn't loop forever if every flavor is broken.
+      // Order: Avrukh (user's preferred default) → lite MT → lite ST.
       const fallbackChain = threadable
-        ? ['lite', 'lite-single']
-        : ['lite-single'];
+        ? ['avrukh', 'lite', 'lite-single']
+        : ['avrukh-single', 'lite-single'];
       const nextFlavor = fallbackChain.find(f => f !== flavor);
       if ((isTimeout || isCrash) && nextFlavor) {
         localStorage.removeItem(FLAVOR_STORAGE);
@@ -3460,10 +3464,13 @@ async function main() {
       const clockMode = clockModeEl?.value || 'none';
       const clockCard = document.getElementById('practice-clock');
       if (clockMode === 'none') {
-        if (clockCard) clockCard.hidden = true;
+        // Plain .hidden attribute is overridden by
+        // `body.practice-mode .practice-card { display: block }` — use
+        // inline style so the card is truly gone in 'none' mode.
+        if (clockCard) { clockCard.hidden = true; clockCard.style.display = 'none'; }
         try { stopClock(); } catch {}
       } else if (clockMode === 'timed') {
-        if (clockCard) clockCard.hidden = false;
+        if (clockCard) { clockCard.hidden = false; clockCard.style.display = ''; }
         let minutes = 5, inc = 3;
         const preset = document.getElementById('practice-clock-preset')?.value;
         if (preset === 'custom') {
@@ -3476,7 +3483,7 @@ async function main() {
         startClock(minutes, inc, 'down');
       } else {
         // Untimed — count UP to show time used. Increment optional.
-        if (clockCard) clockCard.hidden = false;
+        if (clockCard) { clockCard.hidden = false; clockCard.style.display = ''; }
         const useUntimedInc = document.getElementById('practice-untimed-increment-on')?.checked;
         const incSec = useUntimedInc
           ? (+document.getElementById('practice-untimed-increment')?.value || 0)
