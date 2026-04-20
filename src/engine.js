@@ -460,7 +460,14 @@ export class Engine extends EventTarget {
     this.history  = [];
     this.topMoves = new Map();
     this.searching = true;
+    // CRITICAL: clear stopRequested here too. Without this, info lines
+    // from the NEW search can be dropped because the flag set by the
+    // preceding stop() never got cleared (bestmove from old search
+    // may not have arrived yet in the 50 ms window). Starting a new
+    // search is the other natural re-arm point besides bestmove.
+    this.stopRequested = false;
     this.currentFen = fen;
+    console.log('[engine] _doStart', { fen: fen.slice(0, 30) + '…', opts, uciokReceived: this.uciokReceived });
 
     // Bestmove watchdog (lichess lacks this — see lila #11373 stuck-
     // engine reports). If bestmove doesn't arrive in a reasonable
