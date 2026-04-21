@@ -4547,6 +4547,14 @@ async function main() {
         customs.push(entry);
         try { localStorage.setItem('stockfish-explain.practice-custom-openings', JSON.stringify(customs)); } catch {}
         console.log('[custom-save] WROTE entry', entry, '→ total customs:', customs.length);
+        // Visible diagnostic — so the user can see the FEN that was
+        // saved without having to open DevTools. Green success + FEN
+        // prefix stays visible until the next save.
+        if (pscStatus) {
+          pscStatus.style.color = '#4ec9b0';
+          const fenPrefix = (fen.split(' ')[0] || '').slice(0, 40);
+          pscStatus.innerHTML = `✓ Saved to “${folder}”.<br><span style="font-family:var(--font-mono);font-size:10px;opacity:0.85;">FEN: ${fenPrefix}… (${customs.length} total)</span>`;
+        }
         if (window.__currentUser) {
           try {
             fetch('/api/favourites', { method: 'PUT', credentials: 'include',
@@ -4555,7 +4563,6 @@ async function main() {
             }).catch(() => {});
           } catch {}
         }
-        if (pscStatus) { pscStatus.style.color = '#4ec9b0'; pscStatus.textContent = `✓ Saved to “${folder}”. Appears in your tree on next open.`; }
         try { populateOpeningSelect(); } catch {}
         try { populateFolderDatalist(); } catch {}
       });
@@ -6459,7 +6466,23 @@ async function main() {
       }
       if (row) {
         const id = +row.dataset.id;
-        if (id) selectGame(id);
+        if (!id) return;
+        // Row click = "open this game for review" — load onto the main
+        // board + close the tab + kick the floating eval card into
+        // full-width review mode (Lichess-style post-game analysis
+        // layout). Clicking Delete / PGN above stops the event so we
+        // don't accidentally load.
+        try {
+          const { game } = await api.getGame(id);
+          detailEl._currentGame = game;
+          loadCloudGameOntoBoard(game);
+          closeTab();
+          if (typeof window.__openReviewMode === 'function') {
+            window.__openReviewMode(game);
+          }
+        } catch (err) {
+          alert('Load failed: ' + (err.message || err));
+        }
       }
     });
 
@@ -6659,6 +6682,55 @@ async function main() {
     try {
       if (localStorage.getItem(STORAGE_KEY) === '1') show();
     } catch {}
+
+    // Public: open the graph in full-width "review mode" with a big
+    // chart + side-by-side stats + Learn/Reanalyze CTA column. Called
+    // from My Games when the user clicks a game row.
+    window.__openReviewMode = (game) => {
+      card.classList.add('review-mode');
+      show();
+      // Append the CTA column to the stats grid so it sits next to the
+      // two gs-side panels. Rebuilt on every call so it points at the
+      // currently-loaded game.
+      setTimeout(() => {
+        // By now update() has rendered the stats panels. Find the
+        // trailing reanalyze-wrap and replace it with a proper CTA col.
+        const oldReanWrap = statsWrap.querySelector('.gs-reanalyze-wrap');
+        if (oldReanWrap) oldReanWrap.remove();
+        const cta = document.createElement('div');
+        cta.className = 'live-graph-cta';
+        cta.innerHTML = `
+          <button class="btn btn-learn-mistakes" data-cta="learn">▶ LEARN FROM YOUR MISTAKES</button>
+          <button class="gs-reanalyze"           data-cta="reanalyze">🔄 Reanalyze for mistakes</button>
+          <span class="gs-reanalyze-status"></span>`;
+        statsWrap.appendChild(cta);
+        // Wire CTA
+        cta.querySelector('[data-cta="learn"]').addEventListener('click', () => {
+          const btn = document.getElementById('btn-learn-mistakes');
+          if (btn && !btn.disabled) { btn.click(); return; }
+        });
+        cta.querySelector('[data-cta="reanalyze"]').addEventListener('click', async (e) => {
+          const b = e.currentTarget;
+          if (b._busy) return;
+          b._busy = true; b.disabled = true;
+          const st = cta.querySelector('.gs-reanalyze-status');
+          const orig = b.textContent;
+          b.textContent = '🔄 Analysing…';
+          try {
+            await retrospectiveSweep({ minDepth: 18, onProgress: (d, t) => { if (st) st.textContent = ` ${d}/${t}`; }});
+            if (st) st.textContent = ' ✓ done';
+            update();   // re-render stats with fresh eval cache
+          } catch (err) {
+            if (st) st.textContent = ' ✗ failed';
+            console.warn('[reanalyze] failed', err);
+          } finally {
+            b.disabled = false; b.textContent = orig; b._busy = false;
+          }
+        });
+      }, 120);
+    };
+    // Clicking the × button also exits review mode.
+    closeBtn?.addEventListener('click', () => { card.classList.remove('review-mode'); });
   })();
 
   // ───── Auth (login / signup) + Download-games modal ─────
