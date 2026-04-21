@@ -4460,11 +4460,14 @@ async function main() {
     const saveLastSettings = (obj) => {
       try { localStorage.setItem(LAST_SETTINGS_KEY, JSON.stringify(obj)); } catch {}
     };
-    const applyLastSettingsToModal = () => {
+    const applyLastSettingsToModal = ({ restoreOpening = true } = {}) => {
       const last = loadLastSettings();
       if (!last) return;
-      // Restore dropdown selection if the opening is still in the list.
-      if (last.openingValue && pSel.querySelector(`option[value="${CSS.escape(last.openingValue)}"]`)) {
+      // Restore dropdown selection only when explicitly asked — default
+      // modal-open path now PREFERS auto-picking a fresh random queue
+      // favourite over replaying the last. Restoring opening is still
+      // used by the "Replay last" button path.
+      if (restoreOpening && last.openingValue && pSel.querySelector(`option[value="${CSS.escape(last.openingValue)}"]`)) {
         pSel.value = last.openingValue;
         updatePMoves();
       }
@@ -4682,10 +4685,27 @@ async function main() {
 
     pOpen.addEventListener('click',  () => {
       // Each open: repopulate the list (may include new custom saves),
-      // restore last-used settings, refresh the replay button label.
+      // restore last-used settings (EXCEPT the opening — see below),
+      // refresh the replay button label.
       populateOpeningSelect(pSearch ? pSearch.value : '');
-      applyLastSettingsToModal();
+      // When the user has queue-checked favourites, auto-pick a fresh
+      // random one rather than silently re-selecting the last opening.
+      // Matches user feedback: "Start kept replaying one I didn't want
+      // anymore — that's the replay-last button's job." The explicit
+      // "▶ Replay last" button still uses the opening-restore path.
+      const pool = effectiveQueuePool();
+      if (pool.length) {
+        const pickedKey = pool[Math.floor(Math.random() * pool.length)];
+        const favs = loadFavs();
+        pSel.value = pickedKey;
+        pColor.value = favs[pickedKey] || pColor.value || 'white';
+        updatePMoves();
+        applyLastSettingsToModal({ restoreOpening: false });
+      } else {
+        applyLastSettingsToModal();
+      }
       refreshReplayButton();
+      refreshToggleFavButton?.();
       pModal.hidden = false;
     });
     pClose.addEventListener('click', () => pModal.hidden = true);
