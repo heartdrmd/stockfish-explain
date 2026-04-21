@@ -2403,6 +2403,11 @@ async function main() {
     playedUci: null,
     bestBeforeCpWhite: 0,
     panel: null,
+    // Plies the user has already worked through. Matches lila's
+    // solvedPlies[] in retroCtrl.ts — lets skip/solution advance past
+    // a mistake permanently for this session instead of re-visiting
+    // on the next cycle.
+    solvedPlies: new Set(),
   };
   const _cpToWinChance = (cp) => {
     if (cp == null) return 0;
@@ -2469,14 +2474,16 @@ async function main() {
     const idx = all.indexOf(_learn.targetPly);
     return idx < 0 ? 0 : idx + 1;
   }
+  function _solvedCount() { return _learn.solvedPlies.size; }
   function _renderLearnPanel(state) {
     const p = _ensureLearnPanel();
     const color = _learn.solverColor === 'w' ? 'White' : 'Black';
     const idx = _currentMistakeIndex();
     const total = _countMistakeTotal();
+    const solved = _solvedCount();
     const titleBar = `<div class="retro-title">
         <span>🎓 Learn from mistakes</span>
-        <span class="retro-counter">${idx} / ${total}</span>
+        <span class="retro-counter" title="Solved / current / total">${solved} · ${idx} / ${total}</span>
         <button class="retro-close" id="learn-close" title="Close">×</button>
       </div>`;
     let inner = '';
@@ -2523,10 +2530,11 @@ async function main() {
         </div>`;
     } else if (state === 'end') {
       inner = `
-        <p class="retro-prompt">🎉 All mistakes reviewed</p>
-        <p class="retro-played">You worked through all ${total} mistake${total === 1 ? '' : 's'} from this game.</p>
+        <p class="retro-prompt">🎉 Session complete</p>
+        <p class="retro-played">Worked through ${solved} of ${total} mistake${total === 1 ? '' : 's'} from this game.</p>
         <div class="retro-choices">
-          <button class="retro-btn retro-continue" id="learn-close-end">Done</button>
+          <button class="retro-btn retro-continue" id="learn-restart">🔁 Start over</button>
+          <button class="retro-btn" id="learn-close-end">Done</button>
         </div>`;
     }
     p.innerHTML = titleBar + `<div class="retro-body">${inner}</div>`;
@@ -2536,6 +2544,12 @@ async function main() {
     p.querySelector('#learn-skip')?.addEventListener('click', _goNextMistake);
     p.querySelector('#learn-solution')?.addEventListener('click', _showSolution);
     p.querySelector('#learn-retry')?.addEventListener('click', () => _enterLearnMode(_learn.targetPly));
+    p.querySelector('#learn-restart')?.addEventListener('click', () => {
+      // Reset progress (lila: retroCtrl.reset()) and restart at ply 1.
+      _learn.solvedPlies = new Set();
+      const all = _findMistakePlies();
+      if (all.length) _enterLearnMode(all[0]);
+    });
   }
   function _findMistakePlies() {
     const plies = collectTimelinePlies();
@@ -2565,9 +2579,16 @@ async function main() {
     return list;
   }
   function _goNextMistake() {
+    // Mark the current ply solved so skip-or-view advances past it,
+    // matching lila's retroCtrl.skip() / solveCurrent() behaviour.
+    if (_learn.targetPly) _learn.solvedPlies.add(_learn.targetPly);
     const all = _findMistakePlies();
-    const next = all.find(p => p > _learn.targetPly);
+    const next = all.find(p => p > _learn.targetPly && !_learn.solvedPlies.has(p));
     if (next == null) {
+      // Fall back to any remaining unsolved earlier in the game before
+      // declaring completion (user may have gone back manually).
+      const earlier = all.find(p => !_learn.solvedPlies.has(p));
+      if (earlier != null) { _enterLearnMode(earlier); return; }
       _renderLearnPanel('end');
       return;
     }
@@ -2597,7 +2618,21 @@ async function main() {
           const m = c.move({ from: bestUci.slice(0,2), to: bestUci.slice(2,4), promotion: bestUci[4] || undefined });
           _learn.bestSan = m ? m.san : bestUci;
         } catch { _learn.bestSan = bestUci; }
+        // Highlight the best move on the board with a bright green
+        // arrow (lila retroCtrl's setAutoShapes on view-solution).
+        try {
+          if (board.drawArrows) {
+            board.drawArrows([{
+              orig: bestUci.slice(0, 2),
+              dest: bestUci.slice(2, 4),
+              brush: 'green',
+              modifiers: { lineWidth: 22 },
+            }]);
+          }
+        } catch {}
       }
+      // View-solution counts as done (matches lila: solvedPlies pushed).
+      _learn.solvedPlies.add(_learn.targetPly);
       _learn.bestEvalFmt = `${cpPov >= 0 ? '+' : ''}${(cpPov/100).toFixed(2)}`;
       _renderLearnPanel('view');
     };
