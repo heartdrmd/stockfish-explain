@@ -3510,12 +3510,21 @@ async function main() {
       // Start with a deep-copy of OPENINGS so we don't mutate imports,
       // then fold in custom entries under their declared group. If the
       // group doesn't exist yet, append it at the end.
+      //
+      // IMPORTANT: preserve the custom entry's `fen` + `side` fields —
+      // without them the hover preview and practice-start handler can't
+      // see the saved position and everything silently falls back to
+      // the standard starting position.
       const byGroup = new Map();
       for (const g of OPENINGS) byGroup.set(g.group, { group: g.group, items: [...g.items] });
       for (const co of loadCustomOpenings()) {
         if (!byGroup.has(co.group)) byGroup.set(co.group, { group: co.group, items: [] });
         byGroup.get(co.group).items.push({
-          name: co.name, moves: co.moves, _custom: true,
+          name:    co.name,
+          moves:   co.moves || [],
+          fen:     co.fen || null,
+          side:    co.side || null,
+          _custom: true,
         });
       }
       return Array.from(byGroup.values());
@@ -3851,26 +3860,27 @@ async function main() {
           if (!key) return;
           const [groupName, idxStr] = key.split('//');
           const idx = +idxStr;
+          const leafEl = delBtn.closest('.tree-leaf');
+          const leafName = leafEl?.querySelector('.tree-leaf-name')?.textContent || '(this opening)';
           let customs = [];
           try { customs = JSON.parse(localStorage.getItem('stockfish-explain.practice-custom-openings') || '[]'); } catch {}
-          // The tree key encodes position within its group after the
-          // merge with curated + custom. To find the target custom
-          // entry reliably, compare by name + group (unique in practice).
-          const groupBucket = customs.filter(c => c.group === groupName);
-          const target = groupBucket[0] && groupBucket.length === 1
-            ? groupBucket[0]
-            : customs.find((c, i) => c.group === groupName && (groupBucket.indexOf(c) === idx || i === idx));
-          const leafName = delBtn.closest('.tree-leaf')?.querySelector('.tree-leaf-name')?.textContent || '(this opening)';
-          if (!confirm(`Delete custom opening “${leafName}”? This cannot be undone.`)) return;
+          console.log('[custom-delete] CLICK', { key, groupName, idx, leafName, totalCustoms: customs.length, namesInGroup: customs.filter(c => c.group === groupName).map(c => c.name) });
+          if (!confirm(`Delete custom opening “${leafName}”? This cannot be undone.`)) {
+            console.log('[custom-delete] user cancelled');
+            return;
+          }
+          const before = customs.length;
           const remaining = customs.filter(c => !(
             c.group === groupName && c.name === leafName
           ));
+          const removed = before - remaining.length;
+          console.log('[custom-delete] filter result', { removed, remainingCount: remaining.length });
           try { localStorage.setItem('stockfish-explain.practice-custom-openings', JSON.stringify(remaining)); } catch {}
           // Also clean up any favourites entry keyed against this custom path.
           try {
-            const favs = JSON.parse(localStorage.getItem('stockfish-explain.practice-favs') || '{}');
+            const favs = JSON.parse(localStorage.getItem('stockfish-explain.practice-favourites') || '{}');
             const favKey = `custom://${groupName}/${leafName}`;
-            if (favs[favKey]) { delete favs[favKey]; localStorage.setItem('stockfish-explain.practice-favs', JSON.stringify(favs)); }
+            if (favs[favKey]) { delete favs[favKey]; localStorage.setItem('stockfish-explain.practice-favourites', JSON.stringify(favs)); }
           } catch {}
           // Mirror to cloud favourites table if logged in — same key
           // shape the Add-Opening modal uses when it inserts.
@@ -3882,6 +3892,7 @@ async function main() {
             } catch {}
           }
           renderTree();
+          console.log('[custom-delete] tree rebuilt, entry should be gone');
           return;
         }
         // Side pick (W / B / Both) — highest priority so clicks don't
@@ -4513,16 +4524,29 @@ async function main() {
         // cached _fen from when the checkbox was ticked. The user may
         // have navigated the tree or played speculative moves in the
         // gap between opening the modal and clicking save.
-        const fen    = (board?.fen?.() || pUseCurrent._fen || '').trim();
+        const liveFen   = board?.fen?.() || '';
+        const cachedFen = pUseCurrent._fen || '';
+        const fen    = (liveFen || cachedFen || '').trim();
         const name   = (pscName?.value || '').trim();
         const folder = (pscFolder?.value || '').trim() || 'My openings';
         const side   = pscSide?.value || 'white';
+        console.log('[custom-save] CLICK', {
+          liveFen, cachedFen, chosenFen: fen,
+          name, folder, side,
+          boardPly: board?.chess?.history?.()?.length,
+          boardTurn: board?.chess?.turn?.(),
+        });
         if (!name)   { if (pscStatus) { pscStatus.style.color = '#f48771'; pscStatus.textContent = 'Name is required.'; } return; }
-        try { new Chess(fen); } catch { if (pscStatus) { pscStatus.style.color = '#f48771'; pscStatus.textContent = 'Current FEN is invalid.'; } return; }
+        try { new Chess(fen); } catch (err) {
+          console.warn('[custom-save] invalid FEN', fen, err);
+          if (pscStatus) { pscStatus.style.color = '#f48771'; pscStatus.textContent = 'Current FEN is invalid.'; } return;
+        }
         let customs = [];
         try { customs = JSON.parse(localStorage.getItem('stockfish-explain.practice-custom-openings') || '[]'); } catch {}
-        customs.push({ name, group: folder, moves: [], fen, side, _custom: true, created_at: new Date().toISOString() });
+        const entry = { name, group: folder, moves: [], fen, side, _custom: true, created_at: new Date().toISOString() };
+        customs.push(entry);
         try { localStorage.setItem('stockfish-explain.practice-custom-openings', JSON.stringify(customs)); } catch {}
+        console.log('[custom-save] WROTE entry', entry, '→ total customs:', customs.length);
         if (window.__currentUser) {
           try {
             fetch('/api/favourites', { method: 'PUT', credentials: 'include',
@@ -4615,8 +4639,15 @@ async function main() {
         // "save current position" flow writes { moves: [], fen: <FEN> }
         // and without this branch the board stayed at the standard
         // start when the user picked one of those entries.
-        const customFen = op.fen && op.fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+        const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+        const customFen = op.fen && op.fen !== START_FEN;
+        console.log('[practice-start] branch selector', {
+          opName: op.name, hasFen: !!op.fen, opFen: op.fen, movesLen: op.moves?.length || 0,
+          customFenBranch: !!customFen && (!op.moves || !op.moves.length),
+          op,
+        });
         if (customFen && (!op.moves || !op.moves.length)) {
+          console.log('[practice-start] taking CUSTOM-FEN branch, loading', op.fen);
           try {
             new Chess(op.fen); // validate first
             board.chess.load(op.fen);
@@ -4630,15 +4661,18 @@ async function main() {
               movable: { color: 'both', dests: toDestsFrom(board.chess) },
             });
             board.dispatchEvent(new CustomEvent('new-game'));
+            console.log('[practice-start] custom FEN applied, board now at', board.fen());
           } catch (err) {
-            console.warn('[practice] custom FEN load failed, falling back to startpos', err);
+            console.warn('[practice-start] custom FEN load failed, falling back to startpos', err);
           }
           window.__practiceOpeningPlies = 0;
         } else if (op.moves && op.moves.length) {
+          console.log('[practice-start] taking SAN-replay branch,', op.moves.length, 'moves');
           const played = playOpening(op.moves);
           if (played) board.playUciMoves(played.uciMoves, { animate: false });
           window.__practiceOpeningPlies = op.moves.length;
         } else {
+          console.log('[practice-start] taking START-POS branch (no moves, no fen)');
           window.__practiceOpeningPlies = 0;
         }
       }
