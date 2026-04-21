@@ -41,7 +41,7 @@ export class BoardController extends EventTarget {
         color: 'both',                       // either side can move
         dests: toDests(this.chess),
         showDests: true,
-        events: { after: (orig, dest, meta) => self._onUserMove(orig, dest, meta) },
+        events: { after: (orig, dest, meta) => self._onUserMove(orig, dest, { ...meta, via: 'chessground-after' }) },
       },
       draggable: { enabled: true, showGhost: true },
       selectable: { enabled: true },
@@ -52,8 +52,14 @@ export class BoardController extends EventTarget {
       // _pendingTargetSources can trigger a spurious 'which piece?'
       // on the user's next click.
       events: {
-        move:   () => self._clearTargetFirst(),
-        select: () => self._clearTargetFirst(),
+        move:   (orig, dest, meta) => {
+          console.log('[cg] move fired', { orig, dest, capture: meta?.captured || null });
+          self._clearTargetFirst();
+        },
+        select: (key) => {
+          console.log('[cg] select fired', { key, cgSelectedAfter: self.cg?.state?.selected });
+          self._clearTargetFirst();
+        },
       },
     });
 
@@ -103,30 +109,31 @@ export class BoardController extends EventTarget {
         return;
       }
 
-      // NEAR-MISS GUARD: if the click landed within one-third of a
-      // square of a movable piece, treat it as a piece-click intent
-      // and skip target-first. Covers the case where the user thinks
-      // they tapped the king but their finger/cursor landed on the
-      // adjacent empty square; without this, target-first would fire
-      // on the next click (asking 'which piece?') and the user would
-      // rightly say 'but I already chose my piece'.
       const effectiveChess = (!this.isAtLive() && this._historicalChess)
         ? this._historicalChess
         : this.chess;
-      if (this._nearMissOwnPiece(e.clientX, e.clientY, effectiveChess)) {
-        console.log('[move-input] → bail: near-miss-own-piece (treating as click on nearby piece)', { target });
-        this._logInputPath('bail:near-miss-own-piece', target);
-        return;
-      }
 
-      // FIRST: if the user previously clicked a target and we highlighted
-      // candidates, this click might be them picking the source.
+      // PENDING-SOURCE RESOLUTION must run BEFORE any ownership-based
+      // bail (near-miss / own-piece). Otherwise a user clicking an
+      // own-piece that's ALSO a legal source for the armed target-
+      // first gets swallowed by the ownership check — which the log
+      // showed on Nf6 / b7 clicks.
       if (this._pendingTargetSources && this._pendingTargetSources.includes(target)) {
         const prevTarget = this._pendingTarget;
         console.log('[move-input] → resolve pending target-first', { source: target, target: prevTarget });
         this._clearTargetFirst();
-        self._onUserMove(target, prevTarget, {});
+        self._onUserMove(target, prevTarget, { via: 'pending-source' });
         this._logInputPath('resolve:pending-source', `${target}→${prevTarget}`);
+        return;
+      }
+
+      // NEAR-MISS GUARD: if the click landed within one-third of a
+      // square of a movable piece CENTRE but NOT on that square itself,
+      // treat it as a piece-click intent and skip target-first. Covers
+      // the "tapped king, finger on adjacent empty square" case.
+      if (this._nearMissOwnPiece(e.clientX, e.clientY, effectiveChess, target)) {
+        console.log('[move-input] → bail: near-miss-own-piece (treating as click on nearby piece)', { target });
+        this._logInputPath('bail:near-miss-own-piece', target);
         return;
       }
 
@@ -177,6 +184,8 @@ export class BoardController extends EventTarget {
       const onUp = (ue) => {
         document.removeEventListener('pointermove', onMove);
         document.removeEventListener('pointerup', onUp);
+        const releasedOn = this._coordsToKey(ue.clientX, ue.clientY);
+        console.log('[move-input] pointerup', { target, releasedOn, dragged });
 
         if (dragged) {
           // Target-drag path — did we release on a legal source?
@@ -184,7 +193,7 @@ export class BoardController extends EventTarget {
           this._clearTargetFirst();
           if (src && legalSources.includes(src)) {
             console.log('[move-input] target-drag → playing', { src, target });
-            self._onUserMove(src, target, {});
+            self._onUserMove(src, target, { via: 'target-drag' });
           } else {
             console.log('[move-input] target-drag released on non-source, cancelled', { releasedOn: src, target });
           }
@@ -195,7 +204,7 @@ export class BoardController extends EventTarget {
         if (legalSources.length === 1) {
           console.log('[move-input] target-first: single source → playing', { source: legalSources[0], target });
           this._clearTargetFirst();
-          self._onUserMove(legalSources[0], target, {});
+          self._onUserMove(legalSources[0], target, { via: 'target-first-single' });
         } else {
           console.log('[move-input] target-first: multiple candidates, waiting for source click', { target, sources: legalSources });
           // Multiple candidates — leave highlights armed for the next click
@@ -388,32 +397,41 @@ export class BoardController extends EventTarget {
   // missed click on the king as a piece-click intention and keep
   // chessground in charge, rather than triggering our target-first
   // 'which piece?' flow.
-  _nearMissOwnPiece(x, y, effectiveChess) {
+  _nearMissOwnPiece(x, y, effectiveChess, clickedKey) {
+    // Only returns true when an OWN piece sits on a NEIGHBOURING
+    // square whose centre is within NEAR of the click — i.e. the
+    // click missed its intended target slightly. Direct hits (click
+    // is squarely on an own piece) are NOT handled here; they fall
+    // through to the later own-piece check, which is semantically
+    // clearer. The earlier version also returned true for direct
+    // hits, which made the log hard to read and (worse) swallowed
+    // pending-source source-pick clicks on own-piece legal sources.
     try {
       const bounds = this.rootEl.getBoundingClientRect();
       const sqW = bounds.width / 8;
       const sqH = bounds.height / 8;
-      const NEAR = sqW * 0.33;   // threshold radius in px
+      const NEAR = sqW * 0.33;
       const turn = effectiveChess.turn();
-      // Scan the 8 neighbour squares of the click coords (plus the
-      // clicked square itself) for an own piece whose centre is within
-      // NEAR pixels of the click position.
+      const clickFx = Math.floor((x - bounds.left) / sqW);
+      const clickRy = Math.floor((y - bounds.top)  / sqH);
       for (let df = -1; df <= 1; df++) {
         for (let dr = -1; dr <= 1; dr++) {
-          const fx = Math.floor((x - bounds.left) / sqW) + df;
-          const ry = Math.floor((y - bounds.top)  / sqH) + dr;
+          const fx = clickFx + df;
+          const ry = clickRy + dr;
           if (fx < 0 || fx > 7 || ry < 0 || ry > 7) continue;
+          // Skip the clicked square itself — direct hits aren't 'near
+          // misses' and shouldn't fire this guard.
+          if (df === 0 && dr === 0) continue;
           const cx = bounds.left + (fx + 0.5) * sqW;
           const cy = bounds.top  + (ry + 0.5) * sqH;
           if (Math.abs(x - cx) > NEAR || Math.abs(y - cy) > NEAR) continue;
-          // Convert to algebraic key (same flip logic as _coordsToKey).
-          const rankFromTop = ry;
-          const rank = 7 - rankFromTop;
+          const rank = 7 - ry;
           const fileCh = this.orientation === 'white'
             ? String.fromCharCode(97 + fx)
             : String.fromCharCode(97 + 7 - fx);
           const rankCh = this.orientation === 'white' ? (rank + 1) : (8 - rank);
           const key = `${fileCh}${rankCh}`;
+          if (key === clickedKey) continue;   // belt-and-braces guard
           const p = effectiveChess.get(key);
           if (p && p.color === turn) return true;
         }
@@ -467,6 +485,7 @@ export class BoardController extends EventTarget {
   async _onUserMove(orig, dest, _meta) {
     console.log('[move] _onUserMove called', {
       orig, dest,
+      via: _meta?.via || 'unknown',         // 'chessground-after' | 'pending-source' | 'target-first-click' | 'target-drag' | ...
       meta: _meta || {},
       chessTurn: this.chess.turn(),
       isAtLive: this.isAtLive(),

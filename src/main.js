@@ -3516,10 +3516,23 @@ async function main() {
     document.getElementById(`${prefix}-end`).addEventListener('click',   () => board.toEnd());
   }
 
-  // Mouse-wheel on board → navigate history
+  // Mouse-wheel on board → navigate history.
+  // DISABLED during an active (not-yet-finished) practice game so an
+  // accidental scroll never looks like a takeback mid-game. Back
+  // button / arrow keys / nav buttons still work, so intentional
+  // navigation is unaffected. Once the game ends (practice-finished
+  // class added) wheel navigation re-enables for post-game review.
   const boardEl = document.getElementById('board');
   let wheelCooldown = 0;
   boardEl.addEventListener('wheel', (e) => {
+    const inActivePractice =
+      document.body.classList.contains('practice-mode') &&
+      !document.body.classList.contains('practice-finished');
+    if (inActivePractice) {
+      e.preventDefault();
+      console.log('[move] scroll-ignored-in-practice', { deltaY: e.deltaY });
+      return;
+    }
     e.preventDefault();
     const now = Date.now();
     if (now - wheelCooldown < 80) return;   // throttle
