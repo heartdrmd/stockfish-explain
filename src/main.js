@@ -3519,6 +3519,13 @@ async function main() {
   board.addEventListener('undo',     updatePly);
   updatePly();
 
+  // Ctrl-Shift-D (or long-press `d` on mobile) toggles the board-input
+  // path-logging so we can see in the narration area which pointerdown
+  // branch fired. Survives page reload via localStorage.
+  try {
+    window.__boardInputDebug = localStorage.getItem('stockfish-explain.board-input-debug') === '1';
+  } catch {}
+
   // Keyboard shortcuts — lila-inspired. Port of ui/analyse/src/keyboard.ts
   // key table. Inactive when typing in an input / textarea / select or
   // when a modifier key other than Shift is held.
@@ -3565,6 +3572,17 @@ async function main() {
       case 'Escape':
         // Esc — close any open floating card or help overlay
         document.getElementById('kbd-help')?.remove();
+        break;
+      case 'D':
+        // Shift+D — toggle board-input path logging (in narration area)
+        if (e.shiftKey) {
+          window.__boardInputDebug = !window.__boardInputDebug;
+          try { localStorage.setItem('stockfish-explain.board-input-debug',
+            window.__boardInputDebug ? '1' : '0'); } catch {}
+          const n = document.getElementById('narration-text');
+          if (n) n.innerHTML += `<div style="font-family:var(--font-mono);font-size:11px;color:#4ec9b0;">[debug] board-input logging ${window.__boardInputDebug ? 'ON' : 'OFF'}</div>`;
+          e.preventDefault();
+        }
         break;
     }
   });

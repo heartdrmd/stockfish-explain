@@ -47,6 +47,14 @@ export class BoardController extends EventTarget {
       selectable: { enabled: true },
       drawable: { enabled: true, defaultSnapToValidMove: true, eraseOnClick: false },
       premovable: { enabled: false },
+      // Any chessground-native select or move invalidates our
+      // target-first pending state — otherwise leftover highlights /
+      // _pendingTargetSources can trigger a spurious 'which piece?'
+      // on the user's next click.
+      events: {
+        move:   () => self._clearTargetFirst(),
+        select: () => self._clearTargetFirst(),
+      },
     });
 
     this.rootEl.addEventListener('contextmenu', (e) => {
@@ -75,8 +83,26 @@ export class BoardController extends EventTarget {
       // the destination natively. Our target-first logic used to cut in
       // and show a "which piece?" candidates prompt when more than one
       // of the user's pieces could reach the target, overriding the
-      // selection they'd already made. That exact bug. One-line fix.
-      if (this.cg && this.cg.state && this.cg.state.selected) return;
+      // selection they'd already made.
+      if (this.cg && this.cg.state && this.cg.state.selected) {
+        this._logInputPath('bail:already-selected', target);
+        return;
+      }
+
+      // NEAR-MISS GUARD: if the click landed within one-third of a
+      // square of a movable piece, treat it as a piece-click intent
+      // and skip target-first. Covers the case where the user thinks
+      // they tapped the king but their finger/cursor landed on the
+      // adjacent empty square; without this, target-first would fire
+      // on the next click (asking 'which piece?') and the user would
+      // rightly say 'but I already chose my piece'.
+      const effectiveChess = (!this.isAtLive() && this._historicalChess)
+        ? this._historicalChess
+        : this.chess;
+      if (this._nearMissOwnPiece(e.clientX, e.clientY, effectiveChess)) {
+        this._logInputPath('bail:near-miss-own-piece', target);
+        return;
+      }
 
       // FIRST: if the user previously clicked a target and we highlighted
       // candidates, this click might be them picking the source.
@@ -84,21 +110,20 @@ export class BoardController extends EventTarget {
         const prevTarget = this._pendingTarget;
         this._clearTargetFirst();
         self._onUserMove(target, prevTarget, {});
+        this._logInputPath('resolve:pending-source', `${target}→${prevTarget}`);
         return;
       }
 
-      // IMPORTANT: when the user has scrolled back to a past ply, `this.chess`
-      // still holds the LIVE position — NOT the past one the user is looking
-      // at. All legality + piece-color lookups in this handler must use the
-      // position actually displayed on the board. `_historicalChess` is set
-      // by goToPly() whenever viewPly < total; otherwise we use this.chess.
-      const effectiveChess = (!this.isAtLive() && this._historicalChess)
-        ? this._historicalChess
-        : this.chess;
+      // If stale pending state exists (armed from a prior interaction
+      // but the user has clicked somewhere unrelated now) — clear it.
+      if (this._pendingTargetSources) this._clearTargetFirst();
 
       const p = effectiveChess.get(target);
       // If our piece is on this square, chessground handles its own drag.
-      if (p && p.color === effectiveChess.turn()) return;
+      if (p && p.color === effectiveChess.turn()) {
+        this._logInputPath('bail:own-piece', target);
+        return;
+      }
 
       // Collect legal sources that can reach this target.
       let legalSources = [];
@@ -324,6 +349,64 @@ export class BoardController extends EventTarget {
       : String.fromCharCode(97 + 7 - file);
     const rankCh = this.orientation === 'white' ? (rank + 1) : (8 - rank);
     return `${fileCh}${rankCh}`;
+  }
+
+  // Returns true if the click coords are within ~33% of a square from
+  // the CENTRE of a square that holds a movable piece of the current
+  // side-to-move. Used by the pointerdown handler to treat a slightly-
+  // missed click on the king as a piece-click intention and keep
+  // chessground in charge, rather than triggering our target-first
+  // 'which piece?' flow.
+  _nearMissOwnPiece(x, y, effectiveChess) {
+    try {
+      const bounds = this.rootEl.getBoundingClientRect();
+      const sqW = bounds.width / 8;
+      const sqH = bounds.height / 8;
+      const NEAR = sqW * 0.33;   // threshold radius in px
+      const turn = effectiveChess.turn();
+      // Scan the 8 neighbour squares of the click coords (plus the
+      // clicked square itself) for an own piece whose centre is within
+      // NEAR pixels of the click position.
+      for (let df = -1; df <= 1; df++) {
+        for (let dr = -1; dr <= 1; dr++) {
+          const fx = Math.floor((x - bounds.left) / sqW) + df;
+          const ry = Math.floor((y - bounds.top)  / sqH) + dr;
+          if (fx < 0 || fx > 7 || ry < 0 || ry > 7) continue;
+          const cx = bounds.left + (fx + 0.5) * sqW;
+          const cy = bounds.top  + (ry + 0.5) * sqH;
+          if (Math.abs(x - cx) > NEAR || Math.abs(y - cy) > NEAR) continue;
+          // Convert to algebraic key (same flip logic as _coordsToKey).
+          const rankFromTop = ry;
+          const rank = 7 - rankFromTop;
+          const fileCh = this.orientation === 'white'
+            ? String.fromCharCode(97 + fx)
+            : String.fromCharCode(97 + 7 - fx);
+          const rankCh = this.orientation === 'white' ? (rank + 1) : (8 - rank);
+          const key = `${fileCh}${rankCh}`;
+          const p = effectiveChess.get(key);
+          if (p && p.color === turn) return true;
+        }
+      }
+    } catch {}
+    return false;
+  }
+
+  // Narration-area diagnostic — toggled by window.__boardInputDebug = true.
+  // Prints which input path the last pointerdown fired so we can see in
+  // the UI without opening DevTools.
+  _logInputPath(path, detail) {
+    if (!window.__boardInputDebug) return;
+    const msg = `[input] ${path} ${detail || ''}`;
+    console.log(msg);
+    try {
+      const el = document.getElementById('narration-text');
+      if (el) {
+        const tag = document.createElement('div');
+        tag.style.cssText = 'font-family:var(--font-mono);font-size:10px;opacity:0.7;';
+        tag.textContent = msg;
+        el.appendChild(tag);
+      }
+    } catch {}
   }
 
   _onRightClickSquare(key, _evt) {
