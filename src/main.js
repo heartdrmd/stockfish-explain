@@ -3977,7 +3977,7 @@ async function main() {
       if (lichessCount) {
         const outer = document.createElement('details');
         if (f) outer.open = true;     // auto-expand on search
-        outer.innerHTML = `<summary>⚗ More variations (Lichess DB) <span class="tree-family-count">${lichessCount}</span></summary>`;
+        outer.innerHTML = `<summary>⚗ Deep variations (Lichess DB · 3,690 lines) <span class="tree-family-count">${lichessCount}</span></summary>`;
         for (const { grp, items } of lichessMatches) {
           const inner = document.createElement('details');
           if (f) inner.open = true;

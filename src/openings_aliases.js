@@ -257,4 +257,82 @@ export const OPENING_ALIASES = {
   'Saragossa Opening':                              ['Saragossa', '1.c3'],
   'Barnes Opening':                                 ['Barnes Opening', '1.f3'],
   "Zukertort Opening":                              ['Zukertort', '1.Nf3'],
+
+  // ═══════════════════════════════════════════════════════════════
+  //   Additional famous Lichess-DB variations worth aliasing
+  // ═══════════════════════════════════════════════════════════════
+  'Ruy Lopez: Archangelsk':                         ['Archangelsk', 'Arkhangelsk', 'Bb7 Ruy Lopez'],
+  'Ruy Lopez: Modern Archangelsk':                  ['Modern Archangelsk', 'Bc5 Ruy Lopez'],
+  'Ruy Lopez: Worrall Attack':                      ['Worrall', 'Worrall Attack', 'Qe2 Ruy'],
+  'Ruy Lopez: Anti-Marshall':                       ['Anti-Marshall', 'h3 Ruy', 'a4 Ruy'],
+  'Italian Game: Möller Attack':                    ['Möller Attack', 'Moller Attack', 'Italian c3 d4'],
+  'Italian Game: Scotch Gambit, Möller Attack':     ['Möller Attack', 'Moller Scotch Gambit'],
+
+  "King's Indian Defense: Classical, Bayonet":      ['Bayonet Attack KID', 'b4 KID', 'KID Bayonet'],
+  "King's Indian Defense: Makogonov":               ['Makogonov KID', 'h3 KID', '5.h3 KID'],
+  "King's Indian Defense: Gligoric":                ['Gligoric System', 'Be3 KID', '7.Be3 KID'],
+  "King's Indian Defense: Orthodox":                ['Orthodox KID', 'Mar del Plata KID'],
+  "King's Indian Defense: Panno":                   ['Panno Variation', 'Fianchetto Panno'],
+
+  'Nimzo-Indian Defense: Hübner':                   ['Hübner', 'Huebner Variation', 'Nimzo Hubner'],
+  'Nimzo-Indian Defense: Leningrad':                ['Leningrad Nimzo', 'Bg5 Nimzo'],
+  'Nimzo-Indian Defense: Normal Line':              ['Normal Nimzo', 'Main Nimzo'],
+
+  "Queen's Indian Defense: Fianchetto, Nimzowitsch Variation": ['Nimzowitsch QID', 'Ba6 QID'],
+
+  'Grünfeld Defense: Three Knights':                ['Three Knights Grunfeld'],
+  'Grünfeld Defense: Seville Variation':            ['Seville', 'Seville Grunfeld'],
+  'Grünfeld Defense: Modern Exchange':              ['Modern Exchange Grunfeld', '8.Rb1'],
+
+  'Benoni Defense: Four Pawns Attack':              ['Four Pawns Benoni', 'Benoni Four Pawns', 'f4 Benoni'],
+  'Benoni Defense: Pawn Storm':                     ['Pawn Storm Benoni'],
+  'Benoni Defense: Hromadka':                       ['Czech Benoni', 'Hromadka'],
+  'Benko Gambit Accepted':                          ['Benko Accepted', 'Volga Accepted'],
+  'Benko Gambit Declined':                          ['Benko Declined'],
+
+  'Sicilian Defense: Sveshnikov, Chelyabinsk':      ['Chelyabinsk', 'Sveshnikov Main'],
+  'Sicilian Defense: Najdorf, Fischer-Sozin':       ['Fischer-Sozin', 'Sozin Najdorf', 'Bc4 Najdorf'],
+  'Sicilian Defense: Najdorf, Adams Attack':        ['Adams Attack', 'h3 Najdorf'],
+  'Sicilian Defense: Velimirovic':                  ['Velimirovic Attack', 'Bc4 Classical Sicilian'],
+  'Sicilian Defense: Four Knights':                 ['Four Knights Sicilian'],
+  'Sicilian Defense: Löwenthal':                    ['Löwenthal', 'Lowenthal', 'Sicilian 4...e5'],
+
+  'French Defense: Winawer, Poisoned Pawn':         ['Poisoned Pawn French', 'Winawer Poisoned'],
+  'French Defense: Winawer, Advance':               ['Winawer Advance', 'Winawer Main'],
+  'French Defense: Tarrasch, Open':                 ['Open Tarrasch', 'Tarrasch Open'],
+  'French Defense: Tarrasch, Closed':               ['Closed Tarrasch', 'Tarrasch Closed'],
+  'French Defense: Steinitz':                       ['Steinitz French', '4.e5 French'],
+  'French Defense: Boleslavsky':                    ['Boleslavsky French', '4.Bg5 French'],
+  'French Defense: Milner-Barry':                   ['Milner-Barry Gambit', 'Advance Milner-Barry'],
+
+  'Caro-Kann Defense: Advance, Short':              ['Short Variation Caro', 'Advance Short Caro'],
+  'Caro-Kann Defense: Tartakower':                  ['Tartakower Caro'],
+  'Caro-Kann Defense: Gurgenidze':                  ['Gurgenidze Caro', '2.Nc3 g6'],
+
+  'Queen\'s Gambit Declined: Tarrasch':             ['Tarrasch Defense', 'Tarrasch QGD', '3...c5'],
+  "Queen's Gambit Declined: Semi-Tarrasch":         ['Semi-Tarrasch', 'Semi-Tarrasch Defense'],
+  "Queen's Gambit Declined: Manhattan":             ['Manhattan Variation'],
+  "Queen's Gambit Accepted: Old":                   ['Old QGA'],
+
+  'Slav Defense: Quiet':                            ['Quiet Slav'],
+  'Slav Defense: Geller Gambit':                    ['Geller Gambit Slav'],
+  'Slav Defense: Schlechter':                       ['Schlechter Slav'],
+  'Semi-Slav Defense: Marshall':                    ['Marshall Gambit Semi-Slav', 'e4 Semi-Slav'],
+
+  'Alekhine Defense: Four Pawns':                   ['Four Pawns Alekhine'],
+  'Alekhine Defense: Modern':                       ['Modern Alekhine', 'Bg4 Alekhine'],
+  'Alekhine Defense: Exchange':                     ['Exchange Alekhine', '4.exd6'],
+
+  'Dutch Defense: Classical':                       ['Classical Dutch', 'Ilyin-Genevsky'],
+  'Dutch Defense: Rubinstein':                      ['Rubinstein Dutch'],
+
+  'English Opening: Hedgehog':                      ['Hedgehog', 'English Hedgehog'],
+  'English Opening: Botvinnik':                     ['Botvinnik English', 'Botvinnik System'],
+  'English Opening: Anti-Benoni':                   ['Anti-Benoni English'],
+
+  'Trompowsky Attack: Classical':                   ['Classical Tromp', 'Main Line Trompowsky'],
+  'Trompowsky Attack: Edge':                        ['Edge Variation Tromp'],
+  'London System: Barry Attack':                    ['Barry Attack', 'London Barry'],
+  'London System: Jobava':                          ['Jobava London', 'Rapport-Jobava'],
+  "King's Indian Attack: Sicilian":                 ['KIA Sicilian', "King's Indian Attack vs Sicilian"],
 };
