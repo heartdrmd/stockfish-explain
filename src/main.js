@@ -6726,6 +6726,82 @@ async function main() {
     } catch {}
 
     // ═══════════════════════════════════════════════════════════════════
+    // 🎓 Practice coach — ADDITIVE overlay.
+    //    Shows a brief 'Best / Good / Inaccuracy / Mistake / Blunder'
+    //    chip after each move (lila-style ui/analyse/src/practice/). Does
+    //    NOT modify the custom-practice flow, engine config, or game
+    //    logic — purely a visual overlay. Off by default; persisted.
+    // ═══════════════════════════════════════════════════════════════════
+    (() => {
+      const btn = document.getElementById('btn-coach');
+      if (!btn) return;
+      const STORAGE = 'stockfish-explain.coach-on';
+      let enabled = false;
+      try { enabled = localStorage.getItem(STORAGE) === '1'; } catch {}
+      function syncBtn() {
+        if (enabled) btn.classList.add('btn-coach-on');
+        else btn.classList.remove('btn-coach-on');
+      }
+      syncBtn();
+      btn.addEventListener('click', () => {
+        enabled = !enabled;
+        try { localStorage.setItem(STORAGE, enabled ? '1' : '0'); } catch {}
+        syncBtn();
+        if (!enabled) hideChip();
+      });
+
+      let chipEl = null;
+      let hideTimer = 0;
+      function chip() {
+        if (chipEl) return chipEl;
+        chipEl = document.createElement('div');
+        chipEl.className = 'coach-chip';
+        document.body.appendChild(chipEl);
+        return chipEl;
+      }
+      function hideChip() {
+        if (chipEl) chipEl.classList.remove('visible');
+      }
+      function showChip(label, kind) {
+        const el = chip();
+        el.className = 'coach-chip coach-chip-' + kind;
+        el.textContent = label;
+        requestAnimationFrame(() => el.classList.add('visible'));
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(hideChip, 2600);
+      }
+
+      // On each move, classify the move's quality from the mover's POV
+      // using win-chance delta. Two consecutive cached evals required;
+      // otherwise bail silently (engine still thinking).
+      board.addEventListener('move', () => {
+        if (!enabled) return;
+        const plies = collectTimelinePlies();
+        if (plies.length < 2) return;
+        const i = plies.length - 1;
+        const before = plies[i - 1];
+        const after  = plies[i];
+        if (!before || !after) return;
+        if (before.cpWhite == null && before.mate == null) return;
+        if (after.cpWhite == null  && after.mate == null)  return;
+        // Mover is determined by whose turn it was BEFORE the move.
+        const stmBefore = before.fen?.split(' ')[1] || 'w';
+        const moverSign = stmBefore === 'w' ? 1 : -1;
+        const wb = _cpToWinChance(before.cpWhite) * moverSign;
+        const wa = _cpToWinChance(after.cpWhite)  * moverSign;
+        const drop = wb - wa;
+        let kind, label;
+        if      (drop >= 0.20) { kind = 'blunder';    label = '?? Blunder'; }
+        else if (drop >= 0.12) { kind = 'mistake';    label = '? Mistake'; }
+        else if (drop >= 0.06) { kind = 'inaccuracy'; label = '?! Inaccuracy'; }
+        else if (drop >= 0.02) { kind = 'ok';         label = 'OK'; }
+        else if (drop >= -0.01){ kind = 'good';       label = '✓ Good'; }
+        else                   { kind = 'best';       label = '★ Best!'; }
+        showChip(label, kind);
+      });
+    })();
+
+    // ═══════════════════════════════════════════════════════════════════
     // 🧩 Puzzles — Lichess tactics trainer.
     //    Fetches daily puzzle (no auth), sets up the pre-puzzle position
     //    on the board + plays the set-up move, then listens for user's

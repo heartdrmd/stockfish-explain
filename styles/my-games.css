@@ -111,6 +111,32 @@
 .exp-tb-cat { text-transform: capitalize; color: rgba(255,255,255,0.7); }
 .exp-tb-dtm { font-family: var(--font-mono, ui-monospace, monospace); color: rgba(255,255,255,0.55); }
 
+/* ─── Practice coach chip (floating near the board) ──────────────── */
+.coach-chip {
+  position: fixed;
+  top: 120px;
+  right: 16px;
+  z-index: 600;
+  padding: 10px 16px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  pointer-events: none;
+  transform: translateY(-12px);
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.coach-chip.visible { opacity: 1; transform: translateY(0); }
+.coach-chip-best       { background: #2e7d32; color: #fff; border: 1px solid #1b5e20; }
+.coach-chip-good       { background: #43a047; color: #fff; border: 1px solid #2e7d32; }
+.coach-chip-ok         { background: #616161; color: #fff; border: 1px solid #424242; }
+.coach-chip-inaccuracy { background: #1976d2; color: #fff; border: 1px solid #1565c0; }
+.coach-chip-mistake    { background: #f57c00; color: #fff; border: 1px solid #e65100; }
+.coach-chip-blunder    { background: #c62828; color: #fff; border: 1px solid #8e0000; }
+
+.btn-coach-on { background: rgba(33,150,243,0.25); border-color: #1976d2; }
+
 /* ─── Site footer (AGPL-3.0 source-code notice) ──────────────────── */
 .site-footer {
   padding: 10px 16px;
