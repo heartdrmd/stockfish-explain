@@ -8194,8 +8194,18 @@ async function main() {
         } else {
           outputEl.innerHTML = `<p class="muted">Cancelled. Pick a Haiku model to use without the premium password.</p>`;
         }
-      } else if (err.message === 'SITE_LOCKED') {
-        outputEl.innerHTML = `<p style="color:var(--c-bad)">Site session expired. Reload the page to re-enter the password.</p>`;
+      } else if (err.message === 'SITE_LOCKED' && window.__requestSiteUnlock) {
+        // Session expired or cookie rolled over into a new day — open
+        // the gate in place (no reload) and retry the click after
+        // successful unlock.
+        outputEl.innerHTML = `<p class="muted">🔒 Session expired. Re-enter today's password…</p>`;
+        const res = await window.__requestSiteUnlock();
+        if (res && res.ok) {
+          outputEl.innerHTML = `<p class="muted">Retrying…</p>`;
+          btnEl.click();
+        } else {
+          outputEl.innerHTML = `<p class="muted">Cancelled. Reload the page when you're ready to try again.</p>`;
+        }
       } else {
         outputEl.innerHTML = `<p style="color:var(--c-bad)"><strong>Error:</strong> ${err.message}</p>`;
       }
@@ -9061,6 +9071,10 @@ async function wireGateAndCheckTier() {
 
   // Expose so other code (e.g. model picker) can request premium unlock
   window.__requestPremiumUnlock = () => openGate({ premium: true, cancellable: true });
+  // Same for site-unlock when an AI call returns SITE_LOCKED mid-
+  // session (cookie aged out / user hit a new day). Lets the AI-button
+  // handler re-prompt in place and retry the call without a reload.
+  window.__requestSiteUnlock    = () => openGate({ premium: false, cancellable: true });
 
   // Initial check — what tier does the user have right now?
   const tier = await AICoach.refreshTier();
