@@ -3483,6 +3483,7 @@ async function main() {
     const pFavsOnly    = document.getElementById('practice-opening-favs-only');
     const pToggleFav   = document.getElementById('practice-toggle-fav');
     const pPickRandom  = document.getElementById('practice-pick-random');
+    const pAddOpening  = document.getElementById('practice-add-opening');
 
     // ─── Favourite openings store ──────────────────────────────────
     // Keyed by "Group//index" (same format as pSel.value). Value is
@@ -3829,6 +3830,122 @@ async function main() {
     // existing calls compile. Everything now flows through renderTree.
     const populateOpeningSelect = () => { renderTree(); };
     populateOpeningSelect();
+
+    // ───── ➕ Add new opening modal ─────
+    // Free-form opening definition: user pastes a FEN (or reuses the
+    // current main-board FEN), names it, picks a side, and saves to a
+    // folder. Saved entries live in CUSTOM_STORAGE_KEY and appear in
+    // the practice tree on next open (populateOpeningSelect rebuilds
+    // from OPENINGS + custom list).
+    (() => {
+      if (!pAddOpening) return;
+      const m        = document.getElementById('add-opening-modal');
+      const iFen     = document.getElementById('ao-fen');
+      const iName    = document.getElementById('ao-name');
+      const iFolder  = document.getElementById('ao-folder');
+      const iSide    = document.getElementById('ao-side');
+      const iError   = document.getElementById('ao-error');
+      const btnUse   = document.getElementById('ao-use-current');
+      const btnReset = document.getElementById('ao-reset-start');
+      const btnSave  = document.getElementById('ao-save');
+      const btnClose = document.getElementById('ao-close');
+      const preview  = document.getElementById('ao-preview-wrap');
+      const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      const CUSTOM_STORAGE_KEY = 'stockfish-explain.practice-custom-openings';
+
+      const GLYPH = {
+        P:'♙', R:'♖', N:'♘', B:'♗', Q:'♕', K:'♔',
+        p:'♟', r:'♜', n:'♞', b:'♝', q:'♛', k:'♚',
+      };
+      function renderPreviewBoard(fen) {
+        if (!preview) return;
+        let rows;
+        try { rows = fen.split(' ')[0].split('/'); if (rows.length !== 8) throw 0; }
+        catch { preview.innerHTML = '<div style="color:#f48771;font-size:12px;">Invalid FEN</div>'; return; }
+        let html = '<div class="preview-board" style="grid-template-columns:repeat(8,32px);grid-template-rows:repeat(8,32px);width:256px;height:256px;">';
+        for (let r = 0; r < 8; r++) {
+          let file = 0;
+          for (const ch of rows[r]) {
+            if (/\d/.test(ch)) {
+              for (let k = 0; k < +ch; k++) {
+                const dark = (r + file) % 2 === 1;
+                html += `<span class="sq ${dark ? 'd' : 'l'}" style="font-size:26px;"></span>`;
+                file++;
+              }
+            } else {
+              const dark = (r + file) % 2 === 1;
+              html += `<span class="sq ${dark ? 'd' : 'l'}" style="font-size:26px;">${GLYPH[ch] || ''}</span>`;
+              file++;
+            }
+          }
+        }
+        html += '</div>';
+        preview.innerHTML = html;
+      }
+
+      function openModal() {
+        if (iError) iError.textContent = '';
+        if (iFen)   iFen.value    = board?.fen?.() || START_FEN;
+        if (iName)  iName.value   = '';
+        if (iFolder) iFolder.value = 'My openings';
+        if (iSide)  iSide.value   = 'white';
+        renderPreviewBoard(iFen?.value || START_FEN);
+        if (m) m.hidden = false;
+        setTimeout(() => iName?.focus(), 60);
+      }
+      function closeModal() { if (m) m.hidden = true; }
+
+      pAddOpening.addEventListener('click', openModal);
+      if (btnClose) btnClose.addEventListener('click', closeModal);
+      if (m) m.addEventListener('click', (e) => { if (e.target === m) closeModal(); });
+      if (btnUse)   btnUse.addEventListener('click',   () => { iFen.value = board?.fen?.() || START_FEN; renderPreviewBoard(iFen.value); });
+      if (btnReset) btnReset.addEventListener('click', () => { iFen.value = START_FEN;                  renderPreviewBoard(iFen.value); });
+      if (iFen)     iFen.addEventListener('input',     () => renderPreviewBoard(iFen.value));
+
+      if (btnSave) btnSave.addEventListener('click', () => {
+        if (iError) iError.textContent = '';
+        const fen  = (iFen?.value || '').trim();
+        const name = (iName?.value || '').trim();
+        const folder = (iFolder?.value || 'My openings').trim() || 'My openings';
+        const side = iSide?.value || 'white';
+        if (!name) { iError.textContent = 'Name is required.'; return; }
+        try { new Chess(fen); } catch { iError.textContent = 'FEN is invalid — check the preview.'; return; }
+        let customs = [];
+        try { customs = JSON.parse(localStorage.getItem(CUSTOM_STORAGE_KEY) || '[]'); } catch {}
+        // New entry shape matches the existing custom-openings format
+        // used by the practice tree rebuilder: { name, group, moves, fen, side }.
+        // Empty moves + explicit fen means the tree replayer will jump
+        // straight to the FEN instead of replaying SAN.
+        const entry = {
+          name,
+          group: folder,
+          moves: [],
+          fen,
+          side,
+          _custom: true,
+          created_at: new Date().toISOString(),
+        };
+        customs.push(entry);
+        try { localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(customs)); } catch {}
+        // If user is logged in, also mirror to cloud favourites table
+        // so it syncs across devices. Best-effort — silent on failure.
+        if (window.__currentUser) {
+          try {
+            // Encoded into favourites.opening_key as a custom prefix so
+            // the key doesn't collide with the normal "Group//index"
+            // opening keys the picker uses.
+            fetch('/api/favourites', { method: 'PUT', credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: `custom://${folder}/${name}`, side }),
+            }).catch(() => {});
+          } catch {}
+        }
+        console.log('[add-opening] saved', entry);
+        closeModal();
+        // Rebuild the tree so the new opening appears immediately.
+        try { populateOpeningSelect(); } catch {}
+      });
+    })();
 
     // ───── Hover preview on opening tree leaves ─────
     // Hovering a leaf pops a small Unicode chessboard showing the

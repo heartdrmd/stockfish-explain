@@ -584,6 +584,7 @@
             <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="practice-opening-favs-only"> ⭐ Favourites only</label>
             <button type="button" id="practice-pick-random" class="btn" style="font-size:11px;padding:3px 8px;" title="Pick a random opening from your favourites (single game)">🎲 Random</button>
             <button type="button" id="practice-start-queue" class="btn" style="font-size:11px;padding:3px 8px;background:rgba(255,193,7,0.2);border-color:#ffc107;" title="Start a rotation — every game will play a fresh random favourite. Tick the boxes below to use a subset.">🔀 Queue mode</button>
+            <button type="button" id="practice-add-opening" class="btn" style="font-size:11px;padding:3px 8px;background:rgba(78,201,176,0.18);border-color:#4ec9b0;" title="Add a new opening from a FEN position — saves to your custom openings">➕ Add opening</button>
           </div>
           <!-- Tree-view with collapsible parent families. Replaces the
                flat <select> — the full 3,950-entry list is unreadable
@@ -903,6 +904,53 @@
       <p id="why-summary" class="muted"></p>
       <div class="modal-narration" id="why-narration"></div>
       <div class="modal-line muted"><strong>Line:</strong> <span id="why-line"></span></div>
+    </div>
+  </div>
+
+  <!-- "Add new opening" modal — paste a FEN (or reuse the current
+       main-board FEN), pick a name / side / folder. Saves to the
+       user's custom openings list so it appears in the practice tree
+       on the next modal-open. -->
+  <div id="add-opening-modal" class="modal-backdrop" hidden>
+    <div class="modal-card" style="width:480px;max-width:96vw;">
+      <h3>➕ Add a new practice opening</h3>
+      <p class="muted" style="font-size:12px;margin:4px 0 12px;">Paste a FEN (or use the current board), name it, pick which side you'll practice, and save it to a folder. It'll appear in the practice tree.</p>
+      <div class="auth-label">
+        <label>Starting FEN
+          <input id="ao-fen" type="text" placeholder="rnbqkbnr/pppppppp/..." autocomplete="off">
+        </label>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:4px;">
+        <button id="ao-use-current" type="button" class="btn" style="font-size:11px;">📋 Use current board FEN</button>
+        <button id="ao-reset-start" type="button" class="btn" style="font-size:11px;">♟ Reset to start position</button>
+      </div>
+      <div id="ao-preview-wrap" style="margin-top:10px;display:flex;justify-content:center;"></div>
+      <div class="auth-label">
+        <label>Name
+          <input id="ao-name" type="text" placeholder="e.g. My c3 Sicilian line" autocomplete="off">
+        </label>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <div class="auth-label" style="flex:1;">
+          <label>Folder
+            <input id="ao-folder" type="text" placeholder="My openings" value="My openings" autocomplete="off">
+          </label>
+        </div>
+        <div class="auth-label" style="flex:1;">
+          <label>Practice as
+            <select id="ao-side">
+              <option value="white">White</option>
+              <option value="black">Black</option>
+              <option value="both">Both (random each time)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="auth-error" id="ao-error"></div>
+      <div class="auth-actions">
+        <button id="ao-save"  class="btn btn-auth-primary">Save opening</button>
+        <button id="ao-close" class="btn">Cancel</button>
+      </div>
     </div>
   </div>
 
