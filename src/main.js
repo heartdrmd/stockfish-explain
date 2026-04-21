@@ -2911,8 +2911,13 @@ async function main() {
       const o = detectOpening(sanHistory, board.fen());
       if (o) opening = { name: o.name, eco: o.eco || null, matched: o._matched || 'exact' };
     } catch {}
-    const userInfo = (typeof window !== 'undefined' && window.__user)
-      ? { name: window.__user.name, id: window.__user.id }
+    // Auth code stores the logged-in user on window.__currentUser — the
+    // old window.__user lookup always returned undefined, which is why
+    // saved games had 'Guest' as the player name instead of the real
+    // username. Check both for back-compat.
+    const curUser = (typeof window !== 'undefined') && (window.__currentUser || window.__user);
+    const userInfo = curUser && (curUser.username || curUser.name)
+      ? { name: curUser.username || curUser.name, id: curUser.id || 'user' }
       : { name: 'Guest', id: 'guest' };
     const game = {
       id:          Date.now(),
@@ -6150,6 +6155,51 @@ async function main() {
     document.getElementById('btn-practice')?.click();
   });
 
+  // Install a small drag-bar at the top of the notation-below slot so
+  // the user can resize the stats area up/down (drag down to shrink it
+  // and give more room to the move list). Idempotent — if already
+  // installed, just ensures it's the first child.
+  function installStatsResizer(slot) {
+    if (!slot) return;
+    if (slot._resizerInstalled) return;
+    slot._resizerInstalled = true;
+    const bar = document.createElement('div');
+    bar.className = 'notation-stats-collapse';
+    bar.innerHTML = '<span style="flex:1;">📊 Stats</span><span title="Drag up/down to resize" style="cursor:ns-resize;padding:0 6px;">⇅</span><button type="button" class="btn btn-mini" title="Collapse / expand">_</button>';
+    slot.insertBefore(bar, slot.firstChild);
+    const STORAGE = 'stockfish-explain.stats-slot-height';
+    try {
+      const saved = parseInt(localStorage.getItem(STORAGE) || '', 10);
+      if (saved) slot.style.maxHeight = saved + 'px';
+    } catch {}
+    // Toggle-collapse button.
+    bar.querySelector('button').addEventListener('click', (e) => {
+      e.stopPropagation();
+      slot.classList.toggle('collapsed');
+    });
+    // Drag to resize.
+    const grip = bar.querySelector('[title="Drag up/down to resize"]');
+    let dragging = false, startY = 0, startH = 0;
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      dragging = true;
+      startY = e.clientY;
+      startH = slot.getBoundingClientRect().height;
+      grip.setPointerCapture(e.pointerId);
+    });
+    grip.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const delta = e.clientY - startY;
+      const h = Math.max(60, Math.min(window.innerHeight * 0.75, startH - delta));
+      slot.style.maxHeight = h + 'px';
+    });
+    grip.addEventListener('pointerup', (e) => {
+      if (!dragging) return;
+      dragging = false;
+      try { localStorage.setItem(STORAGE, String(parseInt(slot.style.maxHeight) || 0)); } catch {}
+    });
+  }
+
   // Wire click cycling + reanalyze on a rendered stats panel. Called
   // after renderStatsPanel has populated `wrap.innerHTML`. Makes each
   // Inaccuracies / Mistakes / Blunders row clickable (cycles through
@@ -6835,10 +6885,24 @@ async function main() {
         let whiteName, blackName, userSideForReview;
         if (revGame) {
           userSideForReview = revGame.user_color || null;
-          whiteName = revGame.white_name
-            || (revGame.user_color === 'white' ? (window.__currentUser?.username || 'You') : 'Stockfish');
-          blackName = revGame.black_name
-            || (revGame.user_color === 'black' ? (window.__currentUser?.username || 'You') : 'Stockfish');
+          const uname = window.__currentUser?.username || 'You';
+          // Stored names first. If both are missing AND user_color is
+          // unknown (legacy analysis-mode saves), pick a side for the
+          // user heuristically: prefer board orientation = user at the
+          // bottom. Prevents 'Stockfish vs Stockfish' labels on old
+          // cloud games saved before the names/userColor fields were
+          // reliably populated.
+          if (!revGame.white_name && !revGame.black_name && !revGame.user_color) {
+            const orient = board?.orientation || 'white';
+            userSideForReview = orient;
+            whiteName = orient === 'white' ? uname : 'Stockfish';
+            blackName = orient === 'black' ? uname : 'Stockfish';
+          } else {
+            whiteName = revGame.white_name
+              || (revGame.user_color === 'white' ? uname : 'Stockfish');
+            blackName = revGame.black_name
+              || (revGame.user_color === 'black' ? uname : 'Stockfish');
+          }
         } else {
           whiteName = practiceColor === 'white' ? (window.__currentUser?.username || 'You') : 'Stockfish';
           blackName = practiceColor === 'black' ? (window.__currentUser?.username || 'You') : 'Stockfish';
@@ -6861,6 +6925,10 @@ async function main() {
         // preference).
         const notationSlot = document.getElementById('notation-below-slot');
         if (card.classList.contains('review-mode') && notationSlot && statsWrap.parentElement !== notationSlot) {
+          // Install a drag handle at the top of the slot so the user
+          // can resize the stats pane (drag down → more notation, drag
+          // up → more stats).
+          installStatsResizer(notationSlot);
           notationSlot.appendChild(statsWrap);
         } else if (!card.classList.contains('review-mode') && statsWrap.parentElement !== card) {
           // Back to its original home inside the card when not in review.

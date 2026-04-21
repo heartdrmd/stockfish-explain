@@ -759,10 +759,39 @@
 .notation-below-slot {
   width: 100%;
   margin-top: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
 }
 .notation-below-slot:empty { display: none; }
 .notation-below-slot .gs-side { font-size: 12px; padding: 8px 10px; margin-bottom: 6px; }
 .notation-below-slot .live-graph-cta { margin-top: 6px; }
+
+/* Keep enough room under the move list — 6 rows of moves always
+   visible, even if the review stats below are tall. */
+#move-list {
+  min-height: 140px;
+}
+
+/* Collapse toggle on stats panels so the notation can claim full
+   column height if the user wants it. Triggered by clicking the
+   stats-wrap header / the 🢃 button. */
+.notation-below-slot.collapsed {
+  max-height: 32px;
+  overflow: hidden;
+}
+.notation-stats-collapse {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+  padding: 4px 6px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.notation-stats-collapse:hover { color: #fff; }
 
 .live-graph-card.review-mode {
   /* When docked inside .board-below-slot the card flows INLINE below
