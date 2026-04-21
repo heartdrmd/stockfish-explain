@@ -3748,6 +3748,11 @@ async function main() {
       const leaf = document.createElement('div');
       leaf.className = 'tree-leaf' + (entry.key === selected ? ' selected' : '');
       leaf.dataset.key = entry.key;
+      // Stash SAN moves on the element so the hover-preview handler
+      // can compute the resulting FEN without re-searching.
+      if (entry.o.moves?.length) {
+        leaf.dataset.movesSan = entry.o.moves.join(' ');
+      }
       const starred = !!favs[entry.key];
       const side    = favs[entry.key] || null; // 'white' | 'black' | 'both' | null
       const queueSet = loadQueueSet();
@@ -3824,6 +3829,79 @@ async function main() {
     // existing calls compile. Everything now flows through renderTree.
     const populateOpeningSelect = () => { renderTree(); };
     populateOpeningSelect();
+
+    // ───── Hover preview on opening tree leaves ─────
+    // Hovering a leaf pops a small Unicode chessboard showing the
+    // position after the opening's SAN moves are played from the
+    // starting position. No engine involved — pure chess.js replay.
+    (() => {
+      let hoverEl = null;
+      let hoverTimer = 0;
+      const GLYPH = {
+        P: '♙', R: '♖', N: '♘', B: '♗', Q: '♕', K: '♔',
+        p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
+      };
+      function renderBoardHtml(fen) {
+        const rows = fen.split(' ')[0].split('/');
+        let html = '<div class="preview-board">';
+        for (let r = 0; r < 8; r++) {
+          for (const ch of rows[r]) {
+            if (/\d/.test(ch)) {
+              for (let k = 0; k < +ch; k++) {
+                const dark = (r + k) % 2 === 1;
+                html += `<span class="sq ${dark ? 'd' : 'l'}"></span>`;
+              }
+            } else {
+              const dark = (r + html.match(/<span/g).length - r * 8) % 2 === 1;
+              html += `<span class="sq ${dark ? 'd' : 'l'}">${GLYPH[ch] || ''}</span>`;
+            }
+          }
+        }
+        return html + '</div>';
+      }
+      function hideHover() {
+        if (hoverEl) { hoverEl.remove(); hoverEl = null; }
+        if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = 0; }
+      }
+      function showHover(leaf) {
+        hideHover();
+        const sanMoves = (leaf.dataset.movesSan || '').split(/\s+/).filter(Boolean);
+        let fen;
+        try {
+          const c = new Chess();
+          for (const s of sanMoves) if (!c.move(s)) break;
+          fen = c.fen();
+        } catch { fen = new Chess().fen(); }
+        const r = leaf.getBoundingClientRect();
+        hoverEl = document.createElement('div');
+        hoverEl.className = 'tree-hover-preview';
+        hoverEl.innerHTML = renderBoardHtml(fen);
+        document.body.appendChild(hoverEl);
+        // Position to the RIGHT of the leaf, clamped to viewport.
+        const prevW = 220;
+        let left = r.right + 8;
+        if (left + prevW > window.innerWidth - 8) left = Math.max(8, r.left - prevW - 8);
+        let top = r.top - 20;
+        if (top + 240 > window.innerHeight) top = window.innerHeight - 250;
+        if (top < 8) top = 8;
+        hoverEl.style.left = left + 'px';
+        hoverEl.style.top  = top + 'px';
+      }
+      if (pTree) {
+        pTree.addEventListener('mouseover', (ev) => {
+          const leaf = ev.target.closest('.tree-leaf');
+          if (!leaf) return;
+          if (hoverTimer) clearTimeout(hoverTimer);
+          hoverTimer = setTimeout(() => showHover(leaf), 250);
+        });
+        pTree.addEventListener('mouseout', (ev) => {
+          // If leaving the tree entirely, or moving to a non-leaf.
+          const to = ev.relatedTarget;
+          if (!to || !pTree.contains(to)) hideHover();
+        });
+        pTree.addEventListener('scroll', hideHover, { passive: true });
+      }
+    })();
 
     if (pSearch) {
       pSearch.addEventListener('input', () => {

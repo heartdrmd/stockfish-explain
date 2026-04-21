@@ -2648,6 +2648,36 @@ body.practice-mode .practice-card[hidden]       { display: none !important; }
 }
 .practice-opening-tree .tree-leaf-fav:hover { opacity: 1; }
 
+/* Floating preview popup shown on hover over a practice-tree leaf.
+   Pure Unicode chess — no engine / SVG required. */
+.tree-hover-preview {
+  position: fixed;
+  z-index: 10000;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  padding: 6px;
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.8);
+  pointer-events: none;
+}
+.tree-hover-preview .preview-board {
+  display: grid;
+  grid-template-columns: repeat(8, 26px);
+  grid-template-rows:    repeat(8, 26px);
+  width:  208px;
+  height: 208px;
+}
+.tree-hover-preview .preview-board .sq {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  font-family: 'Segoe UI Symbol', 'Apple Symbols', 'DejaVu Sans', serif;
+}
+.tree-hover-preview .preview-board .sq.l { background: #f0d9b5; color: #000; }
+.tree-hover-preview .preview-board .sq.d { background: #b58863; color: #000; }
+
 /* W / B / Both mini-buttons next to starred favourites. */
 .practice-opening-tree .tree-leaf-side {
   display: inline-flex;
