@@ -20,6 +20,7 @@ import * as Tablebase              from './tablebase.js';
 import * as OpeningExplorer        from './opening_explorer.js';
 import { renderOpeningBlock, renderOpeningForAI, detectOpening } from './openings_book.js';
 import { LICHESS_OPENINGS } from './openings_lichess.js';
+import { OPENING_ALIASES } from './openings_aliases.js';
 import * as Archive from './game_archive.js';
 import { EvalGraph }     from './eval-graph.js';
 import { computeGameStats, renderStatsPanel } from './game-stats.js';
@@ -3864,10 +3865,30 @@ async function main() {
       // tolerant Levenshtein → subsequence) so single-word queries
       // behave exactly as before. Matching against moves means SAN
       // tokens like Bb5 / O-O / exd5 can drive the search directly.
-      const matchesFilter = (name, groupName, eco, moves) => {
+      // Alias lookup: scan OPENING_ALIASES once per entry, return the
+      // joined alternative-name string for any key that matches the
+      // full opening name as a substring. Cached on a WeakMap so repeat
+      // renders during typing don't re-scan.
+      const _aliasCache = new WeakMap();
+      const aliasesFor = (o) => {
+        if (!o || typeof o !== 'object') return '';
+        const cached = _aliasCache.get(o);
+        if (cached != null) return cached;
+        const name = o.name || '';
+        let hits = [];
+        for (const key in OPENING_ALIASES) {
+          if (name.includes(key)) hits = hits.concat(OPENING_ALIASES[key]);
+        }
+        const joined = hits.join(' ');
+        _aliasCache.set(o, joined);
+        return joined;
+      };
+
+      const matchesFilter = (name, groupName, eco, moves, openingObj) => {
         if (!f) return true;
         const movesText = Array.isArray(moves) ? moves.join(' ') : String(moves || '');
-        const haystack = [name, groupName, eco, movesText].filter(Boolean).join(' ');
+        const aliasText = aliasesFor(openingObj);
+        const haystack = [name, groupName, eco, movesText, aliasText].filter(Boolean).join(' ');
         // Tokenise query on whitespace. Short noise words (≤ 2 chars,
         // not a SAN square / move fragment) are dropped entirely.
         const rawTokens = f.split(/\s+/).filter(Boolean);
@@ -3896,7 +3917,7 @@ async function main() {
       for (const grp of [...curated, ...lichess]) {
         grp.items.forEach((o, i) => {
           const key = `${grp.group}//${i}`;
-          if (favs[key] && matchesFilter(o.name, grp.group, o.eco, o.moves)) {
+          if (favs[key] && matchesFilter(o.name, grp.group, o.eco, o.moves, o)) {
             favEntries.push({ key, o, group: grp.group });
           }
         });
@@ -3931,7 +3952,7 @@ async function main() {
       for (const grp of curated) {
         const matching = grp.items
           .map((o, i) => ({ key: `${grp.group}//${i}`, o, group: grp.group }))
-          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco, e.o.moves));
+          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco, e.o.moves, e.o));
         if (!matching.length) continue;
         curatedShown += matching.length;
         const hasCustom = grp.items.some(o => o._custom);
@@ -3949,7 +3970,7 @@ async function main() {
       for (const grp of lichess) {
         const items = grp.items
           .map((o, i) => ({ key: `${grp.group}//${i}`, o, group: grp.group }))
-          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco, e.o.moves));
+          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco, e.o.moves, e.o));
         if (items.length) lichessMatches.push({ grp, items });
       }
       const lichessCount = lichessMatches.reduce((s, x) => s + x.items.length, 0);
