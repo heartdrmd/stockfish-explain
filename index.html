@@ -89,6 +89,8 @@
             title="Solve tactics puzzles from Lichess (daily + by-id)">🧩 Puzzles</button>
     <button id="btn-coach" class="btn always-visible"
             title="Practice coach: after each move shows a brief 'Best / Good / Inaccuracy / Mistake / Blunder' chip (Lichess-style). Additive overlay — your normal practice flow stays exactly the same.">🎓 Coach</button>
+    <button id="btn-wiki" class="btn always-visible"
+            title="Opening Wiki — WikiBooks Chess Opening Theory prose for the current position. Live-updates as you move.">📘 Wiki</button>
     <!-- Auth area — single slot that flips between 'Sign in' and 'Hi, user / Logout'. -->
     <span id="auth-area" class="always-visible auth-area">
       <button id="btn-signin"   class="btn btn-auth always-visible" title="Sign in to sync games across devices">👤 Sign in</button>
@@ -1212,6 +1214,17 @@
         <button id="puzzle-load-id" class="btn" title="Load puzzle by its Lichess ID">Load</button>
         <button id="puzzle-close" class="btn">Close</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 📘 Opening Wiki — floating panel, toggled from header -->
+  <div id="wiki-card" class="wiki-card" hidden>
+    <div class="wiki-head">
+      <strong>📘 Opening Wiki</strong>
+      <button id="wiki-close" class="btn btn-mini" title="Hide the wiki">✕</button>
+    </div>
+    <div class="wiki-body" id="wiki-body">
+      <div class="wiki-empty">Play some moves and I'll show what WikiBooks says about this line.</div>
     </div>
   </div>
 

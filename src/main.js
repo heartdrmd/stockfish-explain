@@ -25,6 +25,7 @@ import { EvalGraph }     from './eval-graph.js';
 import { computeGameStats, renderStatsPanel } from './game-stats.js';
 import { ExplorerPanel } from './opening_explorer_ui.js';
 import * as Puzzles from './puzzles.js';
+import { fetchWiki } from './opening_wiki.js';
 
 // Expose Chess to eval-graph's computeDivision helper — avoids a
 // circular import while still letting it replay SAN to count pieces
@@ -7023,6 +7024,59 @@ async function main() {
         puz.moveIdx++;
       });
       updateProgress();
+    })();
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 📘 Opening Wiki — WikiBooks prose for the current line.
+    //    Port of lichess-org/lila ui/analyse/src/wiki.ts + wikiBooks.ts.
+    // ═══════════════════════════════════════════════════════════════════
+    (() => {
+      const btn = document.getElementById('btn-wiki');
+      const card = document.getElementById('wiki-card');
+      const body = document.getElementById('wiki-body');
+      const closeBtn = document.getElementById('wiki-close');
+      if (!btn || !card || !body) return;
+      const STORAGE = 'stockfish-explain.wiki-visible';
+      function sanArrFromBoard() {
+        try {
+          return board.chess.history() || [];
+        } catch { return []; }
+      }
+      let refreshTimer = 0;
+      async function refresh() {
+        if (card.hidden) return;
+        const sans = sanArrFromBoard();
+        if (!sans.length) {
+          body.innerHTML = '<div class="wiki-empty">Play some moves and I\'ll show what WikiBooks says about this line.</div>';
+          return;
+        }
+        body.innerHTML = '<div class="wiki-empty">Looking up…</div>';
+        const html = await fetchWiki(sans);
+        if (!html) {
+          body.innerHTML = '<div class="wiki-empty">No WikiBooks entry for this exact line yet.</div>';
+          return;
+        }
+        body.innerHTML = html;
+      }
+      function debouncedRefresh() {
+        clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(refresh, 500);
+      }
+      function show() {
+        card.hidden = false;
+        try { localStorage.setItem(STORAGE, '1'); } catch {}
+        refresh();
+      }
+      function hide() {
+        card.hidden = true;
+        try { localStorage.setItem(STORAGE, '0'); } catch {}
+      }
+      btn.addEventListener('click', () => card.hidden ? show() : hide());
+      closeBtn?.addEventListener('click', hide);
+      board.addEventListener('move', debouncedRefresh);
+      board.addEventListener('undo', debouncedRefresh);
+      board.addEventListener('new-game', debouncedRefresh);
+      try { if (localStorage.getItem(STORAGE) === '1') show(); } catch {}
     })();
 
     // Explorer panel — toggled from 📖 Explorer header button.

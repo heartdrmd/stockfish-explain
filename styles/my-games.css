@@ -137,6 +137,49 @@
 
 .btn-coach-on { background: rgba(33,150,243,0.25); border-color: #1976d2; }
 
+/* ─── Opening Wiki card (floating) ──────────────────────────────── */
+.wiki-card {
+  position: fixed;
+  top: 80px;
+  right: 16px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: 70vh;
+  z-index: 490;
+  background: rgba(20, 20, 22, 0.96);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+  display: flex;
+  flex-direction: column;
+}
+.wiki-card[hidden] { display: none; }
+.wiki-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.wiki-body {
+  overflow-y: auto;
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e0e0e0;
+}
+.wiki-body h2, .wiki-body h3 {
+  font-size: 13px;
+  margin: 10px 0 4px;
+  color: #fff;
+}
+.wiki-body p { margin: 6px 0; }
+.wiki-body a { color: #64b5f6; text-decoration: none; }
+.wiki-body a:hover { text-decoration: underline; }
+.wiki-body ul, .wiki-body ol { padding-left: 20px; }
+.wiki-empty { padding: 24px 8px; text-align: center; color: rgba(255,255,255,0.5); }
+
 /* ─── Keyboard help overlay (? to toggle) ─────────────────────────── */
 #kbd-help {
   position: fixed;
