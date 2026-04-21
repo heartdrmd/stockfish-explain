@@ -137,6 +137,53 @@
 
 .btn-coach-on { background: rgba(33,150,243,0.25); border-color: #1976d2; }
 
+/* ─── Keyboard help overlay (? to toggle) ─────────────────────────── */
+#kbd-help {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+.kbd-help-card {
+  background: #1a1a1c;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  padding: 24px 32px;
+  color: #e6e6e6;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  max-width: 520px;
+}
+.kbd-help-card h3 { margin: 0 0 16px; font-size: 16px; }
+.kbd-help-grid {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.kbd-help-grid kbd {
+  background: #2a2a2d;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  min-width: 14px;
+  display: inline-block;
+  text-align: center;
+}
+.kbd-help-footer {
+  margin-top: 14px;
+  font-size: 11px;
+  text-align: center;
+  opacity: 0.6;
+}
+
 /* ─── Site footer (AGPL-3.0 source-code notice) ──────────────────── */
 .site-footer {
   padding: 10px 16px;

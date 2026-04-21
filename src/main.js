@@ -3498,24 +3498,93 @@ async function main() {
   board.addEventListener('undo',     updatePly);
   updatePly();
 
-  // Keyboard navigation — active unless the user is typing in an input
+  // Keyboard shortcuts — lila-inspired. Port of ui/analyse/src/keyboard.ts
+  // key table. Inactive when typing in an input / textarea / select or
+  // when a modifier key other than Shift is held.
   document.addEventListener('keydown', (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     switch (e.key) {
-      case 'ArrowLeft':  board.backward(); e.preventDefault(); break;
-      case 'ArrowRight': board.forward();  e.preventDefault(); break;
-      case 'Home':       board.toStart();  e.preventDefault(); break;
-      case 'End':        board.toEnd();    e.preventDefault(); break;
-      case 'f': case 'F': board.flipBoard(); break;
+      // Navigation — lila uses ← / → / j / k / home / end / ↑ / ↓.
+      case 'ArrowLeft':  case 'k': case 'K': board.backward(); e.preventDefault(); break;
+      case 'ArrowRight': case 'j': case 'J': board.forward();  e.preventDefault(); break;
+      case 'Home':       case '0':           board.toStart();  e.preventDefault(); break;
+      case 'End':        case '$':           board.toEnd();    e.preventDefault(); break;
+      // Board actions
+      case 'f': case 'F': board.flipBoard(); e.preventDefault(); break;
+      case 'u': case 'U': board.undo?.(); e.preventDefault(); break;
+      case 'n': case 'N':
+        // n — new game (same as clicking 🆕).
+        document.getElementById('btn-new')?.click(); e.preventDefault(); break;
+      // Tabs / panels
+      case 'g': case 'G':
+        // g — toggle eval graph card
+        document.getElementById('btn-live-graph')?.click(); e.preventDefault(); break;
+      case 'o': case 'O':
+        // o — opening explorer
+        document.getElementById('btn-explorer')?.click(); e.preventDefault(); break;
+      case 'p': case 'P':
+        // p — puzzles
+        document.getElementById('btn-puzzles')?.click(); e.preventDefault(); break;
+      case 'm': case 'M':
+        // m — my games
+        document.getElementById('btn-my-games')?.click(); e.preventDefault(); break;
+      case 'c': case 'C':
+        // c — practice coach toggle
+        document.getElementById('btn-coach')?.click(); e.preventDefault(); break;
       case 'x': case 'X':
-        // Threat toggle — same as clicking the 🎯 THREAT button.
-        // (Matches lichess keyboard shortcut.)
-        document.getElementById('btn-threat')?.click();
+        // Threat toggle — keeps existing shortcut.
+        document.getElementById('btn-threat')?.click(); e.preventDefault(); break;
+      case 'L':  // Shift+L only — save as practice favourite (avoids single-l conflict)
+        if (e.shiftKey) {
+          document.getElementById('practice-toggle-fav')?.click();
+          e.preventDefault();
+        }
+        break;
+      case '?':
+        // ? — toggle keyboard-help overlay
+        toggleKeyboardHelp();
         e.preventDefault();
+        break;
+      case 'Escape':
+        // Esc — close any open floating card or help overlay
+        document.getElementById('kbd-help')?.remove();
         break;
     }
   });
+
+  function toggleKeyboardHelp() {
+    const existing = document.getElementById('kbd-help');
+    if (existing) { existing.remove(); return; }
+    const d = document.createElement('div');
+    d.id = 'kbd-help';
+    d.innerHTML = `
+      <div class="kbd-help-card">
+        <h3>⌨ Keyboard shortcuts</h3>
+        <div class="kbd-help-grid">
+          <kbd>←</kbd><kbd>k</kbd><span>Previous move</span>
+          <kbd>→</kbd><kbd>j</kbd><span>Next move</span>
+          <kbd>Home</kbd><kbd>0</kbd><span>First move</span>
+          <kbd>End</kbd><kbd>$</kbd><span>Last move</span>
+          <kbd>f</kbd><span></span><span>Flip board</span>
+          <kbd>u</kbd><span></span><span>Undo</span>
+          <kbd>n</kbd><span></span><span>New game</span>
+          <kbd>x</kbd><span></span><span>Toggle threat mode</span>
+          <kbd>g</kbd><span></span><span>Toggle eval graph</span>
+          <kbd>o</kbd><span></span><span>Toggle opening explorer</span>
+          <kbd>p</kbd><span></span><span>Open puzzles</span>
+          <kbd>m</kbd><span></span><span>Open My Games</span>
+          <kbd>c</kbd><span></span><span>Toggle practice coach</span>
+          <kbd>Shift+L</kbd><span></span><span>Star/unstar current opening</span>
+          <kbd>?</kbd><span></span><span>Show / hide this help</span>
+          <kbd>Esc</kbd><span></span><span>Close overlays</span>
+        </div>
+        <div class="kbd-help-footer muted">Inspired by lichess-org/lila's ui/analyse/src/keyboard.ts. Click anywhere to dismiss.</div>
+      </div>`;
+    d.addEventListener('click', () => d.remove());
+    document.body.appendChild(d);
+  }
 
   // ────────── Practice mode (vs engine from opening) ──────────
   setupPractice();
