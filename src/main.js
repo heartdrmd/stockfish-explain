@@ -4023,8 +4023,8 @@ async function main() {
         const hits = [];
         const allGroups = (typeof OPENINGS !== 'undefined' ? OPENINGS : []);
         for (const grp of allGroups) {
-          for (let i = 0; i < grp.openings.length; i++) {
-            const o = grp.openings[i];
+          for (let i = 0; i < grp.items.length; i++) {
+            const o = grp.items[i];
             try {
               const c = new Chess();
               for (const s of (o.moves || [])) if (!c.move(s)) break;
