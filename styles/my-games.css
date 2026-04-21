@@ -782,7 +782,9 @@
   box-shadow: 0 -2px 12px rgba(0,0,0,0.3);
 }
 .live-graph-card.review-mode .live-graph-body {
-  height: 140px;
+  /* Grows with the viewport — 20vh of screen height, clamped so it
+     doesn't dominate on tall displays or disappear on short ones. */
+  height: clamp(120px, 22vh, 240px);
 }
 .live-graph-movetime {
   margin-top: 6px;
@@ -791,10 +793,10 @@
 }
 .live-graph-movetime[hidden] { display: none; }
 .live-graph-card.review-mode .live-graph-movetime {
-  height: 48px;
+  height: clamp(40px, 8vh, 90px);
   display: block !important;
 }
-.live-graph-movetime canvas { width: 100% !important; height: 44px !important; display: block; }
+.live-graph-movetime canvas { width: 100% !important; height: 100% !important; display: block; }
 .live-graph-card.review-mode .live-graph-stats {
   grid-template-columns: 1fr 1fr 200px;
   gap: 10px;

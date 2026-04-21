@@ -7026,15 +7026,27 @@ async function main() {
       if (slot && card.parentElement !== slot) {
         slot.appendChild(card);
       }
-      // Shrink the board to a reasonable size so the timeline below
-      // + stats on the right both fit comfortably in the viewport.
+      // Size the board to use the full vertical space available,
+      // leaving room for the review card (timeline + move-time strip)
+      // directly below it. Cap by: (a) viewport height minus overhead,
+      // (b) roughly half the viewport width (so the right-hand column
+      // with the move list + stats has room), (c) 900 px hard max.
       try {
         const boardEl = document.getElementById('board');
         const barea   = document.querySelector('.board-area');
-        const wantPx  = Math.max(340, Math.min(520, Math.floor(window.innerHeight * 0.62)));
+        const vh = window.innerHeight;
+        const vw = window.innerWidth;
+        // Overhead: ~80 px site-header + ~230 px review-card
+        // (body + movetime + padding + margins) + ~30 px board-nav.
+        const vertBudget = vh - 340;
+        const horzBudget = Math.floor(vw * 0.50);
+        const wantPx = Math.max(340, Math.min(vertBudget, horzBudget, 900));
         if (boardEl) { boardEl.style.width = wantPx + 'px'; boardEl.style.height = wantPx + 'px'; }
         if (barea)   { barea.style.maxWidth = wantPx + 'px'; barea.style.width = wantPx + 'px'; }
         try { localStorage.setItem('stockfish-explain.board-size', String(wantPx)); } catch {}
+        // Keep the drag handle anchored to the board corner.
+        const handle = document.getElementById('board-resize');
+        if (handle) { handle.style.top = (wantPx - 10) + 'px'; handle.style.bottom = 'auto'; }
       } catch {}
       show();
       // Render the movetime bar chart beneath the eval graph. Only
