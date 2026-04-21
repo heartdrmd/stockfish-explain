@@ -111,6 +111,66 @@
 .exp-tb-cat { text-transform: capitalize; color: rgba(255,255,255,0.7); }
 .exp-tb-dtm { font-family: var(--font-mono, ui-monospace, monospace); color: rgba(255,255,255,0.55); }
 
+/* ─── My Games quick-switch picker ───────────────────────────────── */
+.mg-quickpick {
+  position: fixed;
+  top: 78px;
+  right: 16px;
+  width: 320px;
+  max-height: 70vh;
+  z-index: 480;
+  background: rgba(20, 20, 22, 0.96);
+  border: 1px solid rgba(33,150,243,0.4);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+  backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+}
+.mg-quickpick[hidden] { display: none; }
+.mg-quickpick-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.mg-quickpick-head strong { flex: 1; }
+.mg-quickpick-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 160px;
+}
+.mgq-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.mgq-row:hover { background: rgba(33,150,243,0.12); }
+.mgq-row-selected { background: rgba(33,150,243,0.2); }
+.mgq-res {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+.mgq-res.w { background: #4caf50; }
+.mgq-res.l { background: #f44336; }
+.mgq-res.d { background: #ffc107; color: #222; }
+.mgq-res.x { background: #777; }
+.mgq-main { font-size: 12px; min-width: 0; overflow: hidden; }
+.mgq-opening { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mgq-meta { font-size: 10px; color: rgba(255,255,255,0.5); }
+.mgq-date { font-size: 10px; color: rgba(255,255,255,0.4); font-family: var(--font-mono, ui-monospace, monospace); }
+
 /* ─── Practice coach chip (floating near the board) ──────────────── */
 .coach-chip {
   position: fixed;

@@ -23,9 +23,6 @@ import { LICHESS_OPENINGS } from './openings_lichess.js';
 import * as Archive from './game_archive.js';
 import { EvalGraph }     from './eval-graph.js';
 import { computeGameStats, renderStatsPanel } from './game-stats.js';
-import { ExplorerPanel } from './opening_explorer_ui.js';
-import * as Puzzles from './puzzles.js';
-import { fetchWiki } from './opening_wiki.js';
 import * as MoveTime from './movetime.js';
 
 // Expose Chess to eval-graph's computeDivision helper — avoids a
@@ -3529,12 +3526,6 @@ async function main() {
       case 'g': case 'G':
         // g — toggle eval graph card
         document.getElementById('btn-live-graph')?.click(); e.preventDefault(); break;
-      case 'o': case 'O':
-        // o — opening explorer
-        document.getElementById('btn-explorer')?.click(); e.preventDefault(); break;
-      case 'p': case 'P':
-        // p — puzzles
-        document.getElementById('btn-puzzles')?.click(); e.preventDefault(); break;
       case 'm': case 'M':
         // m — my games
         document.getElementById('btn-my-games')?.click(); e.preventDefault(); break;
@@ -3580,8 +3571,6 @@ async function main() {
           <kbd>n</kbd><span></span><span>New game</span>
           <kbd>x</kbd><span></span><span>Toggle threat mode</span>
           <kbd>g</kbd><span></span><span>Toggle eval graph</span>
-          <kbd>o</kbd><span></span><span>Toggle opening explorer</span>
-          <kbd>p</kbd><span></span><span>Open puzzles</span>
           <kbd>m</kbd><span></span><span>Open My Games</span>
           <kbd>c</kbd><span></span><span>Toggle practice coach</span>
           <kbd>Shift+L</kbd><span></span><span>Star/unstar current opening</span>
@@ -3938,7 +3927,7 @@ async function main() {
       const queueSet = loadQueueSet();
       const badge = entry.o._source === 'lichess' ? '<span class="tree-lichess-badge">DB</span>' : '';
       const custom = entry.o._custom
-        ? `<span class="tree-lichess-badge">custom</span><button type="button" class="tree-leaf-del" data-del-key="${entry.key}" title="Delete this custom opening" onclick="event.stopPropagation()">🗑</button>`
+        ? `<span class="tree-lichess-badge">custom</span><button type="button" class="tree-leaf-del" data-del-key="${entry.key}" title="Delete this custom opening">🗑</button>`
         : '';
       const leafName = entry.o.name;
       // Queue checkbox — only visible for starred entries.
@@ -6589,8 +6578,8 @@ async function main() {
         // Row click = "open this game for review" — load onto the main
         // board + close the tab + kick the floating eval card into
         // full-width review mode (Lichess-style post-game analysis
-        // layout). Clicking Delete / PGN above stops the event so we
-        // don't accidentally load.
+        // layout). Show the quick-switch picker so the user can jump
+        // to another game without reopening the full tab.
         try {
           const { game } = await api.getGame(id);
           detailEl._currentGame = game;
@@ -6598,6 +6587,9 @@ async function main() {
           closeTab();
           if (typeof window.__openReviewMode === 'function') {
             window.__openReviewMode(game);
+          }
+          if (typeof window.__openQuickPicker === 'function') {
+            window.__openQuickPicker(state.games, id);
           }
         } catch (err) {
           alert('Load failed: ' + (err.message || err));
@@ -6700,6 +6692,63 @@ async function main() {
 
     // Expose for legacy callers (old cloud-games modal shim)
     window.__openMyGamesTab = openTab;
+
+    // ─── Quick-switch picker ─────────────────────────────────────
+    // Shown after a row click. Compact floating list of the last-
+    // fetched games so the user can jump between games without
+    // reopening the full tab.
+    const qp     = document.getElementById('mg-quickpick');
+    const qpList = document.getElementById('mg-quickpick-list');
+    const qpOpen = document.getElementById('mg-quickpick-open');
+    const qpClose = document.getElementById('mg-quickpick-close');
+    if (qp && qpList) {
+      function renderQP(games, selectedId) {
+        if (!games || !games.length) {
+          qpList.innerHTML = '<div class="mg-empty" style="font-size:11px;">No games loaded yet.</div>';
+          return;
+        }
+        qpList.innerHTML = games.map(g => {
+          const tag = resultTag(g);
+          const tagLabel = tag === 'w' ? 'W' : tag === 'l' ? 'L' : tag === 'd' ? '½' : '·';
+          const opening = g.opening_name || '(unknown)';
+          const dateStr = fmtDate(g.played_at);
+          const sel = g.id === selectedId ? 'mgq-row-selected' : '';
+          return `<div class="mgq-row ${sel}" data-id="${g.id}">
+            <span class="mgq-res ${tag}">${tagLabel}</span>
+            <div class="mgq-main">
+              <div class="mgq-opening">${escHtml(opening)}</div>
+              <div class="mgq-meta">${g.ply_count || 0} plies · ${(g.mistakes_count || 0)}m / ${(g.blunders_count || 0)}b</div>
+            </div>
+            <div class="mgq-date">${dateStr}</div>
+          </div>`;
+        }).join('');
+      }
+      window.__openQuickPicker = (games, selectedId) => {
+        renderQP(games, selectedId);
+        qp.hidden = false;
+      };
+      qpClose?.addEventListener('click', () => { qp.hidden = true; });
+      qpOpen?.addEventListener('click', () => {
+        qp.hidden = true;
+        openTab();
+      });
+      qpList.addEventListener('click', async (e) => {
+        const row = e.target.closest('.mgq-row');
+        if (!row) return;
+        const id = +row.dataset.id;
+        if (!id) return;
+        try {
+          const { game } = await api.getGame(id);
+          detailEl._currentGame = game;
+          loadCloudGameOntoBoard(game);
+          window.__openReviewMode?.(game);
+          // Re-render the picker with this row marked selected
+          renderQP(state.games, id);
+        } catch (err) {
+          alert('Load failed: ' + (err.message || err));
+        }
+      });
+    }
   })();
 
   // ═══════════════════════════════════════════════════════════════════
@@ -6780,8 +6829,23 @@ async function main() {
       if (graph) { graph.destroy(); graph = null; }
     }
 
-    btn.addEventListener('click', () => (card.hidden ? show() : hide()));
-    closeBtn?.addEventListener('click', hide);
+    btn.addEventListener('click', () => {
+      // Header toggle always opens the COMPACT floating card. Review
+      // mode (full-width bottom dock) is only activated via the
+      // window.__openReviewMode path from My Games row-click.
+      if (card.hidden) {
+        card.classList.remove('review-mode');
+        const mtWrap = document.getElementById('live-movetime-wrap');
+        if (mtWrap) mtWrap.hidden = true;
+        show();
+      } else hide();
+    });
+    closeBtn?.addEventListener('click', () => {
+      card.classList.remove('review-mode');
+      const mtWrap = document.getElementById('live-movetime-wrap');
+      if (mtWrap) mtWrap.hidden = true;
+      hide();
+    });
 
     // Refresh on every move + on eval updates. Debounced via rAF so
     // a rapid-fire engine info stream doesn't re-render 50×/second.
@@ -6853,6 +6917,11 @@ async function main() {
       // otherwise bail silently (engine still thinking).
       board.addEventListener('move', () => {
         if (!enabled) return;
+        // Only show chips during an actual practice game — in free-
+        // style analysis / casual board editing the constant "Good
+        // move" pop-ups are distracting and not what the user asked
+        // for.
+        if (!practiceColor) return;
         const plies = collectTimelinePlies();
         if (plies.length < 2) return;
         const i = plies.length - 1;
@@ -6876,255 +6945,6 @@ async function main() {
         else                   { kind = 'best';       label = '★ Best!'; }
         showChip(label, kind);
       });
-    })();
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 🧩 Puzzles — Lichess tactics trainer.
-    //    Fetches daily puzzle (no auth), sets up the pre-puzzle position
-    //    on the board + plays the set-up move, then listens for user's
-    //    moves and validates against solution[]. Wrong → shake. Right →
-    //    engine plays next solution move. All solved → success state.
-    // ═══════════════════════════════════════════════════════════════════
-    (() => {
-      const btnOpen = document.getElementById('btn-puzzles');
-      const modal   = document.getElementById('puzzle-modal');
-      const stateEl = document.getElementById('puzzle-state');
-      const metaEl  = document.getElementById('puzzle-meta');
-      const progEl  = document.getElementById('puzzle-progress');
-      const btnNext = document.getElementById('puzzle-next');
-      const btnHint = document.getElementById('puzzle-hint');
-      const btnSolve = document.getElementById('puzzle-solve');
-      const btnClose = document.getElementById('puzzle-close');
-      const idInput = document.getElementById('puzzle-id-input');
-      const btnLoadId = document.getElementById('puzzle-load-id');
-      if (!btnOpen || !modal) return;
-
-      const puz = { current: null, moveIdx: 0, userColor: 'white', solved: 0, attempted: 0 };
-
-      function setState(html, color = '') {
-        stateEl.innerHTML = html;
-        stateEl.style.color = color;
-      }
-      function updateProgress() {
-        try {
-          const rating = +(localStorage.getItem('stockfish-explain.puzzle-rating') || 1500);
-          progEl.textContent = `Session: ${puz.solved}/${puz.attempted} · Your rating: ${rating}`;
-        } catch {}
-      }
-
-      function bumpRating(delta) {
-        try {
-          const cur = +(localStorage.getItem('stockfish-explain.puzzle-rating') || 1500);
-          const next = Math.max(400, Math.min(3200, cur + delta));
-          localStorage.setItem('stockfish-explain.puzzle-rating', String(next));
-        } catch {}
-      }
-
-      async function loadPuzzle(p) {
-        const norm = Puzzles.normalise(p);
-        if (!norm) { setState('Could not load that puzzle.', '#f48771'); return; }
-        puz.current = norm;
-        puz.moveIdx = 0;
-        metaEl.innerHTML = `ID: <code>${norm.id}</code> · Rating ${norm.rating || '—'} · ${norm.themes.slice(0, 4).join(', ') || 'tactics'}`;
-        // Replay PGN up to the puzzle's initialPly; then play the set-up
-        // move (solution starts AFTER that move). User is the opposite
-        // color of whoever just moved.
-        try {
-          board.newGame();
-          const allUcis = Puzzles.pgnToUciList(Chess, norm.pgn);
-          const preUcis = allUcis.slice(0, norm.initialPly + 1);
-          if (preUcis.length) board.playUciMoves(preUcis, { animate: false });
-          // Who is to move now? That's the user's side.
-          puz.userColor = board.chess.turn() === 'w' ? 'white' : 'black';
-          if (board.orientation !== puz.userColor) { try { board.flipBoard(); } catch {} }
-          setState(`Your turn as <strong>${puz.userColor}</strong>. Find the best move.`);
-        } catch (err) {
-          setState('Error setting up puzzle.', '#f48771');
-          console.warn('[puzzle] setup failed', err);
-        }
-        puz.attempted++;
-        updateProgress();
-      }
-
-      async function openDaily() {
-        setState('Loading daily puzzle…');
-        const p = await Puzzles.fetchDaily();
-        if (!p) { setState('Could not fetch daily puzzle (offline?).', '#f48771'); return; }
-        loadPuzzle(p);
-      }
-
-      async function openById(id) {
-        setState(`Loading puzzle ${id}…`);
-        const p = await Puzzles.fetchById(id);
-        if (!p) { setState('Puzzle not found.', '#f48771'); return; }
-        loadPuzzle(p);
-      }
-
-      // Intercept board moves to validate against solution.
-      const onUserMove = () => {
-        if (!puz.current || modal.hidden) return;
-        // Only react if the modal is open and the user is solving.
-        const hist = board.chess.history({ verbose: true });
-        const last = hist[hist.length - 1];
-        if (!last) return;
-        const expectedUci = puz.current.solution[puz.moveIdx];
-        if (!expectedUci) return;
-        const playedUci = last.from + last.to + (last.promotion || '');
-        if (playedUci === expectedUci) {
-          puz.moveIdx++;
-          // If more solution moves remain, play the engine's reply after
-          // a short pause so the user sees their move first.
-          if (puz.moveIdx < puz.current.solution.length) {
-            setTimeout(() => {
-              const reply = puz.current.solution[puz.moveIdx];
-              if (!reply) return;
-              try { board.playUciMoves([reply], { animate: true }); } catch {}
-              puz.moveIdx++;
-              if (puz.moveIdx >= puz.current.solution.length) {
-                setState('🎉 Solved!', '#4caf50');
-                puz.solved++;
-                bumpRating(+10);
-                updateProgress();
-              } else {
-                setState('Correct! Find the next move.', '#4caf50');
-              }
-            }, 400);
-          } else {
-            setState('🎉 Solved!', '#4caf50');
-            puz.solved++;
-            bumpRating(+10);
-            updateProgress();
-          }
-        } else {
-          setState('✗ Not right. Try again.', '#f48771');
-          // Undo the wrong move so they can retry.
-          setTimeout(() => {
-            try { board.undo?.(); } catch {}
-          }, 700);
-          bumpRating(-5);
-          updateProgress();
-        }
-      };
-      board.addEventListener('move', onUserMove);
-
-      btnOpen.addEventListener('click', () => {
-        modal.hidden = false;
-        openDaily();
-      });
-      btnClose.addEventListener('click', () => { modal.hidden = true; });
-      modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
-      btnNext.addEventListener('click', openDaily);
-      btnLoadId.addEventListener('click', () => {
-        const id = (idInput.value || '').trim();
-        if (id) openById(id);
-      });
-      btnHint.addEventListener('click', () => {
-        const u = puz.current?.solution?.[puz.moveIdx];
-        if (!u) return;
-        setState(`Hint: starts with <strong>${u.slice(0, 2).toUpperCase()}</strong>…`);
-      });
-      btnSolve.addEventListener('click', () => {
-        const u = puz.current?.solution?.[puz.moveIdx];
-        if (!u) return;
-        setState(`Solution: <strong>${u}</strong>`, '#ffb74d');
-        try { board.playUciMoves([u], { animate: true }); } catch {}
-        puz.moveIdx++;
-      });
-      updateProgress();
-    })();
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 📘 Opening Wiki — WikiBooks prose for the current line.
-    //    Port of lichess-org/lila ui/analyse/src/wiki.ts + wikiBooks.ts.
-    // ═══════════════════════════════════════════════════════════════════
-    (() => {
-      const btn = document.getElementById('btn-wiki');
-      const card = document.getElementById('wiki-card');
-      const body = document.getElementById('wiki-body');
-      const closeBtn = document.getElementById('wiki-close');
-      if (!btn || !card || !body) return;
-      const STORAGE = 'stockfish-explain.wiki-visible';
-      function sanArrFromBoard() {
-        try {
-          return board.chess.history() || [];
-        } catch { return []; }
-      }
-      let refreshTimer = 0;
-      async function refresh() {
-        if (card.hidden) return;
-        const sans = sanArrFromBoard();
-        if (!sans.length) {
-          body.innerHTML = '<div class="wiki-empty">Play some moves and I\'ll show what WikiBooks says about this line.</div>';
-          return;
-        }
-        body.innerHTML = '<div class="wiki-empty">Looking up…</div>';
-        const html = await fetchWiki(sans);
-        if (!html) {
-          body.innerHTML = '<div class="wiki-empty">No WikiBooks entry for this exact line yet.</div>';
-          return;
-        }
-        body.innerHTML = html;
-      }
-      function debouncedRefresh() {
-        clearTimeout(refreshTimer);
-        refreshTimer = setTimeout(refresh, 500);
-      }
-      function show() {
-        card.hidden = false;
-        try { localStorage.setItem(STORAGE, '1'); } catch {}
-        refresh();
-      }
-      function hide() {
-        card.hidden = true;
-        try { localStorage.setItem(STORAGE, '0'); } catch {}
-      }
-      btn.addEventListener('click', () => card.hidden ? show() : hide());
-      closeBtn?.addEventListener('click', hide);
-      board.addEventListener('move', debouncedRefresh);
-      board.addEventListener('undo', debouncedRefresh);
-      board.addEventListener('new-game', debouncedRefresh);
-      try { if (localStorage.getItem(STORAGE) === '1') show(); } catch {}
-    })();
-
-    // Explorer panel — toggled from 📖 Explorer header button.
-    (() => {
-      const btn    = document.getElementById('btn-explorer');
-      const card   = document.getElementById('explorer-card');
-      const closeBtn = document.getElementById('explorer-close');
-      const bodyEl = document.getElementById('explorer-body');
-      if (!btn || !card || !bodyEl) return;
-      const STORAGE = 'stockfish-explain.explorer-visible';
-      let panel = null;
-      function show() {
-        card.hidden = false;
-        try { localStorage.setItem(STORAGE, '1'); } catch {}
-        if (!panel) {
-          panel = new ExplorerPanel(bodyEl, {
-            getFen: () => board?.fen?.() || '',
-            onPlayUci: (uci) => {
-              try { board.playUciMoves([uci], { animate: true }); } catch {}
-            },
-          });
-        }
-        panel.refresh();
-      }
-      function hide() {
-        card.hidden = true;
-        try { localStorage.setItem(STORAGE, '0'); } catch {}
-      }
-      btn.addEventListener('click', () => card.hidden ? show() : hide());
-      closeBtn?.addEventListener('click', hide);
-      // Live refresh on every board move.
-      let rafPending = false;
-      board.addEventListener('move', () => {
-        if (card.hidden || !panel) return;
-        if (rafPending) return;
-        rafPending = true;
-        requestAnimationFrame(() => { rafPending = false; panel.refresh(); });
-      });
-      board.addEventListener('new-game', () => { if (!card.hidden && panel) panel.refresh(); });
-      // Restore persisted visibility.
-      try { if (localStorage.getItem(STORAGE) === '1') show(); } catch {}
     })();
 
     // Public: open the graph in full-width "review mode" with a big
