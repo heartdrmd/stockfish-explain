@@ -3254,6 +3254,14 @@ async function main() {
     const pActions = document.getElementById('practice-actions');
     if (pActions) pActions.hidden = true;
     clearDraft();
+    // Signal the new game to Stockfish — ucinewgame clears the hash
+    // table so evals from the previous game don't leak in. Uses the
+    // noteGameId helper so it's a no-op if gameId happens to match
+    // (same startingFen + same flavor). Lila-style #3 cherry-pick.
+    try {
+      const gameId = `${board.startingFen}|${currentFlavor || ''}`;
+      engine?.noteGameId?.(gameId);
+    } catch {}
     renderMoveList(); fireAnalysis();
     scheduleTimelineRender();
   });
@@ -4087,6 +4095,7 @@ async function main() {
         const leaf = ev.target.closest('.tree-leaf');
         if (!leaf) return;
         pSel.value = leaf.dataset.key;
+        console.log('[practice-tree] leaf click', { key: leaf.dataset.key, name: leaf.querySelector('.tree-leaf-name')?.textContent });
         updatePMoves();
         refreshToggleFavButton();
         // Mark selected visually.
@@ -4789,7 +4798,19 @@ async function main() {
 
     pStart.addEventListener('click', () => {
       const useCurrent = pUseCurrent.checked;
+      // Diagnostic — snapshot the selector state at Start-click time.
+      // User reported on a fresh PC that picking an opening then
+      // Starting ignored the pick. This log shows whether pSel.value
+      // held the user's click or silently reverted.
+      console.log('[practice-start] click', {
+        pSelValue: pSel?.value,
+        useCurrent,
+        selectedLeafKey: pTree?.querySelector('.tree-leaf.selected')?.dataset?.key || null,
+        favsCount: Object.keys(loadFavs()).length,
+        queueCount: loadQueueSet().size,
+      });
       const op = pickedPracticeOpening();
+      console.log('[practice-start] resolved op', { name: op?.name, movesLen: op?.moves?.length || 0, hasFen: !!op?.fen });
       const color = pColor.value;       // 'white' | 'black'
       const skill = +pStren.value;
       // Derive useClock / limitMode from the new 3-way dropdown. Legacy

@@ -206,6 +206,13 @@ export class Engine extends EventTarget {
     // WASM "RuntimeError: unreachable" (assertion failure).
     this.uciokReceived = false;
     this.stopRequested = false;
+    // Fresh worker → fresh UCI option state. Reset the memo so the
+    // next setoption call actually reaches the engine (even if the
+    // value is the same as the last worker had).
+    this._resetSentOptions();
+    // Track the identity of the current "game" — used to skip
+    // redundant `ucinewgame` (lila-style). Cleared on new worker.
+    this._lastGameId = null;
 
     this.worker.onmessage = (e) => this._handleLine(e.data);
     this.worker.onerror   = (e) => {
@@ -333,24 +340,42 @@ export class Engine extends EventTarget {
   // between searches (in the idle transition). If the engine is
   // currently searching, we queue the option and flush it in the next
   // bestmove handler. Eliminates mid-search UCI protocol violations.
+  //
+  // MEMOIZATION (lila-style): we track the last value sent for each
+  // UCI option in this._sentOptions so we skip redundant
+  // `setoption` sends when the value hasn't changed. Clears on worker
+  // (re)creation via _resetSentOptions.
+  _setOptionMemo(name, value) {
+    if (!this._sentOptions) this._sentOptions = new Map();
+    const prev = this._sentOptions.get(name);
+    if (prev === String(value)) return;                // same value → skip
+    this._sentOptions.set(name, String(value));
+    this._send(`setoption name ${name} value ${value}`);
+  }
+  _resetSentOptions() {
+    // Called when the worker is (re)booted — engine forgets all options,
+    // so our memo must also forget or we'll skip necessary setoption
+    // sends on the fresh worker.
+    this._sentOptions = new Map();
+  }
   _applyPending() {
     if (!this._pendingOpts) return;
     const p = this._pendingOpts;
     this._pendingOpts = null;
-    if (p.multipv  != null) this._send(`setoption name MultiPV value ${p.multipv}`);
-    if (p.skill    != null) this._send(`setoption name Skill Level value ${p.skill}`);
-    if (p.threads  != null) this._send(`setoption name Threads value ${p.threads}`);
-    if (p.hashMB   != null) this._send(`setoption name Hash value ${p.hashMB}`);
+    if (p.multipv  != null) this._setOptionMemo('MultiPV',     p.multipv);
+    if (p.skill    != null) this._setOptionMemo('Skill Level', p.skill);
+    if (p.threads  != null) this._setOptionMemo('Threads',     p.threads);
+    if (p.hashMB   != null) this._setOptionMemo('Hash',        p.hashMB);
   }
   _queueOrApply(kv) {
     if (!this.ready) return;
     if (this.searching) {
       this._pendingOpts = { ...(this._pendingOpts || {}), ...kv };
     } else {
-      if (kv.multipv  != null) this._send(`setoption name MultiPV value ${kv.multipv}`);
-      if (kv.skill    != null) this._send(`setoption name Skill Level value ${kv.skill}`);
-      if (kv.threads  != null) this._send(`setoption name Threads value ${kv.threads}`);
-      if (kv.hashMB   != null) this._send(`setoption name Hash value ${kv.hashMB}`);
+      if (kv.multipv  != null) this._setOptionMemo('MultiPV',     kv.multipv);
+      if (kv.skill    != null) this._setOptionMemo('Skill Level', kv.skill);
+      if (kv.threads  != null) this._setOptionMemo('Threads',     kv.threads);
+      if (kv.hashMB   != null) this._setOptionMemo('Hash',        kv.hashMB);
     }
   }
 
@@ -377,11 +402,26 @@ export class Engine extends EventTarget {
 
   /** Clear the transposition table — forgets all previously-analysed
    *  positions. Sent as UCI `ucinewgame` which Stockfish treats as
-   *  "new game, wipe cache". */
+   *  "new game, wipe cache". Unconditional — always clears. */
   clearHash() {
     if (!this.ready) return;
+    this._lastGameId = null;
     this._send('ucinewgame');
     this._send('isready');
+  }
+
+  /** Signal a new game context to Stockfish. If the gameId matches
+   *  the last one we already signalled, this is a no-op — preserves
+   *  the transposition-table warmth across repeated analyses of the
+   *  same game (huge hash-hit speedup). Caller is responsible for
+   *  picking a gameId that UNIQUELY identifies "this game" (e.g.,
+   *  startingFen + flavor). Any change triggers ucinewgame.
+   *  Lila-style port from ui/lib/src/ceval/protocol.ts. */
+  noteGameId(gameId) {
+    if (!this.ready) return;
+    if (this._lastGameId === gameId) return;
+    this._lastGameId = gameId;
+    this._send('ucinewgame');
   }
 
   _send(cmd) {
