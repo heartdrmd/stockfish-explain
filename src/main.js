@@ -3852,15 +3852,43 @@ async function main() {
       if (selected) pSel.value = selected;
 
       const container = document.createDocumentFragment();
-      // Filter matcher now uses the fuzzy scorer instead of plain
-      // substring, so "najdrf" still finds Najdorf etc.
-      const matchesFilter = (name, groupName, eco) => {
+      // Filter matcher — multi-token search.
+      // Splits the query into whitespace-delimited tokens and requires
+      // EVERY token of length ≥ 2 to hit SOMEWHERE across the entry's
+      // searchable text (name + group + ECO + move string). Noise
+      // connectors like "with" / "the" (length ≤ 3 and not SAN-like)
+      // aren't forced, so "Benoni with Bb5" finds Benoni variations
+      // whose move list contains "Bb5".
+      //
+      // Each token uses the existing fuzzyScore (substring → typo-
+      // tolerant Levenshtein → subsequence) so single-word queries
+      // behave exactly as before. Matching against moves means SAN
+      // tokens like Bb5 / O-O / exd5 can drive the search directly.
+      const matchesFilter = (name, groupName, eco, moves) => {
         if (!f) return true;
-        const nameScore = fuzzyScore(f, name);
-        if (nameScore > 0) return true;
-        if (groupName && fuzzyScore(f, groupName) > 0) return true;
-        if (eco && (eco || '').toLowerCase().includes(f)) return true;
-        return false;
+        const movesText = Array.isArray(moves) ? moves.join(' ') : String(moves || '');
+        const haystack = [name, groupName, eco, movesText].filter(Boolean).join(' ');
+        // Tokenise query on whitespace. Short noise words (≤ 2 chars,
+        // not a SAN square / move fragment) are dropped entirely.
+        const rawTokens = f.split(/\s+/).filter(Boolean);
+        const SAN_LIKE = /^(?:[oO0]-?[oO0](?:-?[oO0])?|[a-h][1-8]|[KQRBN][a-h1-8x+#=]+|[a-h][1-8x+#=]+|[0-9]{1,2}\.{1,3})$/;
+        const tokens = rawTokens.filter(t =>
+          t.length >= 3 || SAN_LIKE.test(t) || /^[0-9]/.test(t)
+        );
+        if (!tokens.length) {
+          // All tokens were filtered out (e.g. user typed just 'the').
+          // Fall back to the full query as before.
+          return fuzzyScore(f, haystack) > 0;
+        }
+        for (const tok of tokens) {
+          // Per-token hit: substring in haystack OR fuzzy score > 0.
+          if (haystack.toLowerCase().includes(tok)) continue;
+          if (fuzzyScore(tok, haystack) > 0) continue;
+          // Also let SAN-like tokens match directly inside moves text.
+          if (SAN_LIKE.test(tok) && movesText.toLowerCase().includes(tok)) continue;
+          return false;
+        }
+        return true;
       };
 
       // ── ⭐ Favourites pinned group at the top ──
@@ -3868,7 +3896,7 @@ async function main() {
       for (const grp of [...curated, ...lichess]) {
         grp.items.forEach((o, i) => {
           const key = `${grp.group}//${i}`;
-          if (favs[key] && matchesFilter(o.name, grp.group, o.eco)) {
+          if (favs[key] && matchesFilter(o.name, grp.group, o.eco, o.moves)) {
             favEntries.push({ key, o, group: grp.group });
           }
         });
@@ -3903,7 +3931,7 @@ async function main() {
       for (const grp of curated) {
         const matching = grp.items
           .map((o, i) => ({ key: `${grp.group}//${i}`, o, group: grp.group }))
-          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco));
+          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco, e.o.moves));
         if (!matching.length) continue;
         curatedShown += matching.length;
         const hasCustom = grp.items.some(o => o._custom);
@@ -3921,7 +3949,7 @@ async function main() {
       for (const grp of lichess) {
         const items = grp.items
           .map((o, i) => ({ key: `${grp.group}//${i}`, o, group: grp.group }))
-          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco));
+          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco, e.o.moves));
         if (items.length) lichessMatches.push({ grp, items });
       }
       const lichessCount = lichessMatches.reduce((s, x) => s + x.items.length, 0);
