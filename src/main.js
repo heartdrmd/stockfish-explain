@@ -5035,31 +5035,16 @@ async function main() {
         }
       }
 
-      // ── Warm-up probe ──
-      // Fire a very short probe at the current board FEN BEFORE setting
-      // practice state. Goal: if the engine is silently wedged (common
-      // after long idle / first-run-after-practice-setup), the
-      // mismatch detector trips DURING this warm-up, auto-recovery
-      // fires, and by the time the user makes their first move the
-      // engine is responsive. Previously the wedge fired on the
-      // user's first move — adding 15–25 s of recovery lag mid-game.
-      try {
-        if (engineReady && !window.__skipWarmupProbe) {
-          const warmFen = board.fen();
-          const origNarration = ui.narrationText?.innerHTML;
-          if (ui.narrationText) ui.narrationText.innerHTML = '⚡ Warming up engine…';
-          // Fire probe but do NOT await bestmove — it'll finish on its
-          // own in ~400 ms (depth 3). We stop it after 700 ms regardless
-          // so the user doesn't wait if the engine is healthy.
-          engine.start(warmFen, { depth: 3 });
-          await new Promise(r => setTimeout(r, 700));
-          try { engine.stop(); } catch {}
-          // Clear the warmup message if auto-recovery didn't overwrite it.
-          if (ui.narrationText && ui.narrationText.innerHTML === '⚡ Warming up engine…') {
-            ui.narrationText.innerHTML = origNarration || '';
-          }
-        }
-      } catch (err) { console.warn('[practice] warmup probe skipped', err); }
+      // ── Warm-up probe REMOVED ──
+      // Previously fired a depth-3 search here before setting practice
+      // state, to catch silent-engine wedges during setup. In practice
+      // it caused four start/stop cycles in 800 ms (board.newGame →
+      // playUciMoves → fireAnalysis(infinite) → warmup(depth 3) →
+      // warmup setTimeout stop → practice search). Engine got
+      // confused (infoReceived=24 but only 3 dispatched; bestmove
+      // never returned; watchdog had to force stop). The existing
+      // mismatch detector in the fireAnalysis path already catches
+      // silent engines without the extra churn.
 
       // Set practice state
       practiceColor = color;
