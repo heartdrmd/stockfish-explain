@@ -754,6 +754,16 @@
 }
 .board-below-slot:empty { display: none; }
 
+/* Slot under the move notation on the right — review-mode stats panels
+   get moved here when a My Games game is loaded. */
+.notation-below-slot {
+  width: 100%;
+  margin-top: 8px;
+}
+.notation-below-slot:empty { display: none; }
+.notation-below-slot .gs-side { font-size: 12px; padding: 8px 10px; margin-bottom: 6px; }
+.notation-below-slot .live-graph-cta { margin-top: 6px; }
+
 .live-graph-card.review-mode {
   /* When docked inside .board-below-slot the card flows INLINE below
      the board, full-width of the board column, no longer a floating

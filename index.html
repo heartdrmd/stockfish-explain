@@ -538,6 +538,12 @@
         <input id="kbd-move" class="kbd-move" type="text"
                placeholder="Type a move: e4, Nf3, O-O… then ⏎"
                autocomplete="off" spellcheck="false">
+        <!-- Docking slot for review-mode stats panels. When a game is
+             loaded from My Games, the per-side accuracy/mistakes/
+             blunders panels + Learn/Reanalyze CTA column get moved
+             here, directly under the move list — where a Lichess
+             user would expect to see them. Empty when no game loaded. -->
+        <div id="notation-below-slot" class="notation-below-slot"></div>
       </div>
 
       <input id="depth-input" type="hidden" value="18">

@@ -4371,12 +4371,16 @@ async function main() {
     // of keys. Exposed on window so the post-game "Next random"
     // button can reach it without duplicating logic.
     const effectiveQueuePool = () => {
+      // STRICT per user feedback: only favourites with their queue
+      // checkbox ticked are eligible for Random / Queue / auto-pick.
+      // Empty array when nothing is checked — callers should treat
+      // that as 'no pool, do not auto-pick'. The previous fallback
+      // of 'use all favs' was pulling in openings the user had
+      // intentionally unchecked.
       const favs = loadFavs();
       const favKeys = Object.keys(favs);
       const set = loadQueueSet();
-      if (set.size === 0) return favKeys;              // no subset → all favs
-      const subset = favKeys.filter(k => set.has(k));
-      return subset.length ? subset : favKeys;         // if subset becomes empty, fall back
+      return favKeys.filter(k => set.has(k));
     };
     window.__practiceQueuePool = effectiveQueuePool;
 
@@ -6822,11 +6826,27 @@ async function main() {
       graph.setCurrentPly(viewPly);
       if (plies.length >= 2) {
         const stats = computeGameStats(plies);
-        const whiteName = practiceColor === 'white' ? (window.__currentUser?.username || 'You') : 'Stockfish';
-        const blackName = practiceColor === 'black' ? (window.__currentUser?.username || 'You') : 'Stockfish';
+        // Player-name resolution: in REVIEW mode we have the loaded
+        // game stashed on card._reviewGame; pull white/black names
+        // from there (so we don't label both sides 'Stockfish' when
+        // the user was actually one of them). Fall back to the live
+        // practiceColor heuristic for non-review (during-play) mode.
+        const revGame = card._reviewGame;
+        let whiteName, blackName, userSideForReview;
+        if (revGame) {
+          userSideForReview = revGame.user_color || null;
+          whiteName = revGame.white_name
+            || (revGame.user_color === 'white' ? (window.__currentUser?.username || 'You') : 'Stockfish');
+          blackName = revGame.black_name
+            || (revGame.user_color === 'black' ? (window.__currentUser?.username || 'You') : 'Stockfish');
+        } else {
+          whiteName = practiceColor === 'white' ? (window.__currentUser?.username || 'You') : 'Stockfish';
+          blackName = practiceColor === 'black' ? (window.__currentUser?.username || 'You') : 'Stockfish';
+          userSideForReview = practiceColor;
+        }
         statsWrap.innerHTML = [
-          renderStatsPanel({ side: 'white', name: whiteName, stats: stats.white, isUser: practiceColor === 'white', byKind: stats.byKind }),
-          renderStatsPanel({ side: 'black', name: blackName, stats: stats.black, isUser: practiceColor === 'black', byKind: stats.byKind }),
+          renderStatsPanel({ side: 'white', name: whiteName, stats: stats.white, isUser: userSideForReview === 'white', byKind: stats.byKind }),
+          renderStatsPanel({ side: 'black', name: blackName, stats: stats.black, isUser: userSideForReview === 'black', byKind: stats.byKind }),
           `<div class="gs-reanalyze-wrap"><button class="gs-reanalyze" title="Re-run Stockfish on every position to refresh the mistake/blunder counts">🔄 Reanalyze for mistakes</button><span class="gs-reanalyze-status"></span></div>`,
         ].join('');
         // Live panel: cycling acts on the CURRENT mainline directly,
@@ -6834,6 +6854,17 @@ async function main() {
         if (!statsWrap._wired) {
           statsWrap._wired = true;
           wireStatsInteractions(statsWrap, { plies: null, loadFirst: null });
+        }
+        // Relocate stats to the notation-below-slot when review mode is
+        // active — so the graph stays below the board and the stats
+        // panels sit under the move list on the right (user layout
+        // preference).
+        const notationSlot = document.getElementById('notation-below-slot');
+        if (card.classList.contains('review-mode') && notationSlot && statsWrap.parentElement !== notationSlot) {
+          notationSlot.appendChild(statsWrap);
+        } else if (!card.classList.contains('review-mode') && statsWrap.parentElement !== card) {
+          // Back to its original home inside the card when not in review.
+          card.appendChild(statsWrap);
         }
       } else {
         statsWrap.innerHTML = '';
@@ -6857,10 +6888,16 @@ async function main() {
     // clear review-mode styling. Called by any toggle-off path.
     function exitReviewMode() {
       card.classList.remove('review-mode');
+      card._reviewGame = null;
       const mtWrap = document.getElementById('live-movetime-wrap');
       if (mtWrap) mtWrap.hidden = true;
       if (card.parentElement && card.parentElement.id === 'board-below-slot') {
         document.body.appendChild(card);
+      }
+      // Return the stats panel back into the card so the compact
+      // (non-review) floating layout keeps them all together.
+      if (statsWrap.parentElement && statsWrap.parentElement.id === 'notation-below-slot') {
+        card.appendChild(statsWrap);
       }
     }
     btn.addEventListener('click', () => {
@@ -6982,13 +7019,23 @@ async function main() {
     // from My Games when the user clicks a game row.
     window.__openReviewMode = (game) => {
       card.classList.add('review-mode');
+      card._reviewGame = game;   // so update() can pull player names
       // Dock the card into the slot below the board so the timeline
-      // is embedded in the page flow (user feedback: 'should be
-      // below the board, not floating').
+      // is embedded in the page flow (user feedback).
       const slot = document.getElementById('board-below-slot');
       if (slot && card.parentElement !== slot) {
         slot.appendChild(card);
       }
+      // Shrink the board to a reasonable size so the timeline below
+      // + stats on the right both fit comfortably in the viewport.
+      try {
+        const boardEl = document.getElementById('board');
+        const barea   = document.querySelector('.board-area');
+        const wantPx  = Math.max(340, Math.min(520, Math.floor(window.innerHeight * 0.62)));
+        if (boardEl) { boardEl.style.width = wantPx + 'px'; boardEl.style.height = wantPx + 'px'; }
+        if (barea)   { barea.style.maxWidth = wantPx + 'px'; barea.style.width = wantPx + 'px'; }
+        try { localStorage.setItem('stockfish-explain.board-size', String(wantPx)); } catch {}
+      } catch {}
       show();
       // Render the movetime bar chart beneath the eval graph. Only
       // visible in review mode (CSS gates its height).
