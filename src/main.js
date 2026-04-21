@@ -4386,10 +4386,33 @@ async function main() {
     const pUseCurrent     = document.getElementById('practice-use-current');
     const pUseCurrentInfo = document.getElementById('practice-use-current-info');
     const pOpeningRow     = document.getElementById('practice-opening-row');
+    const pSaveCurrent    = document.getElementById('practice-save-current');
+    const pscName         = document.getElementById('psc-name');
+    const pscFolder       = document.getElementById('psc-folder');
+    const pscSide         = document.getElementById('psc-side');
+    const pscSave         = document.getElementById('psc-save');
+    const pscStatus       = document.getElementById('psc-status');
+    const pscFolderList   = document.getElementById('psc-folder-list');
+    const START_FEN_PREFIX = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w';
+    function sideToMoveFromFen(fen) {
+      const parts = (fen || '').split(/\s+/);
+      return parts[1] === 'b' ? 'black' : 'white';
+    }
+    function populateFolderDatalist() {
+      if (!pscFolderList) return;
+      const set = new Set();
+      try { (typeof OPENINGS !== 'undefined' ? OPENINGS : []).forEach(g => g?.group && set.add(g.group)); } catch {}
+      try {
+        const customs = JSON.parse(localStorage.getItem('stockfish-explain.practice-custom-openings') || '[]');
+        customs.forEach(c => c?.group && set.add(c.group));
+      } catch {}
+      pscFolderList.innerHTML = [...set].map(g => `<option value="${g.replace(/"/g, '&quot;')}">`).join('');
+    }
     function refreshUseCurrent() {
       if (!pUseCurrent.checked) {
         pUseCurrentInfo.textContent = '';
         if (pOpeningRow) pOpeningRow.style.display = '';
+        if (pSaveCurrent) pSaveCurrent.hidden = true;
         return;
       }
       if (pOpeningRow) pOpeningRow.style.display = 'none';
@@ -4402,10 +4425,53 @@ async function main() {
         : sanPath.length
           ? `Custom position (${sanPath.length} moves played) — no matching opening in our book`
           : `Current position is the standard starting setup`;
+      // Auto-select "Play as" from the side-to-move in the FEN. Obvious
+      // from the position — no reason to make the user guess twice.
+      const stm = sideToMoveFromFen(fen);
+      if (pColor && (pColor.value !== stm)) pColor.value = stm;
+      // Inline "save this position" block — only offered when there's
+      // no book match AND the position isn't the standard start.
+      if (pSaveCurrent) {
+        const isStart = fen.startsWith(START_FEN_PREFIX);
+        const showSave = !matched && !isStart;
+        pSaveCurrent.hidden = !showSave;
+        if (showSave) {
+          if (pscSide) pscSide.value = stm;
+          if (pscStatus) pscStatus.textContent = '';
+          populateFolderDatalist();
+        }
+      }
       // Stash FEN + SAN path so the Start handler can use them
       pUseCurrent._fen     = fen;
       pUseCurrent._sanPath = sanPath;
       pUseCurrent._match   = matched;
+    }
+    if (pscSave && !pscSave._wired) {
+      pscSave._wired = true;
+      pscSave.addEventListener('click', () => {
+        if (pscStatus) pscStatus.textContent = '';
+        const fen    = pUseCurrent._fen || board?.fen?.() || '';
+        const name   = (pscName?.value || '').trim();
+        const folder = (pscFolder?.value || '').trim() || 'My openings';
+        const side   = pscSide?.value || 'white';
+        if (!name)   { if (pscStatus) { pscStatus.style.color = '#f48771'; pscStatus.textContent = 'Name is required.'; } return; }
+        try { new Chess(fen); } catch { if (pscStatus) { pscStatus.style.color = '#f48771'; pscStatus.textContent = 'Current FEN is invalid.'; } return; }
+        let customs = [];
+        try { customs = JSON.parse(localStorage.getItem('stockfish-explain.practice-custom-openings') || '[]'); } catch {}
+        customs.push({ name, group: folder, moves: [], fen, side, _custom: true, created_at: new Date().toISOString() });
+        try { localStorage.setItem('stockfish-explain.practice-custom-openings', JSON.stringify(customs)); } catch {}
+        if (window.__currentUser) {
+          try {
+            fetch('/api/favourites', { method: 'PUT', credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: `custom://${folder}/${name}`, side }),
+            }).catch(() => {});
+          } catch {}
+        }
+        if (pscStatus) { pscStatus.style.color = '#4ec9b0'; pscStatus.textContent = `✓ Saved to “${folder}”. Appears in your tree on next open.`; }
+        try { populateOpeningSelect(); } catch {}
+        try { populateFolderDatalist(); } catch {}
+      });
     }
     pUseCurrent.addEventListener('change', refreshUseCurrent);
     // Refresh when modal opens (so the detected opening reflects the

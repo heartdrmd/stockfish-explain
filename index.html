@@ -575,6 +575,21 @@
             Use the current board position as the starting position
           </label>
           <small class="muted" id="practice-use-current-info" style="font-family: var(--font-mono); font-size: 11px; display:block;"></small>
+          <div id="practice-save-current" hidden style="margin-top:8px;padding:8px;border:1px solid rgba(78,201,176,0.3);border-radius:6px;background:rgba(78,201,176,0.08);">
+            <div style="font-size:11px;color:#4ec9b0;margin-bottom:6px;font-weight:600;letter-spacing:0.04em;">➕ SAVE THIS POSITION TO YOUR PRACTICE LIST</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <input id="psc-name" type="text" placeholder="Opening name" style="flex:2;min-width:140px;font-size:12px;padding:4px 6px;">
+              <input id="psc-folder" type="text" placeholder="Folder" value="My openings" list="psc-folder-list" style="flex:1;min-width:100px;font-size:12px;padding:4px 6px;">
+              <select id="psc-side" style="font-size:12px;padding:4px 6px;" title="Which side you practice this as — defaults to whose move it is in the FEN">
+                <option value="white">♔ White</option>
+                <option value="black">♚ Black</option>
+                <option value="both">↔ Both</option>
+              </select>
+              <button type="button" id="psc-save" class="btn" style="font-size:11px;padding:4px 10px;background:rgba(78,201,176,0.22);border-color:#4ec9b0;">➕ Save</button>
+            </div>
+            <small id="psc-status" class="muted" style="font-size:10px;display:block;margin-top:4px;"></small>
+            <datalist id="psc-folder-list"></datalist>
+          </div>
         </div>
         <div class="setting" id="practice-opening-row" style="grid-column: 1 / -1;">
           <label for="practice-opening">Opening</label>
