@@ -24,6 +24,7 @@ import * as Archive from './game_archive.js';
 import { EvalGraph }     from './eval-graph.js';
 import { computeGameStats, renderStatsPanel } from './game-stats.js';
 import { ExplorerPanel } from './opening_explorer_ui.js';
+import * as Puzzles from './puzzles.js';
 
 // Expose Chess to eval-graph's computeDivision helper — avoids a
 // circular import while still letting it replay SAN to count pieces
@@ -6723,6 +6724,161 @@ async function main() {
     try {
       if (localStorage.getItem(STORAGE_KEY) === '1') show();
     } catch {}
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 🧩 Puzzles — Lichess tactics trainer.
+    //    Fetches daily puzzle (no auth), sets up the pre-puzzle position
+    //    on the board + plays the set-up move, then listens for user's
+    //    moves and validates against solution[]. Wrong → shake. Right →
+    //    engine plays next solution move. All solved → success state.
+    // ═══════════════════════════════════════════════════════════════════
+    (() => {
+      const btnOpen = document.getElementById('btn-puzzles');
+      const modal   = document.getElementById('puzzle-modal');
+      const stateEl = document.getElementById('puzzle-state');
+      const metaEl  = document.getElementById('puzzle-meta');
+      const progEl  = document.getElementById('puzzle-progress');
+      const btnNext = document.getElementById('puzzle-next');
+      const btnHint = document.getElementById('puzzle-hint');
+      const btnSolve = document.getElementById('puzzle-solve');
+      const btnClose = document.getElementById('puzzle-close');
+      const idInput = document.getElementById('puzzle-id-input');
+      const btnLoadId = document.getElementById('puzzle-load-id');
+      if (!btnOpen || !modal) return;
+
+      const puz = { current: null, moveIdx: 0, userColor: 'white', solved: 0, attempted: 0 };
+
+      function setState(html, color = '') {
+        stateEl.innerHTML = html;
+        stateEl.style.color = color;
+      }
+      function updateProgress() {
+        try {
+          const rating = +(localStorage.getItem('stockfish-explain.puzzle-rating') || 1500);
+          progEl.textContent = `Session: ${puz.solved}/${puz.attempted} · Your rating: ${rating}`;
+        } catch {}
+      }
+
+      function bumpRating(delta) {
+        try {
+          const cur = +(localStorage.getItem('stockfish-explain.puzzle-rating') || 1500);
+          const next = Math.max(400, Math.min(3200, cur + delta));
+          localStorage.setItem('stockfish-explain.puzzle-rating', String(next));
+        } catch {}
+      }
+
+      async function loadPuzzle(p) {
+        const norm = Puzzles.normalise(p);
+        if (!norm) { setState('Could not load that puzzle.', '#f48771'); return; }
+        puz.current = norm;
+        puz.moveIdx = 0;
+        metaEl.innerHTML = `ID: <code>${norm.id}</code> · Rating ${norm.rating || '—'} · ${norm.themes.slice(0, 4).join(', ') || 'tactics'}`;
+        // Replay PGN up to the puzzle's initialPly; then play the set-up
+        // move (solution starts AFTER that move). User is the opposite
+        // color of whoever just moved.
+        try {
+          board.newGame();
+          const allUcis = Puzzles.pgnToUciList(Chess, norm.pgn);
+          const preUcis = allUcis.slice(0, norm.initialPly + 1);
+          if (preUcis.length) board.playUciMoves(preUcis, { animate: false });
+          // Who is to move now? That's the user's side.
+          puz.userColor = board.chess.turn() === 'w' ? 'white' : 'black';
+          if (board.orientation !== puz.userColor) { try { board.flipBoard(); } catch {} }
+          setState(`Your turn as <strong>${puz.userColor}</strong>. Find the best move.`);
+        } catch (err) {
+          setState('Error setting up puzzle.', '#f48771');
+          console.warn('[puzzle] setup failed', err);
+        }
+        puz.attempted++;
+        updateProgress();
+      }
+
+      async function openDaily() {
+        setState('Loading daily puzzle…');
+        const p = await Puzzles.fetchDaily();
+        if (!p) { setState('Could not fetch daily puzzle (offline?).', '#f48771'); return; }
+        loadPuzzle(p);
+      }
+
+      async function openById(id) {
+        setState(`Loading puzzle ${id}…`);
+        const p = await Puzzles.fetchById(id);
+        if (!p) { setState('Puzzle not found.', '#f48771'); return; }
+        loadPuzzle(p);
+      }
+
+      // Intercept board moves to validate against solution.
+      const onUserMove = () => {
+        if (!puz.current || modal.hidden) return;
+        // Only react if the modal is open and the user is solving.
+        const hist = board.chess.history({ verbose: true });
+        const last = hist[hist.length - 1];
+        if (!last) return;
+        const expectedUci = puz.current.solution[puz.moveIdx];
+        if (!expectedUci) return;
+        const playedUci = last.from + last.to + (last.promotion || '');
+        if (playedUci === expectedUci) {
+          puz.moveIdx++;
+          // If more solution moves remain, play the engine's reply after
+          // a short pause so the user sees their move first.
+          if (puz.moveIdx < puz.current.solution.length) {
+            setTimeout(() => {
+              const reply = puz.current.solution[puz.moveIdx];
+              if (!reply) return;
+              try { board.playUciMoves([reply], { animate: true }); } catch {}
+              puz.moveIdx++;
+              if (puz.moveIdx >= puz.current.solution.length) {
+                setState('🎉 Solved!', '#4caf50');
+                puz.solved++;
+                bumpRating(+10);
+                updateProgress();
+              } else {
+                setState('Correct! Find the next move.', '#4caf50');
+              }
+            }, 400);
+          } else {
+            setState('🎉 Solved!', '#4caf50');
+            puz.solved++;
+            bumpRating(+10);
+            updateProgress();
+          }
+        } else {
+          setState('✗ Not right. Try again.', '#f48771');
+          // Undo the wrong move so they can retry.
+          setTimeout(() => {
+            try { board.undo?.(); } catch {}
+          }, 700);
+          bumpRating(-5);
+          updateProgress();
+        }
+      };
+      board.addEventListener('move', onUserMove);
+
+      btnOpen.addEventListener('click', () => {
+        modal.hidden = false;
+        openDaily();
+      });
+      btnClose.addEventListener('click', () => { modal.hidden = true; });
+      modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+      btnNext.addEventListener('click', openDaily);
+      btnLoadId.addEventListener('click', () => {
+        const id = (idInput.value || '').trim();
+        if (id) openById(id);
+      });
+      btnHint.addEventListener('click', () => {
+        const u = puz.current?.solution?.[puz.moveIdx];
+        if (!u) return;
+        setState(`Hint: starts with <strong>${u.slice(0, 2).toUpperCase()}</strong>…`);
+      });
+      btnSolve.addEventListener('click', () => {
+        const u = puz.current?.solution?.[puz.moveIdx];
+        if (!u) return;
+        setState(`Solution: <strong>${u}</strong>`, '#ffb74d');
+        try { board.playUciMoves([u], { animate: true }); } catch {}
+        puz.moveIdx++;
+      });
+      updateProgress();
+    })();
 
     // Explorer panel — toggled from 📖 Explorer header button.
     (() => {

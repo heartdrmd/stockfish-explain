@@ -85,6 +85,8 @@
             title="Toggle the live evaluation graph. Hidden during practice by default (anti-cheat) but you can turn it on anytime.">📈 Graph</button>
     <button id="btn-explorer" class="btn always-visible"
             title="Opening explorer — Masters / Lichess / Tablebase stats for the current position">📖 Explorer</button>
+    <button id="btn-puzzles" class="btn always-visible"
+            title="Solve tactics puzzles from Lichess (daily + by-id)">🧩 Puzzles</button>
     <!-- Auth area — single slot that flips between 'Sign in' and 'Hi, user / Logout'. -->
     <span id="auth-area" class="always-visible auth-area">
       <button id="btn-signin"   class="btn btn-auth always-visible" title="Sign in to sync games across devices">👤 Sign in</button>
@@ -1191,6 +1193,24 @@
       <canvas id="live-eval-graph"></canvas>
     </div>
     <div class="live-graph-stats" id="live-graph-stats"></div>
+  </div>
+
+  <!-- 🧩 Puzzles modal -->
+  <div id="puzzle-modal" class="modal-backdrop" hidden>
+    <div class="modal-card" style="width:520px;max-width:96vw;">
+      <h3>🧩 Tactics puzzle</h3>
+      <div id="puzzle-meta" class="muted" style="font-size:12px;margin:4px 0 10px;"></div>
+      <div id="puzzle-state" style="padding:10px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;background:rgba(255,255,255,0.02);min-height:60px;text-align:center;font-size:14px;"></div>
+      <div id="puzzle-progress" class="muted" style="font-size:11px;margin-top:8px;font-family:var(--font-mono, ui-monospace, monospace);"></div>
+      <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;">
+        <button id="puzzle-next"   class="btn btn-auth-primary">▶ Next puzzle (daily)</button>
+        <button id="puzzle-hint"   class="btn" title="Show the first letter of the solution">💡 Hint</button>
+        <button id="puzzle-solve"  class="btn" title="Reveal the full solution">✓ Solve</button>
+        <input id="puzzle-id-input" type="text" placeholder="Puzzle ID" style="flex:1;min-width:120px;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#eee;border-radius:4px;font-size:12px;">
+        <button id="puzzle-load-id" class="btn" title="Load puzzle by its Lichess ID">Load</button>
+        <button id="puzzle-close" class="btn">Close</button>
+      </div>
+    </div>
   </div>
 
   <!-- 📖 Opening Explorer — floating panel, toggled from header -->
