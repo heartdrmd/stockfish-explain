@@ -4445,16 +4445,18 @@ async function main() {
     // of keys. Exposed on window so the post-game "Next random"
     // button can reach it without duplicating logic.
     const effectiveQueuePool = () => {
-      // STRICT per user feedback: only favourites with their queue
-      // checkbox ticked are eligible for Random / Queue / auto-pick.
-      // Empty array when nothing is checked — callers should treat
-      // that as 'no pool, do not auto-pick'. The previous fallback
-      // of 'use all favs' was pulling in openings the user had
-      // intentionally unchecked.
+      // Queue-first fallback: if the user has ticked some queue
+      // checkboxes, only those count. If none are ticked but they
+      // have favourites starred, use ALL favourites (intuitive
+      // default: 'I starred something, practice from it'). If no
+      // favourites at all, empty pool → caller falls back to manual
+      // tree selection.
       const favs = loadFavs();
       const favKeys = Object.keys(favs);
       const set = loadQueueSet();
-      return favKeys.filter(k => set.has(k));
+      const checked = favKeys.filter(k => set.has(k));
+      if (checked.length) return checked;     // explicit subset wins
+      return favKeys;                          // fallback to all favs
     };
     window.__practiceQueuePool = effectiveQueuePool;
 
