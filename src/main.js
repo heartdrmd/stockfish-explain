@@ -7621,6 +7621,17 @@ async function main() {
         ui.boardArea.style.width    = sz + 'px';
         boardElForResize.style.width  = sz + 'px';
         boardElForResize.style.height = sz + 'px';
+        // Re-anchor the drag handle to the board's bottom-right corner.
+        // Without this, adding content below the board (review-mode
+        // card, notation slot) pushes the board-area taller and the
+        // handle — which is `bottom: 52px` from the BOARD-AREA — drifts
+        // away from the board itself, sometimes ending up hidden
+        // behind the review card. User reported 'drag didn't work
+        // in review mode'. Anchor by top-offset instead.
+        if (resizeHandle) {
+          resizeHandle.style.top = (sz - 10) + 'px';
+          resizeHandle.style.bottom = 'auto';
+        }
         // During an active drag, only fire the lightweight chessground
         // re-measure event — the full window.resize event triggers every
         // layout-observing listener in the app (eval timeline, accuracy
