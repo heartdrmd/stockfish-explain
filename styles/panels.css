@@ -2708,6 +2708,24 @@ body.practice-mode .practice-card[hidden]       { display: none !important; }
   border-radius: 3px;
   margin-left: 4px;
 }
+.practice-opening-tree .tree-leaf-del {
+  font-size: 11px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 3px;
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: all 0.12s;
+}
+.practice-opening-tree .tree-leaf:hover .tree-leaf-del { opacity: 1; }
+.practice-opening-tree .tree-leaf-del:hover {
+  background: rgba(244, 67, 54, 0.18);
+  border-color: #f44336;
+  color: #ff6e63;
+}
 .practice-opening-tree .tree-empty {
   padding: 20px;
   text-align: center;

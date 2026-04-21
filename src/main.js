@@ -3799,11 +3799,19 @@ async function main() {
       if (entry.o.moves?.length) {
         leaf.dataset.movesSan = entry.o.moves.join(' ');
       }
+      // Custom entries store a raw FEN instead of a SAN sequence — the
+      // hover handler reads this directly so the preview shows the
+      // actual saved position.
+      if (entry.o.fen) {
+        leaf.dataset.previewFen = entry.o.fen;
+      }
       const starred = !!favs[entry.key];
       const side    = favs[entry.key] || null; // 'white' | 'black' | 'both' | null
       const queueSet = loadQueueSet();
       const badge = entry.o._source === 'lichess' ? '<span class="tree-lichess-badge">DB</span>' : '';
-      const custom = entry.o._custom ? '<span class="tree-lichess-badge">custom</span>' : '';
+      const custom = entry.o._custom
+        ? `<span class="tree-lichess-badge">custom</span><button type="button" class="tree-leaf-del" data-del-key="${entry.key}" title="Delete this custom opening" onclick="event.stopPropagation()">🗑</button>`
+        : '';
       const leafName = entry.o.name;
       // Queue checkbox — only visible for starred entries.
       const inQueue = !starred || queueSet.size === 0 || queueSet.has(entry.key);
@@ -3834,6 +3842,48 @@ async function main() {
     // Click handlers on the tree.
     if (pTree) {
       pTree.addEventListener('click', (ev) => {
+        // Delete custom opening — checked first so the 🗑 button never
+        // falls through to leaf-select or favourite-toggle.
+        const delBtn = ev.target.closest('.tree-leaf-del');
+        if (delBtn) {
+          ev.stopPropagation();
+          const key = delBtn.dataset.delKey;
+          if (!key) return;
+          const [groupName, idxStr] = key.split('//');
+          const idx = +idxStr;
+          let customs = [];
+          try { customs = JSON.parse(localStorage.getItem('stockfish-explain.practice-custom-openings') || '[]'); } catch {}
+          // The tree key encodes position within its group after the
+          // merge with curated + custom. To find the target custom
+          // entry reliably, compare by name + group (unique in practice).
+          const groupBucket = customs.filter(c => c.group === groupName);
+          const target = groupBucket[0] && groupBucket.length === 1
+            ? groupBucket[0]
+            : customs.find((c, i) => c.group === groupName && (groupBucket.indexOf(c) === idx || i === idx));
+          const leafName = delBtn.closest('.tree-leaf')?.querySelector('.tree-leaf-name')?.textContent || '(this opening)';
+          if (!confirm(`Delete custom opening “${leafName}”? This cannot be undone.`)) return;
+          const remaining = customs.filter(c => !(
+            c.group === groupName && c.name === leafName
+          ));
+          try { localStorage.setItem('stockfish-explain.practice-custom-openings', JSON.stringify(remaining)); } catch {}
+          // Also clean up any favourites entry keyed against this custom path.
+          try {
+            const favs = JSON.parse(localStorage.getItem('stockfish-explain.practice-favs') || '{}');
+            const favKey = `custom://${groupName}/${leafName}`;
+            if (favs[favKey]) { delete favs[favKey]; localStorage.setItem('stockfish-explain.practice-favs', JSON.stringify(favs)); }
+          } catch {}
+          // Mirror to cloud favourites table if logged in — same key
+          // shape the Add-Opening modal uses when it inserts.
+          if (window.__currentUser) {
+            try {
+              fetch('/api/favourites?key=' + encodeURIComponent(`custom://${groupName}/${leafName}`), {
+                method: 'DELETE', credentials: 'include',
+              }).catch(() => {});
+            } catch {}
+          }
+          renderTree();
+          return;
+        }
         // Side pick (W / B / Both) — highest priority so clicks don't
         // fall through to the leaf-select handler.
         const sideBtn = ev.target.closest('[data-side-pick]');
@@ -4122,13 +4172,20 @@ async function main() {
       }
       function showHover(leaf) {
         hideHover();
-        const sanMoves = (leaf.dataset.movesSan || '').split(/\s+/).filter(Boolean);
-        let fen;
-        try {
-          const c = new Chess();
-          for (const s of sanMoves) if (!c.move(s)) break;
-          fen = c.fen();
-        } catch { fen = new Chess().fen(); }
+        let fen = leaf.dataset.previewFen || '';
+        if (!fen) {
+          // Standard (SAN-based) entry — replay moves on a fresh board.
+          const sanMoves = (leaf.dataset.movesSan || '').split(/\s+/).filter(Boolean);
+          try {
+            const c = new Chess();
+            for (const s of sanMoves) if (!c.move(s)) break;
+            fen = c.fen();
+          } catch { fen = new Chess().fen(); }
+        } else {
+          // Validate the stored FEN; fall back to startpos if it's
+          // been corrupted in localStorage.
+          try { new Chess(fen); } catch { fen = new Chess().fen(); }
+        }
         const r = leaf.getBoundingClientRect();
         hoverEl = document.createElement('div');
         hoverEl.className = 'tree-hover-preview';
@@ -4549,11 +4606,37 @@ async function main() {
         // Clear any stale analysis-mode 'archived' marker so the new
         // game can archive fresh on end.
         document.body.classList.remove('analysis-archived');
-        if (op.moves.length) {
+        // Custom opening stored as a raw FEN (no SAN moves): apply it
+        // as the new starting position. Required because the inline
+        // "save current position" flow writes { moves: [], fen: <FEN> }
+        // and without this branch the board stayed at the standard
+        // start when the user picked one of those entries.
+        const customFen = op.fen && op.fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+        if (customFen && (!op.moves || !op.moves.length)) {
+          try {
+            new Chess(op.fen); // validate first
+            board.chess.load(op.fen);
+            board.startingFen = op.fen;
+            board.tree = new (board.tree.constructor)(op.fen);
+            board.cg.set({
+              fen: op.fen,
+              turnColor: board.chess.turn() === 'w' ? 'white' : 'black',
+              lastMove: undefined,
+              check: board.chess.isCheck(),
+              movable: { color: 'both', dests: toDestsFrom(board.chess) },
+            });
+            board.dispatchEvent(new CustomEvent('new-game'));
+          } catch (err) {
+            console.warn('[practice] custom FEN load failed, falling back to startpos', err);
+          }
+          window.__practiceOpeningPlies = 0;
+        } else if (op.moves && op.moves.length) {
           const played = playOpening(op.moves);
           if (played) board.playUciMoves(played.uciMoves, { animate: false });
+          window.__practiceOpeningPlies = op.moves.length;
+        } else {
+          window.__practiceOpeningPlies = 0;
         }
-        window.__practiceOpeningPlies = op.moves.length || 0;
       }
 
       // Set practice state
