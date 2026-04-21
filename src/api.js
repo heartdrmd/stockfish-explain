@@ -37,9 +37,18 @@ export const api = {
 
   // games
   saveGame:   (g)       => req('POST',   '/api/games', g),
+  // Full filter surface: from, to, result, color, mode, opening,
+  // cleanliness (clean|mistakes|blunders), sort (newest|oldest|
+  // most_mistakes|fewest_mistakes|most_moves), limit, offset.
   listGames:  (q = {})  => {
     const qs = new URLSearchParams(Object.entries(q).filter(([,v]) => v != null && v !== ''));
     return req('GET',    '/api/games' + (qs.toString() ? '?' + qs : ''));
+  },
+  // Aggregate counts honouring the same filters. Used for the My Games
+  // header strip (total, W/L/D, avg mistakes, etc.).
+  statsGames: (q = {})  => {
+    const qs = new URLSearchParams(Object.entries(q).filter(([,v]) => v != null && v !== ''));
+    return req('GET',    '/api/games/stats' + (qs.toString() ? '?' + qs : ''));
   },
   getGame:    (id)      => req('GET',    `/api/games/${+id}`),
   deleteGame: (id)      => req('DELETE', `/api/games/${+id}`),

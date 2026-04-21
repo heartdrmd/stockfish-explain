@@ -13,6 +13,12 @@
   <link rel="stylesheet" href="styles/board.css">
   <link rel="stylesheet" href="styles/layout.css">
   <link rel="stylesheet" href="styles/panels.css">
+  <link rel="stylesheet" href="styles/my-games.css">
+
+  <!-- Chart.js (MIT) — powers the Lichess-style eval graph. Loaded
+       from jsDelivr. Pinned to a specific version to avoid a surprise
+       API break. ~80 KB gzipped. -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.js" defer></script>
 
   <!-- Preload the engine the user will actually boot — the inline
        script runs synchronously BEFORE the HTML parser moves on to the
@@ -73,6 +79,10 @@
             title="Start a new game from the initial position">🆕 New game</button>
     <button id="btn-quick-practice" class="btn btn-quick-action always-visible"
             title="Open the practice modal to pick an opening and play the engine">🎯 Practice</button>
+    <button id="btn-my-games" class="btn btn-my-games always-visible"
+            title="Open the My Games tab — filter, replay, analyse, delete your saved games">📚 My Games</button>
+    <button id="btn-live-graph" class="btn always-visible"
+            title="Toggle the live evaluation graph. Hidden during practice by default (anti-cheat) but you can turn it on anytime.">📈 Graph</button>
     <!-- Auth area — single slot that flips between 'Sign in' and 'Hi, user / Logout'. -->
     <span id="auth-area" class="always-visible auth-area">
       <button id="btn-signin"   class="btn btn-auth always-visible" title="Sign in to sync games across devices">👤 Sign in</button>
@@ -1047,6 +1057,150 @@
         <button id="dl-close" class="btn" style="flex:1;">Close</button>
       </div>
     </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────────────────────────
+       📚 My Games — full-page tab.
+       Hidden by default; the header button toggles body.mg-open which
+       flips display via CSS. Contains: left filter sidebar, main list
+       of game rows, game-detail pane (eval graph + per-side stats +
+       load-into-board button).
+  ─────────────────────────────────────────────────────────────── -->
+  <div id="my-games-tab" class="mg-tab" hidden>
+    <div class="mg-topbar">
+      <h2 class="mg-title">📚 My Games</h2>
+      <div class="mg-stats-strip" id="mg-stats-strip">
+        <span class="mg-stat" id="mg-stat-total">—</span>
+        <span class="mg-stat mg-stat-w" id="mg-stat-wins">—</span>
+        <span class="mg-stat mg-stat-d" id="mg-stat-draws">—</span>
+        <span class="mg-stat mg-stat-l" id="mg-stat-losses">—</span>
+        <span class="mg-stat"           id="mg-stat-mistakes">—</span>
+      </div>
+      <div class="mg-top-actions">
+        <button id="mg-export-all" class="btn" title="Download every matching game as one PGN file">📥 Export PGN</button>
+        <button id="mg-close"      class="btn" title="Close My Games and return to the board">✕ Close</button>
+      </div>
+    </div>
+    <div class="mg-body">
+      <aside class="mg-filters" id="mg-filters">
+        <div class="mg-filter-group">
+          <label class="mg-filter-label">Date range</label>
+          <div class="mg-quick-dates">
+            <button type="button" class="mg-chip" data-range="today">Today</button>
+            <button type="button" class="mg-chip" data-range="7d">7d</button>
+            <button type="button" class="mg-chip" data-range="30d">30d</button>
+            <button type="button" class="mg-chip" data-range="90d">90d</button>
+            <button type="button" class="mg-chip" data-range="year">Year</button>
+            <button type="button" class="mg-chip mg-chip-active" data-range="all">All</button>
+          </div>
+          <div class="mg-date-inputs">
+            <label>From <input type="date" id="mg-from"></label>
+            <label>To   <input type="date" id="mg-to"></label>
+          </div>
+        </div>
+
+        <div class="mg-filter-group">
+          <label class="mg-filter-label">Result</label>
+          <div class="mg-segmented" data-filter="result">
+            <button type="button" class="mg-seg mg-seg-active" data-value="">All</button>
+            <button type="button" class="mg-seg" data-value="win">Wins</button>
+            <button type="button" class="mg-seg" data-value="loss">Losses</button>
+            <button type="button" class="mg-seg" data-value="draw">Draws</button>
+          </div>
+        </div>
+
+        <div class="mg-filter-group">
+          <label class="mg-filter-label">Color</label>
+          <div class="mg-segmented" data-filter="color">
+            <button type="button" class="mg-seg mg-seg-active" data-value="">Any</button>
+            <button type="button" class="mg-seg" data-value="white">♔ White</button>
+            <button type="button" class="mg-seg" data-value="black">♚ Black</button>
+          </div>
+        </div>
+
+        <div class="mg-filter-group">
+          <label class="mg-filter-label">Mode</label>
+          <div class="mg-segmented" data-filter="mode">
+            <button type="button" class="mg-seg mg-seg-active" data-value="">Any</button>
+            <button type="button" class="mg-seg" data-value="practice">Practice</button>
+            <button type="button" class="mg-seg" data-value="analysis">Analysis</button>
+          </div>
+        </div>
+
+        <div class="mg-filter-group">
+          <label class="mg-filter-label">Opening</label>
+          <input type="search" id="mg-opening-search" placeholder="Ruy Lopez, B90, Najdorf…" autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="mg-filter-group">
+          <label class="mg-filter-label">Cleanliness</label>
+          <div class="mg-segmented" data-filter="cleanliness">
+            <button type="button" class="mg-seg mg-seg-active" data-value="">Any</button>
+            <button type="button" class="mg-seg" data-value="clean"    title="No mistakes or blunders">Clean</button>
+            <button type="button" class="mg-seg" data-value="mistakes" title="At least 1 mistake">Mistakes</button>
+            <button type="button" class="mg-seg" data-value="blunders" title="At least 1 blunder">Blunders</button>
+          </div>
+        </div>
+
+        <div class="mg-filter-group">
+          <label class="mg-filter-label" for="mg-sort">Sort</label>
+          <select id="mg-sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="most_mistakes">Most mistakes</option>
+            <option value="fewest_mistakes">Fewest mistakes</option>
+            <option value="most_moves">Most moves</option>
+          </select>
+        </div>
+
+        <div class="mg-filter-group">
+          <button id="mg-reset-filters" class="btn" style="width:100%;">Reset filters</button>
+        </div>
+      </aside>
+
+      <section class="mg-main">
+        <div class="mg-list" id="mg-list">
+          <div class="mg-empty">Sign in to see your saved games.</div>
+        </div>
+        <div class="mg-list-footer" id="mg-list-footer" hidden>
+          <button id="mg-load-more" class="btn">Load more</button>
+        </div>
+      </section>
+
+      <section class="mg-detail" id="mg-detail" hidden>
+        <div class="mg-detail-head">
+          <div>
+            <div class="mg-detail-title" id="mg-detail-title">—</div>
+            <div class="mg-detail-sub" id="mg-detail-sub">—</div>
+          </div>
+          <div class="mg-detail-actions">
+            <button id="mg-detail-load"    class="btn btn-auth-primary" title="Load this game onto the board for full analysis">▶ Load on board</button>
+            <button id="mg-detail-pgn"     class="btn" title="Download this game as a PGN file">📥 PGN</button>
+            <button id="mg-detail-delete"  class="btn mg-delete" title="Delete this game from the cloud">🗑 Delete</button>
+          </div>
+        </div>
+        <div class="mg-graph-wrap">
+          <canvas id="mg-eval-graph"></canvas>
+        </div>
+        <div class="mg-stats-wrap" id="mg-stats-wrap"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────────────────────────
+       Live eval graph — sits beneath the board in the analysis layout.
+       Toggled by a small "📈 Graph" button; during practice it's
+       hidden by default (anti-cheat) but the toggle is available.
+  ─────────────────────────────────────────────────────────────── -->
+  <div id="live-graph-card" class="live-graph-card" hidden>
+    <div class="live-graph-head">
+      <strong>📈 Evaluation timeline</strong>
+      <button id="live-graph-close" class="btn btn-mini" title="Hide the timeline">✕</button>
+    </div>
+    <div class="live-graph-body">
+      <canvas id="live-eval-graph"></canvas>
+    </div>
+    <div class="live-graph-stats" id="live-graph-stats"></div>
   </div>
 
   <script type="module" src="src/main.js"></script>

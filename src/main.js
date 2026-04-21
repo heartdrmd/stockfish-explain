@@ -21,6 +21,8 @@ import * as OpeningExplorer        from './opening_explorer.js';
 import { renderOpeningBlock, renderOpeningForAI, detectOpening } from './openings_book.js';
 import { LICHESS_OPENINGS } from './openings_lichess.js';
 import * as Archive from './game_archive.js';
+import { EvalGraph }     from './eval-graph.js';
+import { computeGameStats, renderStatsPanel } from './game-stats.js';
 import                                './validation_harness.js';
 
 // ─── Diagnostic log capture ─────────────────────────────────────────
@@ -4937,11 +4939,30 @@ async function main() {
           board.chess.load(g.startingFen);
           board.startingFen = g.startingFen;
         }
+        // Build UCI list from stored SAN so playUciMoves can rebuild
+        // the GameTree — without this the move list stays empty and
+        // only the final position is visible. Replay SAN through a
+        // fresh chess.js to capture from/to/promotion per move.
+        const uciMoves = [];
+        const replay = new Chess(board.chess.fen());
         for (const p of g.plies) {
-          try { board.chess.move(p.san, { sloppy: true }); } catch { break; }
+          if (!p || !p.san || p.san === 'start') continue;
+          let m;
+          try { m = replay.move(p.san, { sloppy: true }); } catch { break; }
+          if (!m) break;
+          uciMoves.push(m.from + m.to + (m.promotion || ''));
+          if (p.cpWhite != null || p.mate != null) {
+            try { fenEvalCache.set(replay.fen(), { cpWhite: p.cpWhite ?? null, mate: p.mate ?? null, depth: p.depth || 0 }); } catch {}
+          }
         }
-        board.cg.set({ fen: board.chess.fen(), turnColor: board.chess.turn() === 'w' ? 'white' : 'black' });
-        board.dispatchEvent(new CustomEvent('move'));
+        // Reset chess.js to starting fen before playUciMoves (which
+        // calls chess.move() itself) so we don't double-apply the
+        // history above.
+        board.chess.load(board.startingFen);
+        if (uciMoves.length) {
+          board.playUciMoves(uciMoves, { animate: false });
+        }
+        try { fireAnalysis(); } catch {}
         ui.narrationText.innerHTML = `📚 Loaded archived game: <strong>${escHtml(g.opening?.name || 'game')}</strong> (${g.date}). Walk through with ← → to review with full engine eval.`;
       } catch (err) {
         console.warn('[archive] load failed', err);
@@ -5864,6 +5885,530 @@ async function main() {
     document.getElementById('btn-practice')?.click();
   });
 
+  // ═══════════════════════════════════════════════════════════════════
+  // 📚 My Games tab — full-page replacement for the old cloud-games
+  //                   modal. Filters, per-game eval graph + stats,
+  //                   load-on-board, delete-with-confirm, bulk PGN.
+  // ═══════════════════════════════════════════════════════════════════
+  (() => {
+    const tab        = document.getElementById('my-games-tab');
+    const btnOpen    = document.getElementById('btn-my-games');
+    const btnClose   = document.getElementById('mg-close');
+    const btnExport  = document.getElementById('mg-export-all');
+    const listEl     = document.getElementById('mg-list');
+    const listFoot   = document.getElementById('mg-list-footer');
+    const btnMore    = document.getElementById('mg-load-more');
+    const detailEl   = document.getElementById('mg-detail');
+    const dTitle     = document.getElementById('mg-detail-title');
+    const dSub       = document.getElementById('mg-detail-sub');
+    const dLoad      = document.getElementById('mg-detail-load');
+    const dPgn       = document.getElementById('mg-detail-pgn');
+    const dDelete    = document.getElementById('mg-detail-delete');
+    const dGraphCanv = document.getElementById('mg-eval-graph');
+    const dStatsWrap = document.getElementById('mg-stats-wrap');
+    const statTotal  = document.getElementById('mg-stat-total');
+    const statWins   = document.getElementById('mg-stat-wins');
+    const statLoss   = document.getElementById('mg-stat-losses');
+    const statDraw   = document.getElementById('mg-stat-draws');
+    const statMist   = document.getElementById('mg-stat-mistakes');
+    const fFrom      = document.getElementById('mg-from');
+    const fTo        = document.getElementById('mg-to');
+    const fOpening   = document.getElementById('mg-opening-search');
+    const fSort      = document.getElementById('mg-sort');
+    const btnReset   = document.getElementById('mg-reset-filters');
+    if (!tab || !btnOpen) return;
+
+    const state = {
+      filters: {
+        from: '', to: '', result: '', color: '', mode: '',
+        opening: '', cleanliness: '', sort: 'newest',
+      },
+      page: 0,
+      pageSize: 50,
+      games: [],
+      total: 0,
+      selectedId: null,
+    };
+    let graph = null;   // EvalGraph instance for the detail pane
+
+    function escHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c => (
+        { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+      ));
+    }
+    function fmtDate(iso) {
+      const d = new Date(iso);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    function resultTag(g) {
+      if (g.result === '1/2-1/2') return 'd';
+      if (!g.user_color) {
+        if (g.result === '1-0') return 'w';
+        if (g.result === '0-1') return 'l';
+      } else {
+        const won = (g.user_color === 'white' && g.result === '1-0') ||
+                    (g.user_color === 'black' && g.result === '0-1');
+        const lost = (g.user_color === 'white' && g.result === '0-1') ||
+                     (g.user_color === 'black' && g.result === '1-0');
+        if (won)  return 'w';
+        if (lost) return 'l';
+      }
+      return 'x';
+    }
+
+    function buildServerQuery() {
+      const f = state.filters;
+      const q = {};
+      if (f.from)        q.from        = f.from;
+      if (f.to)          q.to          = f.to;
+      if (f.color)       q.color       = f.color;
+      if (f.mode)        q.mode        = f.mode;
+      if (f.opening)     q.opening     = f.opening;
+      if (f.cleanliness) q.cleanliness = f.cleanliness;
+      if (f.sort)        q.sort        = f.sort;
+      // Result filter needs user-color awareness → translated here:
+      if (f.result === 'win' || f.result === 'loss') {
+        // Fall back to filtering client-side since server only knows the
+        // pgn result, not "did the user win". Cheap — we already fetched
+        // the row.
+      } else if (f.result === 'draw') {
+        q.result = '1/2-1/2';
+      }
+      return q;
+    }
+
+    function applyClientResultFilter(games) {
+      if (state.filters.result === 'win') {
+        return games.filter(g => resultTag(g) === 'w');
+      }
+      if (state.filters.result === 'loss') {
+        return games.filter(g => resultTag(g) === 'l');
+      }
+      return games;
+    }
+
+    async function refreshStats() {
+      if (!window.__currentUser) {
+        statTotal.textContent = ''; statWins.textContent = '';
+        statLoss.textContent  = ''; statDraw.textContent = '';
+        statMist.textContent  = '';
+        return;
+      }
+      try {
+        const s = await api.statsGames(buildServerQuery());
+        statTotal.textContent = `${s.total || 0} games`;
+        statWins.textContent  = `${s.user_wins || 0} W`;
+        statDraw.textContent  = `${s.user_draws || 0} D`;
+        statLoss.textContent  = `${s.user_losses || 0} L`;
+        statMist.textContent  = `${s.total_mistakes || 0} mistakes · ${s.total_blunders || 0} blunders`;
+      } catch (err) {
+        console.warn('[my-games] stats failed', err);
+      }
+    }
+
+    async function refreshList({ append = false } = {}) {
+      if (!window.__currentUser) {
+        listEl.innerHTML = '<div class="mg-empty">Sign in (top-right) to see your saved games.</div>';
+        listFoot.hidden = true;
+        return;
+      }
+      if (!append) {
+        listEl.innerHTML = '<div class="mg-empty">Loading…</div>';
+        state.page = 0;
+        state.games = [];
+      }
+      try {
+        const q = buildServerQuery();
+        q.limit  = state.pageSize;
+        q.offset = state.page * state.pageSize;
+        const res = await api.listGames(q);
+        const incoming = applyClientResultFilter(res.games || []);
+        state.total = res.total || 0;
+        state.games = append ? state.games.concat(incoming) : incoming;
+        renderList();
+      } catch (err) {
+        listEl.innerHTML = `<div class="mg-empty" style="color:#f48771;">Error: ${escHtml(err.message || err)}</div>`;
+      }
+    }
+
+    function renderList() {
+      if (!state.games.length) {
+        listEl.innerHTML = '<div class="mg-empty">No games match your filters.</div>';
+        listFoot.hidden = true;
+        return;
+      }
+      listEl.innerHTML = state.games.map(g => {
+        const tag = resultTag(g);
+        const tagLabel = tag === 'w' ? 'W' : tag === 'l' ? 'L' : tag === 'd' ? '½' : '·';
+        const color = g.user_color || '';
+        const colorDot = color ? `<div class="mg-row-color ${color}"></div>` : '<div></div>';
+        const opening = g.opening_name || '(unknown opening)';
+        const eco = g.opening_eco ? `<span class="mg-row-chip">${escHtml(g.opening_eco)}</span>` : '';
+        const modeLabel = g.mode === 'practice' ? 'Practice' : g.mode === 'analysis' ? 'Analysis' : '';
+        const opponent = g.mode === 'practice'
+          ? (g.user_color === 'white' ? (g.black_name || 'Stockfish') : (g.white_name || 'Stockfish'))
+          : '';
+        const meta = [modeLabel, opponent, `${g.ply_count || 0} plies`].filter(Boolean).join(' · ');
+        const mistakes = (g.mistakes_count || 0);
+        const blunders = (g.blunders_count || 0);
+        const mistChips = [];
+        if (mistakes) mistChips.push(`<span class="mg-row-chip mg-row-chip-m" title="${mistakes} mistake(s)">${mistakes}m</span>`);
+        if (blunders) mistChips.push(`<span class="mg-row-chip mg-row-chip-b" title="${blunders} blunder(s)">${blunders}b</span>`);
+        const selected = state.selectedId === g.id ? 'mg-row-selected' : '';
+        return `
+          <div class="mg-row ${selected}" data-id="${g.id}">
+            ${colorDot}
+            <span class="mg-row-result ${tag}" title="${escHtml(g.result || '—')}">${tagLabel}</span>
+            <div class="mg-row-main">
+              <div class="mg-row-opening">${escHtml(opening)} ${eco}</div>
+              <div class="mg-row-meta">${escHtml(meta)}</div>
+            </div>
+            <div class="mg-row-count">${g.ply_count || 0}</div>
+            <div class="mg-row-mistakes">${mistChips.join('')}</div>
+            <div class="mg-row-date" title="${escHtml(new Date(g.played_at).toLocaleString())}">${fmtDate(g.played_at)}<br><small>${fmtTime(g.played_at)}</small></div>
+            <div class="mg-row-actions">
+              <button class="mg-action-pgn"    data-id="${g.id}" title="Download PGN">📥</button>
+              <button class="mg-action-delete mg-delete" data-id="${g.id}" title="Delete this game from the cloud">🗑</button>
+            </div>
+          </div>`;
+      }).join('');
+      listFoot.hidden = state.games.length >= state.total;
+    }
+
+    // Helper: fetch full game + open detail pane (eval graph + stats).
+    async function selectGame(id) {
+      state.selectedId = id;
+      renderList();
+      try {
+        const { game } = await api.getGame(id);
+        detailEl.hidden = false;
+        document.body.classList.add('mg-detail-open');
+        const opening = game.opening_name || '(unknown opening)';
+        const eco = game.opening_eco ? ` · ${game.opening_eco}` : '';
+        dTitle.textContent = `${opening}${eco}`;
+        const date = new Date(game.played_at).toLocaleString();
+        const modeLabel = game.mode === 'practice' ? 'Practice' : 'Analysis';
+        const side = game.user_color ? ` · played as ${game.user_color}` : '';
+        dSub.textContent = `${date} · ${modeLabel}${side} · ${game.result || '*'}`;
+        // Eval graph
+        const plies = Array.isArray(game.plies) ? game.plies : [];
+        if (!graph) graph = new EvalGraph(dGraphCanv, { onClickPly: () => {} });
+        graph.render(plies);
+        // Per-side stats
+        const stats = computeGameStats(plies);
+        const whiteName = game.white_name || (game.user_color === 'white' ? (window.__currentUser?.username || 'You') : 'Stockfish');
+        const blackName = game.black_name || (game.user_color === 'black' ? (window.__currentUser?.username || 'You') : 'Stockfish');
+        dStatsWrap.innerHTML = [
+          renderStatsPanel({ side: 'white', name: whiteName, stats: stats.white, isUser: game.user_color === 'white' }),
+          renderStatsPanel({ side: 'black', name: blackName, stats: stats.black, isUser: game.user_color === 'black' }),
+        ].join('');
+        // Stash for action buttons
+        detailEl._currentGame = game;
+      } catch (err) {
+        dTitle.textContent = 'Error loading game';
+        dSub.textContent = err.message || String(err);
+      }
+    }
+
+    function closeTab() {
+      tab.hidden = true;
+      document.body.classList.remove('mg-open', 'mg-detail-open');
+      if (graph) { graph.destroy(); graph = null; }
+    }
+
+    function openTab() {
+      if (!window.__currentUser) {
+        document.getElementById('btn-signin')?.click();
+        return;
+      }
+      tab.hidden = false;
+      document.body.classList.add('mg-open');
+      refreshStats();
+      refreshList();
+    }
+
+    // ─── Filter wiring ────────────────────────────────────────────
+    function onFilterChange() {
+      state.filters.from    = fFrom.value || '';
+      state.filters.to      = fTo.value   || '';
+      state.filters.opening = fOpening.value.trim();
+      state.filters.sort    = fSort.value || 'newest';
+      refreshStats();
+      refreshList();
+    }
+    fFrom.addEventListener('change', onFilterChange);
+    fTo.addEventListener('change', onFilterChange);
+    fSort.addEventListener('change', onFilterChange);
+    let openingTimer = null;
+    fOpening.addEventListener('input', () => {
+      clearTimeout(openingTimer);
+      openingTimer = setTimeout(onFilterChange, 220);
+    });
+
+    // Segmented filters (data-filter=result/color/mode/cleanliness)
+    document.querySelectorAll('.mg-segmented').forEach(group => {
+      const key = group.dataset.filter;
+      group.addEventListener('click', (e) => {
+        const btn = e.target.closest('.mg-seg');
+        if (!btn) return;
+        group.querySelectorAll('.mg-seg').forEach(s => s.classList.remove('mg-seg-active'));
+        btn.classList.add('mg-seg-active');
+        state.filters[key] = btn.dataset.value || '';
+        refreshStats();
+        refreshList();
+      });
+    });
+
+    // Quick date-range chips
+    const quickDateEls = document.querySelectorAll('.mg-quick-dates .mg-chip');
+    quickDateEls.forEach(chip => {
+      chip.addEventListener('click', () => {
+        quickDateEls.forEach(c => c.classList.remove('mg-chip-active'));
+        chip.classList.add('mg-chip-active');
+        const now = new Date();
+        const iso = d => d.toISOString().slice(0, 10);
+        let from = '', to = '';
+        const range = chip.dataset.range;
+        if (range === 'today') {
+          from = iso(now); to = iso(new Date(now.getTime() + 86400000));
+        } else if (range === '7d') {
+          from = iso(new Date(now.getTime() - 7  * 86400000));
+        } else if (range === '30d') {
+          from = iso(new Date(now.getTime() - 30 * 86400000));
+        } else if (range === '90d') {
+          from = iso(new Date(now.getTime() - 90 * 86400000));
+        } else if (range === 'year') {
+          from = iso(new Date(now.getFullYear(), 0, 1));
+        }
+        fFrom.value = from;
+        fTo.value = to;
+        state.filters.from = from;
+        state.filters.to = to;
+        refreshStats();
+        refreshList();
+      });
+    });
+
+    btnReset.addEventListener('click', () => {
+      state.filters = {
+        from: '', to: '', result: '', color: '', mode: '',
+        opening: '', cleanliness: '', sort: 'newest',
+      };
+      fFrom.value = ''; fTo.value = ''; fOpening.value = '';
+      fSort.value = 'newest';
+      document.querySelectorAll('.mg-segmented').forEach(group => {
+        group.querySelectorAll('.mg-seg').forEach((s, i) => s.classList.toggle('mg-seg-active', i === 0));
+      });
+      quickDateEls.forEach((c, i) => c.classList.toggle('mg-chip-active', c.dataset.range === 'all'));
+      refreshStats();
+      refreshList();
+    });
+
+    btnMore.addEventListener('click', () => {
+      state.page++;
+      refreshList({ append: true });
+    });
+
+    // ─── List interactions ───────────────────────────────────────
+    listEl.addEventListener('click', async (e) => {
+      const delBtn = e.target.closest('.mg-action-delete');
+      const pgnBtn = e.target.closest('.mg-action-pgn');
+      const row    = e.target.closest('.mg-row');
+      if (delBtn) {
+        e.stopPropagation();
+        const id = +delBtn.dataset.id;
+        if (!id) return;
+        if (!confirm('Delete this game from the cloud? This cannot be undone.')) return;
+        try {
+          await api.deleteGame(id);
+          if (state.selectedId === id) {
+            state.selectedId = null;
+            detailEl.hidden = true;
+            document.body.classList.remove('mg-detail-open');
+          }
+          refreshStats();
+          refreshList();
+        } catch (err) {
+          alert('Delete failed: ' + (err.message || err));
+        }
+        return;
+      }
+      if (pgnBtn) {
+        e.stopPropagation();
+        const id = +pgnBtn.dataset.id;
+        try {
+          const { game } = await api.getGame(id);
+          const blob = new Blob([game.pgn || ''], { type: 'application/x-chess-pgn' });
+          const url  = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `game-${id}.pgn`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (err) {
+          alert('Download failed: ' + (err.message || err));
+        }
+        return;
+      }
+      if (row) {
+        const id = +row.dataset.id;
+        if (id) selectGame(id);
+      }
+    });
+
+    // ─── Detail-pane actions ─────────────────────────────────────
+    dLoad.addEventListener('click', () => {
+      const g = detailEl._currentGame;
+      if (!g) return;
+      loadCloudGameOntoBoard(g);
+      closeTab();
+    });
+    dPgn.addEventListener('click', () => {
+      const g = detailEl._currentGame;
+      if (!g) return;
+      const blob = new Blob([g.pgn || ''], { type: 'application/x-chess-pgn' });
+      const url  = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `game-${g.id}.pgn`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    dDelete.addEventListener('click', async () => {
+      const g = detailEl._currentGame;
+      if (!g) return;
+      if (!confirm(`Delete this game from the cloud? (${g.opening_name || 'Unnamed'})`)) return;
+      try {
+        await api.deleteGame(g.id);
+        state.selectedId = null;
+        detailEl.hidden = true;
+        document.body.classList.remove('mg-detail-open');
+        refreshStats();
+        refreshList();
+      } catch (err) {
+        alert('Delete failed: ' + (err.message || err));
+      }
+    });
+
+    // ─── Top-bar actions ─────────────────────────────────────────
+    btnClose.addEventListener('click', closeTab);
+    btnExport.addEventListener('click', () => {
+      const url = api.exportUrl(buildServerQuery());
+      const a = document.createElement('a');
+      a.href = url;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+    btnOpen.addEventListener('click', openTab);
+
+    // Escape closes
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !tab.hidden) closeTab();
+    });
+
+    // Expose for legacy callers (old cloud-games modal shim)
+    window.__openMyGamesTab = openTab;
+  })();
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 📈 Live eval graph — floating bottom-right card, user-toggleable.
+  //     Hidden by default; persisted via localStorage. Updates on every
+  //     board 'move' event by replaying the mainline tree through the
+  //     eval cache.
+  // ═══════════════════════════════════════════════════════════════════
+  (() => {
+    const btn       = document.getElementById('btn-live-graph');
+    const card      = document.getElementById('live-graph-card');
+    const closeBtn  = document.getElementById('live-graph-close');
+    const canvas    = document.getElementById('live-eval-graph');
+    const statsWrap = document.getElementById('live-graph-stats');
+    if (!btn || !card || !canvas) return;
+
+    const STORAGE_KEY = 'stockfish-explain.live-graph-visible';
+    let graph = null;
+
+    function pliesFromBoard() {
+      // Walk the mainline from the tree root, enriching each node with
+      // eval from the cache. Shape matches what EvalGraph expects.
+      const out = [];
+      const tree = board.tree;
+      if (!tree || !tree.root) return out;
+      let cur = tree.root;
+      while (cur.children && cur.children.length) {
+        const n = cur.children[0];
+        if (!n || !n.fen) break;
+        const ev = fenEvalCache.get(n.fen) || {};
+        out.push({ san: n.san, cpWhite: ev.cpWhite ?? null, mate: ev.mate ?? null });
+        cur = n;
+      }
+      return out;
+    }
+
+    function update() {
+      if (card.hidden) return;
+      const plies = pliesFromBoard();
+      if (!graph) graph = new EvalGraph(canvas, { onClickPly: (ply) => {
+        try { board.goToPly?.(ply); } catch {}
+      }});
+      graph.render(plies);
+      // Current-ply marker tracks the viewed position. Board exposes
+      // either viewPly or the current mainline length depending on state.
+      const viewPly = typeof board.viewPly === 'number' ? board.viewPly : plies.length;
+      graph.setCurrentPly(viewPly);
+      if (plies.length >= 2) {
+        const stats = computeGameStats(plies);
+        const whiteName = practiceColor === 'white' ? (window.__currentUser?.username || 'You') : 'Stockfish';
+        const blackName = practiceColor === 'black' ? (window.__currentUser?.username || 'You') : 'Stockfish';
+        statsWrap.innerHTML = [
+          renderStatsPanel({ side: 'white', name: whiteName, stats: stats.white, isUser: practiceColor === 'white' }),
+          renderStatsPanel({ side: 'black', name: blackName, stats: stats.black, isUser: practiceColor === 'black' }),
+        ].join('');
+      } else {
+        statsWrap.innerHTML = '';
+      }
+    }
+
+    function show() {
+      card.hidden = false;
+      try { localStorage.setItem(STORAGE_KEY, '1'); } catch {}
+      btn.classList.add('live-graph-active');
+      update();
+    }
+    function hide() {
+      card.hidden = true;
+      try { localStorage.setItem(STORAGE_KEY, '0'); } catch {}
+      btn.classList.remove('live-graph-active');
+      if (graph) { graph.destroy(); graph = null; }
+    }
+
+    btn.addEventListener('click', () => (card.hidden ? show() : hide()));
+    closeBtn?.addEventListener('click', hide);
+
+    // Refresh on every move + on eval updates. Debounced via rAF so
+    // a rapid-fire engine info stream doesn't re-render 50×/second.
+    let rafPending = false;
+    function requestUpdate() {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => { rafPending = false; update(); });
+    }
+    board.addEventListener('move', requestUpdate);
+    // bestmove fires at the end of each search — by then the eval
+    // cache has the final cp/mate for the analysed FEN. Refresh the
+    // curve so the newest point lands in the right place.
+    engine.addEventListener('bestmove', requestUpdate);
+
+    // Restore prior toggle state.
+    try {
+      if (localStorage.getItem(STORAGE_KEY) === '1') show();
+    } catch {}
+  })();
+
   // ───── Auth (login / signup) + Download-games modal ─────
   // Exposes window.__currentUser so other code can check if user is
   // logged in before attempting DB writes. Null when logged out.
@@ -6008,6 +6553,9 @@ async function main() {
   if (dlTo)   dlTo.addEventListener('change', _refreshCloudGames);
 
   window.__openDownloadGamesModal = () => {
+    // Old cloud-games modal is retired — route all legacy callers to
+    // the new My Games tab instead.
+    if (window.__openMyGamesTab) { window.__openMyGamesTab(); return; }
     if (!window.__currentUser) { openAuth('signin'); return; }
     if (dlStatus) dlStatus.textContent = '';
     if (dlModal)  dlModal.hidden = false;
@@ -7124,6 +7672,43 @@ function setupTournament(board, fireAnalysis, pauseControl) {
     if (game.uciMoves && game.uciMoves.length) {
       board.playUciMoves(game.uciMoves, { animate: false });
       setTimeout(() => board.toStart(), 50);
+    }
+  }
+
+  // Load a cloud-stored game (shape: { pgn, plies, user_color, ... })
+  // onto the main board + properly rebuild the tree so the move list
+  // populates. plies[].san is replayed through chess.js to derive
+  // UCIs, which then feed the existing playUciMoves path (same code
+  // the regular move-maker uses — keeps the tree + chessground +
+  // chess.js all in sync).
+  function loadCloudGameOntoBoard(game) {
+    board.newGame();
+    const plies = Array.isArray(game.plies) ? game.plies : [];
+    // Derive starting FEN — if the first stored ply has a startingFen
+    // or we can infer from PGN. For now assume standard startpos;
+    // cloud games currently save from standard starts only.
+    const uciMoves = [];
+    const replay = new Chess();
+    // Populate eval cache so accuracy pills + eval graph render.
+    for (const p of plies) {
+      if (!p || !p.san || p.san === 'start') continue;
+      let m;
+      try { m = replay.move(p.san, { sloppy: true }); } catch { break; }
+      if (!m) break;
+      const uci = m.from + m.to + (m.promotion || '');
+      uciMoves.push(uci);
+      if (p.cpWhite != null || p.mate != null) {
+        try { fenEvalCache.set(replay.fen(), { cpWhite: p.cpWhite ?? null, mate: p.mate ?? null, depth: p.depth || 0 }); } catch {}
+      }
+    }
+    if (uciMoves.length) {
+      board.playUciMoves(uciMoves, { animate: false });
+    }
+    // Re-fire analysis so the accuracy pills + eval panel refresh for
+    // whatever position we end up at.
+    try { fireAnalysis(); } catch {}
+    if (ui.narrationText) {
+      ui.narrationText.innerHTML = `📚 Loaded cloud game: <strong>${(game.opening_name || 'game')}</strong>. Walk through with ← → to review.`;
     }
   }
 

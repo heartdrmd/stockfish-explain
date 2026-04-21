@@ -1,0 +1,370 @@
+/* my-games.css — styles for the 📚 My Games full-page tab + live eval
+   graph card + per-side stats panel. Visual language inspired by the
+   Lichess analysis page (split-fill eval graph, crisp accuracy
+   breakdown) but written from scratch — no CSS copied from lila. */
+
+/* ─── Blue header button ────────────────────────────────────────── */
+.btn-my-games {
+  background: linear-gradient(180deg, #2196f3 0%, #1976d2 100%);
+  border: 1px solid #1565c0;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15);
+}
+.btn-my-games:hover {
+  background: linear-gradient(180deg, #42a5f5 0%, #1e88e5 100%);
+  border-color: #1976d2;
+}
+.btn-my-games:active {
+  background: linear-gradient(180deg, #1e88e5 0%, #1565c0 100%);
+}
+
+/* ─── Full-page tab ─────────────────────────────────────────────── */
+.mg-tab {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: var(--c-bg, #1e1e1e);
+  color: var(--c-font, #e6e6e6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mg-tab[hidden] { display: none; }
+
+.mg-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--c-border, rgba(255,255,255,0.08));
+  background: rgba(255,255,255,0.02);
+  flex-wrap: wrap;
+}
+.mg-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.mg-stats-strip {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  flex-wrap: wrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.mg-stat {
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.mg-stat-w { color: #4caf50; border-color: rgba(76,175,80,0.35); }
+.mg-stat-d { color: #ffc107; border-color: rgba(255,193,7,0.35); }
+.mg-stat-l { color: #f44336; border-color: rgba(244,67,54,0.35); }
+.mg-top-actions { display: flex; gap: 8px; }
+
+.mg-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 240px 1fr 420px;
+  min-height: 0;
+}
+@media (max-width: 1100px) {
+  .mg-body { grid-template-columns: 200px 1fr; }
+  .mg-detail { display: none; }
+  .mg-tab.mg-detail-open .mg-body { grid-template-columns: 1fr; }
+  .mg-tab.mg-detail-open .mg-filters,
+  .mg-tab.mg-detail-open .mg-main { display: none; }
+  .mg-tab.mg-detail-open .mg-detail { display: flex !important; }
+}
+
+/* ─── Filter sidebar ────────────────────────────────────────────── */
+.mg-filters {
+  border-right: 1px solid var(--c-border, rgba(255,255,255,0.08));
+  padding: 14px;
+  overflow-y: auto;
+  background: rgba(255,255,255,0.015);
+}
+.mg-filter-group { margin-bottom: 16px; }
+.mg-filter-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-font-dim, rgba(255,255,255,0.55));
+  margin-bottom: 6px;
+}
+.mg-quick-dates { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.mg-chip {
+  padding: 3px 8px;
+  font-size: 11px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.03);
+  color: var(--c-font, #e6e6e6);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.mg-chip:hover { background: rgba(255,255,255,0.07); }
+.mg-chip-active {
+  background: #1976d2;
+  border-color: #1565c0;
+  color: #fff;
+}
+.mg-date-inputs {
+  display: flex;
+  gap: 6px;
+  flex-direction: column;
+  font-size: 11px;
+}
+.mg-date-inputs label { display: flex; flex-direction: column; gap: 2px; color: var(--c-font-dim, rgba(255,255,255,0.55)); }
+.mg-date-inputs input[type="date"] {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--c-font, #e6e6e6);
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.mg-segmented {
+  display: flex;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.mg-seg {
+  flex: 1;
+  padding: 5px 6px;
+  font-size: 11px;
+  background: rgba(255,255,255,0.03);
+  border: 0;
+  border-right: 1px solid rgba(255,255,255,0.08);
+  color: var(--c-font, #e6e6e6);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.mg-seg:last-child { border-right: 0; }
+.mg-seg:hover { background: rgba(255,255,255,0.08); }
+.mg-seg-active {
+  background: #1976d2;
+  color: #fff;
+}
+
+.mg-filters input[type="search"],
+.mg-filters select {
+  width: 100%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--c-font, #e6e6e6);
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+/* ─── Main list ─────────────────────────────────────────────────── */
+.mg-main {
+  overflow-y: auto;
+  padding: 8px 12px 40px;
+}
+.mg-list { display: flex; flex-direction: column; gap: 2px; }
+.mg-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--c-font-dim, rgba(255,255,255,0.5));
+}
+
+.mg-row {
+  display: grid;
+  grid-template-columns: 28px 38px 1fr 76px 80px 76px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.mg-row:hover { background: rgba(255,255,255,0.045); }
+.mg-row.mg-row-selected { background: rgba(33,150,243,0.12); }
+
+.mg-row-color {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.mg-row-color.white { background: #fafafa; }
+.mg-row-color.black { background: #1a1a1a; }
+
+.mg-row-result {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  font-weight: 700; font-size: 11px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.mg-row-result.w { background: #4caf50; }
+.mg-row-result.l { background: #f44336; }
+.mg-row-result.d { background: #ffc107; color: #222; }
+.mg-row-result.x { background: #777; }
+
+.mg-row-main { min-width: 0; }
+.mg-row-opening {
+  font-weight: 600; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mg-row-meta {
+  font-size: 11px; color: var(--c-font-dim, rgba(255,255,255,0.55));
+  display: flex; gap: 8px;
+  margin-top: 2px;
+}
+.mg-row-count {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--c-font-dim, rgba(255,255,255,0.55));
+  text-align: right;
+}
+.mg-row-mistakes {
+  display: flex; gap: 4px; justify-content: flex-end;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+.mg-row-chip {
+  padding: 1px 6px; border-radius: 8px;
+  background: rgba(255,255,255,0.06);
+}
+.mg-row-chip-m { background: rgba(220, 170, 80, 0.18); color: #dca650; }
+.mg-row-chip-b { background: rgba(244, 67, 54, 0.18);  color: #ff6e63; }
+.mg-row-date {
+  font-size: 11px; color: var(--c-font-dim, rgba(255,255,255,0.55));
+  text-align: right; white-space: nowrap;
+}
+.mg-row-actions {
+  display: flex; gap: 4px;
+}
+.mg-row-actions button {
+  font-size: 10px; padding: 3px 6px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--c-font, #e6e6e6);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.mg-row-actions button:hover { background: rgba(255,255,255,0.1); }
+.mg-row-actions .mg-delete:hover {
+  background: rgba(244, 67, 54, 0.2);
+  border-color: #f44336;
+  color: #ff6e63;
+}
+
+.mg-list-footer {
+  margin-top: 16px;
+  text-align: center;
+}
+
+/* ─── Detail pane ───────────────────────────────────────────────── */
+.mg-detail {
+  border-left: 1px solid var(--c-border, rgba(255,255,255,0.08));
+  padding: 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: rgba(0,0,0,0.15);
+}
+.mg-detail-head {
+  display: flex; align-items: flex-start; gap: 10px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.mg-detail-title { font-weight: 700; font-size: 14px; }
+.mg-detail-sub   { font-size: 11px; color: var(--c-font-dim, rgba(255,255,255,0.55)); margin-top: 2px; }
+.mg-detail-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.mg-delete:hover {
+  background: rgba(244, 67, 54, 0.15) !important;
+  border-color: #f44336 !important;
+  color: #ff6e63;
+}
+
+.mg-graph-wrap {
+  position: relative;
+  height: 200px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 4px;
+  padding: 4px;
+}
+.mg-graph-wrap canvas { display: block; width: 100% !important; height: 100% !important; }
+
+.mg-stats-wrap {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ─── Per-side stats panel (used in both mg-detail + live card) ─── */
+.gs-side {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 13px;
+}
+.gs-side-user { border-color: rgba(33,150,243,0.4); background: rgba(33,150,243,0.06); }
+.gs-head { font-size: 12px; margin-bottom: 8px; display: flex; gap: 6px; align-items: center; }
+.gs-dot  { font-size: 14px; }
+.gs-row  { display: flex; gap: 8px; padding: 2px 0; font-size: 12px; }
+.gs-n    { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; min-width: 36px; text-align: right; }
+.gs-label { color: var(--c-font-dim, rgba(255,255,255,0.6)); }
+.gs-inacc .gs-n { color: #64b5f6; }
+.gs-mist  .gs-n { color: #ffb74d; }
+.gs-blun  .gs-n { color: #ff6e63; }
+
+/* ─── Live eval graph card (floating bottom-right) ───────────────── */
+.live-graph-card {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  z-index: 500;
+  background: rgba(20, 20, 22, 0.96);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+  backdrop-filter: blur(6px);
+}
+.live-graph-card[hidden] { display: none; }
+.live-graph-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; margin-bottom: 6px;
+}
+.btn-mini {
+  font-size: 11px; padding: 2px 6px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--c-font, #e6e6e6);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.btn-mini:hover { background: rgba(255,255,255,0.1); }
+.live-graph-body {
+  position: relative;
+  height: 120px;
+}
+.live-graph-body canvas { display: block; width: 100% !important; height: 100% !important; }
+.live-graph-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.live-graph-stats .gs-side { font-size: 11px; padding: 6px; }
+.live-graph-stats .gs-row  { font-size: 11px; }
