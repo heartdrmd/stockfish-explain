@@ -242,11 +242,12 @@
       <label for="select-arrow-mode">Best-move arrows on board</label>
       <select id="select-arrow-mode">
         <option value="off" selected>Off (default) — no arrows on the board</option>
-        <option value="thin">On — thin</option>
-        <option value="normal">On — normal</option>
-        <option value="thick">On — thick</option>
+        <option value="thin">On — thin (top 3 candidates)</option>
+        <option value="normal">On — normal (top 3 candidates)</option>
+        <option value="thick">On — thick (top 3 candidates)</option>
+        <option value="maneuver">On — maneuver (best PV, next 3 moves chained)</option>
       </select>
-      <small class="muted">When ON, the engine overlays its top 3 candidate moves as coloured arrows (green = best, blue = 2nd, grey = 3rd).</small>
+      <small class="muted">Candidate modes overlay the engine's top 3 candidate moves (green = best, blue = 2nd, grey = 3rd). Maneuver mode (lila-style) chains the first 3 moves of the principal variation so you can see the plan, not just the next move.</small>
     </div>
 
   </section>

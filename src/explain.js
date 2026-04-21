@@ -90,7 +90,28 @@ export class Explainer {
     if (mode === 'off') {
       // Clear any arrows that were drawn earlier under a different setting
       this.board.drawArrows([]);
+    } else if (mode === 'maneuver' && best && best.pv && best.pv.length) {
+      // lila-style maneuver arrows — chain the first 3 moves of the
+      // principal variation so the user sees the engine's plan, not
+      // just the next move. Port of ui/analyse/src/autoShape.ts's
+      // drawManeuver(). Arrows desaturate along the chain.
+      const shapes = [];
+      const widths = [20, 15, 11];
+      const brushes = ['green', 'paleGreen', 'paleGrey'];
+      const cap = Math.min(3, best.pv.length);
+      for (let i = 0; i < cap; i++) {
+        const uci = best.pv[i];
+        if (!uci || uci.length < 4) break;
+        shapes.push({
+          orig: uci.slice(0, 2),
+          dest: uci.slice(2, 4),
+          brush: brushes[i],
+          modifiers: { lineWidth: widths[i] },
+        });
+      }
+      this.board.drawArrows(shapes);
     } else if (best && best.pv && best.pv[0]) {
+      // Candidate-move arrows (top 3 root moves).
       const widths = mode === 'thin'  ? [14,  8, 6]
                    : mode === 'thick' ? [22, 12, 8]
                    :                    [18, 11, 7];  // "normal"
