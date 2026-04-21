@@ -5205,10 +5205,15 @@ async function main() {
         alert('Could not load that game.');
       }
     };
-    btnOpen.addEventListener('click', () => { render(); modal.hidden = false; });
+    // The header 📚 My Games button is now owned by the new cloud
+    // full-page tab — do NOT also open this legacy local-archive
+    // modal from the same click, or the user sees both popups at once
+    // (reported). The local archive still exists and stays reachable
+    // for guests via window.__openLocalArchiveModal if ever needed.
     closeBtn.addEventListener('click', () => modal.hidden = true);
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
     filterEl.addEventListener('input', render);
+    window.__openLocalArchiveModal = () => { render(); modal.hidden = false; };
     listEl.addEventListener('click', (e) => {
       const loadBtn = e.target.closest('.my-game-load');
       const delBtn  = e.target.closest('.my-game-delete');
