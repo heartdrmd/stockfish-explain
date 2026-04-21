@@ -137,6 +137,47 @@
 }
 .auth-toggle-line a:hover { text-decoration: underline; }
 
+/* Cloud games browser list (inside the download modal). Each row is
+   a single game: date · result · opening · #mistakes · delete. */
+.cloud-games-list {
+  border: 1px solid var(--c-border, #333);
+  border-radius: 4px;
+  padding: 4px;
+  background: var(--c-bg-low, #111);
+}
+.cloud-games-list .cg-empty {
+  padding: 18px;
+  text-align: center;
+  color: var(--c-font-dim, #888);
+  font-size: 13px;
+}
+.cloud-games-list .cg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--c-border, #2a2a2a);
+  font-size: 13px;
+}
+.cloud-games-list .cg-row:last-child { border-bottom: none; }
+.cloud-games-list .cg-date  { color: var(--c-font-dim); font-family: monospace; width: 150px; flex: 0 0 auto; }
+.cloud-games-list .cg-result {
+  font-weight: 700; width: 50px; flex: 0 0 auto; text-align: center;
+  font-family: monospace;
+}
+.cloud-games-list .cg-opening { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-font); }
+.cloud-games-list .cg-stats   { color: var(--c-font-dim); font-size: 11px; white-space: nowrap; }
+.cloud-games-list .cg-delete {
+  background: transparent;
+  color: var(--c-font-dim);
+  border: 1px solid var(--c-border);
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.cloud-games-list .cg-delete:hover { color: #f48771; border-color: #f48771; }
+
 /* Collapsed-toolbar state: hide everything in the nav except
    always-visible items. The toggle button lives outside .site-nav so
    it stays clickable regardless. */

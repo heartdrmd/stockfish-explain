@@ -931,19 +931,22 @@
     </div>
   </div>
 
-  <!-- Download-games-by-date modal. -->
+  <!-- Cloud games browser — download / list / delete by date range. -->
   <div id="dl-games-modal" class="modal-backdrop" hidden>
-    <div class="modal-card">
-      <h3>📥 Download my games</h3>
-      <p class="muted" style="font-size:12px;margin:4px 0 12px;">Exports as a single PGN file — imports cleanly into ChessBase, lichess, chess.com.</p>
-      <div class="auth-label"><label>From <input type="date" id="dl-from"></label></div>
-      <div class="auth-label"><label>To   <input type="date" id="dl-to"></label></div>
-      <p class="muted" style="font-size:11px;margin:8px 0;">Leave dates blank to export everything.</p>
-      <div class="auth-actions">
-        <button id="dl-submit" class="btn btn-auth-primary">Download</button>
-        <button id="dl-close"  class="btn">Cancel</button>
+    <div class="modal-card" style="width:560px;max-width:96vw;">
+      <h3>☁ My cloud games</h3>
+      <p class="muted" style="font-size:12px;margin:4px 0 12px;">Browse, download or delete games synced to your account.</p>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <label class="auth-label" style="flex:1;min-width:140px;">From <input type="date" id="dl-from"></label>
+        <label class="auth-label" style="flex:1;min-width:140px;">To   <input type="date" id="dl-to"></label>
+        <button id="dl-refresh" class="btn" title="Refresh the game list with the chosen range">🔄 Refresh</button>
+        <button id="dl-submit"  class="btn btn-auth-primary" title="Download all matching games as one PGN">📥 Download</button>
       </div>
       <div id="dl-status" class="auth-error"></div>
+      <div id="dl-list" class="cloud-games-list" style="margin-top:12px;max-height:340px;overflow-y:auto;"></div>
+      <div class="auth-actions">
+        <button id="dl-close" class="btn" style="flex:1;">Close</button>
+      </div>
     </div>
   </div>
 

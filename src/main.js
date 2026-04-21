@@ -5532,17 +5532,74 @@ async function main() {
     renderAuthUi();
   })();
 
-  // Download-games modal.
+  // Cloud games browser modal (list / download / per-game delete).
   const dlModal = document.getElementById('dl-games-modal');
   const dlFrom  = document.getElementById('dl-from');
   const dlTo    = document.getElementById('dl-to');
   const dlClose = document.getElementById('dl-close');
   const dlSubmit = document.getElementById('dl-submit');
   const dlStatus = document.getElementById('dl-status');
+  const dlRefresh = document.getElementById('dl-refresh');
+  const dlList   = document.getElementById('dl-list');
+
+  async function _refreshCloudGames() {
+    if (!window.__currentUser) return;
+    if (!dlList) return;
+    dlList.innerHTML = '<div class="cg-empty">Loading…</div>';
+    try {
+      const q = {};
+      if (dlFrom?.value) q.from = dlFrom.value;
+      if (dlTo?.value)   q.to   = dlTo.value;
+      q.limit = 200;
+      const { games, total } = await api.listGames(q);
+      if (!games.length) {
+        dlList.innerHTML = `<div class="cg-empty">No games in this range.</div>`;
+        return;
+      }
+      dlList.innerHTML = games.map(g => {
+        const date = new Date(g.played_at).toLocaleDateString() + ' ' +
+                     new Date(g.played_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const result = g.result || '*';
+        const opening = g.opening_name || '(no opening)';
+        const stats = (g.mistakes_count || 0) + 'M · ' + (g.blunders_count || 0) + 'B';
+        return `
+          <div class="cg-row" data-id="${g.id}">
+            <span class="cg-date">${escapeHtml(date)}</span>
+            <span class="cg-result">${escapeHtml(result)}</span>
+            <span class="cg-opening" title="${escapeHtml(opening)}">${escapeHtml(opening)}</span>
+            <span class="cg-stats">${stats}</span>
+            <button class="cg-delete" data-del="${g.id}" title="Delete this game from the cloud (local copy kept)">Delete</button>
+          </div>`;
+      }).join('') + (total > games.length
+        ? `<div class="cg-empty">Showing first ${games.length} of ${total}. Narrow the date range to see older games.</div>`
+        : '');
+      // Wire per-row delete buttons.
+      dlList.querySelectorAll('.cg-delete').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = +btn.dataset.del;
+          if (!id) return;
+          if (!confirm('Delete this game from cloud? (Local copy in 📚 My Games stays.)')) return;
+          try {
+            await api.deleteGame(id);
+            _refreshCloudGames();
+          } catch (err) {
+            alert('Delete failed: ' + (err.message || err));
+          }
+        });
+      });
+    } catch (err) {
+      dlList.innerHTML = `<div class="cg-empty" style="color:#f48771;">Error loading games: ${escapeHtml(err.message || err)}</div>`;
+    }
+  }
+  if (dlRefresh) dlRefresh.addEventListener('click', _refreshCloudGames);
+  if (dlFrom) dlFrom.addEventListener('change', _refreshCloudGames);
+  if (dlTo)   dlTo.addEventListener('change', _refreshCloudGames);
+
   window.__openDownloadGamesModal = () => {
     if (!window.__currentUser) { openAuth('signin'); return; }
     if (dlStatus) dlStatus.textContent = '';
     if (dlModal)  dlModal.hidden = false;
+    _refreshCloudGames();
   };
   if (dlClose) dlClose.addEventListener('click', () => { if (dlModal) dlModal.hidden = true; });
   if (dlModal) dlModal.addEventListener('click', (e) => { if (e.target === dlModal && dlModal) dlModal.hidden = true; });
