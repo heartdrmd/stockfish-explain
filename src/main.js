@@ -4291,14 +4291,17 @@ async function main() {
     // position after the opening's SAN moves are played from the
     // starting position. No engine involved — pure chess.js replay.
     (() => {
+      // Mobile / touch detection — SKIP the hover-preview entirely on
+      // small viewports or pure-touch devices (no room for a 420 px
+      // popup + it triggers on mere taps). Falls through to the normal
+      // tap-to-select behaviour.
+      const isTouchOrSmall = () =>
+        window.matchMedia('(pointer: coarse)').matches ||
+        window.innerWidth < 900 ||
+        document.body.classList.contains('mobile-mode');
       let hoverEl = null;
       let hoverTimer = 0;
-      const GLYPH = {
-        P: '♙', R: '♖', N: '♘', B: '♗', Q: '♕', K: '♔',
-        p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
-      };
       function renderBoardHtml(fen) {
-        // Uses shared previewBoardSvg helper (cburnett SVG pieces).
         return previewBoardSvg(fen, { squarePx: 50 });
       }
       function hideHover() {
@@ -4306,10 +4309,10 @@ async function main() {
         if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = 0; }
       }
       function showHover(leaf) {
+        if (isTouchOrSmall()) return;   // disabled on mobile
         hideHover();
         let fen = leaf.dataset.previewFen || '';
         if (!fen) {
-          // Standard (SAN-based) entry — replay moves on a fresh board.
           const sanMoves = (leaf.dataset.movesSan || '').split(/\s+/).filter(Boolean);
           try {
             const c = new Chess();
@@ -4317,36 +4320,43 @@ async function main() {
             fen = c.fen();
           } catch { fen = new Chess().fen(); }
         } else {
-          // Validate the stored FEN; fall back to startpos if it's
-          // been corrupted in localStorage.
           try { new Chess(fen); } catch { fen = new Chess().fen(); }
         }
-        const r = leaf.getBoundingClientRect();
         hoverEl = document.createElement('div');
         hoverEl.className = 'tree-hover-preview';
         hoverEl.innerHTML = renderBoardHtml(fen);
         document.body.appendChild(hoverEl);
-        // Position to the RIGHT of the leaf, clamped to viewport. The
-        // preview is now 400×400 (was 208×208) so clamp accordingly.
+        // ALWAYS position the preview to the RIGHT of the practice
+        // modal (or of the viewport) — never over the leaf/list where
+        // it would hide the name + favourite star / side picker /
+        // queue checkbox / delete button. If the modal extends off
+        // the right edge, we pin to viewport right-edge instead.
         const prevW = 420;
         const prevH = 420;
-        let left = r.right + 8;
-        if (left + prevW > window.innerWidth - 8) left = Math.max(8, r.left - prevW - 8);
-        let top = r.top - 40;
-        if (top + prevH > window.innerHeight - 8) top = Math.max(8, window.innerHeight - prevH - 8);
-        if (top < 8) top = 8;
+        const modal = document.getElementById('practice-modal')?.querySelector('.modal-card');
+        const modalRect = modal ? modal.getBoundingClientRect() : null;
+        // Anchor: right edge of the modal + 12 px gap.
+        let left = modalRect ? (modalRect.right + 12) : (window.innerWidth - prevW - 16);
+        // If that puts us off-screen on the right, pin to the viewport
+        // edge instead (rather than flipping to the left over the list).
+        if (left + prevW > window.innerWidth - 8) {
+          left = Math.max(8, window.innerWidth - prevW - 8);
+        }
+        // Vertical anchor: align top with the hovered leaf, clamp in.
+        const r = leaf.getBoundingClientRect();
+        let top = Math.max(8, Math.min(window.innerHeight - prevH - 8, r.top - 40));
         hoverEl.style.left = left + 'px';
         hoverEl.style.top  = top + 'px';
       }
       if (pTree) {
         pTree.addEventListener('mouseover', (ev) => {
+          if (isTouchOrSmall()) return;
           const leaf = ev.target.closest('.tree-leaf');
           if (!leaf) return;
           if (hoverTimer) clearTimeout(hoverTimer);
           hoverTimer = setTimeout(() => showHover(leaf), 250);
         });
         pTree.addEventListener('mouseout', (ev) => {
-          // If leaving the tree entirely, or moving to a non-leaf.
           const to = ev.relatedTarget;
           if (!to || !pTree.contains(to)) hideHover();
         });
