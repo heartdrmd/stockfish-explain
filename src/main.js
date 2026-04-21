@@ -26,11 +26,15 @@ import { computeGameStats, renderStatsPanel } from './game-stats.js';
 import { ExplorerPanel } from './opening_explorer_ui.js';
 import * as Puzzles from './puzzles.js';
 import { fetchWiki } from './opening_wiki.js';
+import * as MoveTime from './movetime.js';
 
 // Expose Chess to eval-graph's computeDivision helper — avoids a
 // circular import while still letting it replay SAN to count pieces
 // per ply for the opening/middle/end phase markers.
 if (typeof window !== 'undefined') window.__chessForDivision = Chess;
+
+// Install move-time tracking hook once board exists (done inside main()
+// after board construction).
 import                                './validation_harness.js';
 
 // ─── Diagnostic log capture ─────────────────────────────────────────
@@ -315,6 +319,9 @@ async function main() {
     document.getElementById('board'),
     document.getElementById('promotion-overlay'),
   ).init();
+  // Start per-move timekeeping. Writes into a module-scoped Map so the
+  // movetime bar chart in review mode has data.
+  try { MoveTime.install(board); } catch {}
 
   // Apply initial board size EARLY (before engine boot) so chessground
   // measures correctly and the default isn't a tiny collapsed box.
@@ -7126,6 +7133,19 @@ async function main() {
     window.__openReviewMode = (game) => {
       card.classList.add('review-mode');
       show();
+      // Render the movetime bar chart beneath the eval graph. Only
+      // visible in review mode (CSS gates its height).
+      try {
+        const mtWrap = document.getElementById('live-movetime-wrap');
+        const mtCanvas = document.getElementById('live-movetime-chart');
+        if (mtWrap && mtCanvas) {
+          mtWrap.hidden = false;
+          if (card._movetimeChart) { try { card._movetimeChart.destroy(); } catch {} }
+          // Use only the live times map — historical games have no move
+          // times (we can't reconstruct clock from a PGN we didn't time).
+          card._movetimeChart = MoveTime.render(mtCanvas);
+        }
+      } catch (err) { console.warn('[movetime] render failed', err); }
       // Append the CTA column to the stats grid so it sits next to the
       // two gs-side panels. Rebuilt on every call so it points at the
       // currently-loaded game.

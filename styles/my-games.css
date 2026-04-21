@@ -700,6 +700,17 @@
 .live-graph-card.review-mode .live-graph-body {
   height: 240px;
 }
+.live-graph-movetime {
+  margin-top: 6px;
+  height: 0;
+  overflow: hidden;
+}
+.live-graph-movetime[hidden] { display: none; }
+.live-graph-card.review-mode .live-graph-movetime {
+  height: 70px;
+  display: block !important;
+}
+.live-graph-movetime canvas { width: 100% !important; height: 62px !important; display: block; }
 .live-graph-card.review-mode .live-graph-stats {
   grid-template-columns: 1fr 1fr 220px;
   gap: 14px;
