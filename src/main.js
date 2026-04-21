@@ -23,6 +23,11 @@ import { LICHESS_OPENINGS } from './openings_lichess.js';
 import * as Archive from './game_archive.js';
 import { EvalGraph }     from './eval-graph.js';
 import { computeGameStats, renderStatsPanel } from './game-stats.js';
+
+// Expose Chess to eval-graph's computeDivision helper — avoids a
+// circular import while still letting it replay SAN to count pieces
+// per ply for the opening/middle/end phase markers.
+if (typeof window !== 'undefined') window.__chessForDivision = Chess;
 import                                './validation_harness.js';
 
 // ─── Diagnostic log capture ─────────────────────────────────────────

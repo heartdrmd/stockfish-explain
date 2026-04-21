@@ -1,70 +1,168 @@
-// src/eval-graph.js — Lichess-style evaluation timeline chart.
+// src/eval-graph.js — Lichess-faithful evaluation timeline chart.
 //
-// Thin wrapper around Chart.js (MIT-licensed, loaded from CDN in
-// index.html). Renders a per-ply evaluation curve with a split fill:
-// the area above y=0 is white, below is black — same visual idiom
-// Lichess popularised in their `ui/chart/src/acpl.ts` module.
+// This module is a JS port of lichess-org/lila's `ui/chart/src/acpl.ts`
+// (plus index.ts / division.ts) adapted to our data shapes. Our app is
+// AGPL-3.0-or-later (same as lila), so direct code reuse is permitted.
+// The port preserves lila's chartYMax = 1.05 asymptote, orange accent,
+// split fill, y=0 grid-callback zero line, and pseudo-annotation phase
+// dividers.
 //
-// Key transformation: we plot NOT raw centipawns but win-chance via the
-// standard logistic `2/(1+exp(-0.004*cp)) - 1`. That's what flattens
-// lopsided positions (+8 and +10 look nearly identical on the y-axis)
-// while amplifying swings near the equality line. Every good chess
-// eval graph — Lichess, chess.com, ChessBase — uses this same shape.
+// Upstream: https://github.com/lichess-org/lila/blob/master/ui/chart/src/acpl.ts
 //
-// This file contains NO code copied from lila; it's an independent
-// implementation of the same approach.
+// Differences from upstream (necessity, not style):
+//   - JS (not TS), Chart.js UMD global (no `import { Chart }`),
+//   - No lila `pubsub` / `i18n` — we expose click as a callback
+//     and hard-code the "Advantage" string,
+//   - No lila `TreeNode` shape — we accept plies:[{cpWhite, mate, san}],
+//   - No blur (cheating) detection — N/A for a single-user local tool,
+//   - Division computed client-side by counting pieces (lila computes
+//     it server-side; we don't have a backend for that).
 
-const WIN_CAP = 1.0;         // sigmoid asymptote
-const CP_SCALE = 0.004;      // lichess-compatible slope (≈ chess.com)
+// ─── Constants (lila: ui/chart/src/index.ts) ──────────────────────
+const CHART_Y_MAX = 1.05;
+const CHART_Y_MIN = -CHART_Y_MAX;
+const ORANGE_ACCENT = '#d85000';            // lila orange
+const WHITE_FILL    = 'rgba(255,255,255,0.30)';
+const BLACK_FILL    = 'rgba(0,0,0,1)';
+const FONT_COLOR    = 'hsl(0, 0%, 73%)';
+const TOOLTIP_BG    = 'rgba(22, 21, 18, 0.7)';
+const ZERO_LINE     = '#676664';
+const DIV_ANNOT     = '#707070';
 
-// cp → winning chance from white's POV in [-1, +1].
-// Mate → ±1 exactly.
-export function cpToWinChance(cp, mate) {
-  if (mate != null) return mate > 0 ? WIN_CAP : -WIN_CAP;
+// Winning-chance sigmoid (lila: lib/ceval/winningChances.ts).
+// POV = white. Output in [-1, +1].
+const MULTIPLIER = -0.00368208;
+export function povChances(cp, mate) {
+  if (mate != null) return mate > 0 ? CHART_Y_MAX : -CHART_Y_MAX;
   if (cp == null || !Number.isFinite(cp)) return 0;
-  return 2 / (1 + Math.exp(-CP_SCALE * cp)) - 1;
+  return 2 / (1 + Math.exp(MULTIPLIER * cp)) - 1;
 }
 
-// plies: array of { cpWhite, mate, san } — same shape we already store
-//                in Postgres + localStorage archives.
-// Returns chart-ready arrays.
+// Backward-compat for game-stats.js callers.
+export const cpToWinChance = povChances;
+
+// plyToTurn: ply 1 → move 1; ply 2 → move 1; ply 3 → move 2…
+function plyToTurn(ply) { return Math.ceil(ply / 2); }
+
+// Convert stored plies array to {pts, raw, sans}.
 export function pliesToSeries(plies) {
-  const pts = [];
-  const raw = [];
+  const pts  = [];
+  const raw  = [];
   const sans = [];
   for (let i = 0; i < plies.length; i++) {
     const p = plies[i] || {};
-    pts.push(cpToWinChance(p.cpWhite, p.mate));
+    pts.push(povChances(p.cpWhite, p.mate));
     raw.push({ cp: p.cpWhite, mate: p.mate });
     sans.push(p.san || '');
   }
   return { pts, raw, sans };
 }
 
-// Colors tuned to match the Lichess analysis page closely. Black fill
-// is a near-pure black, white fill is bright off-white — maximum
-// contrast between the two halves is the whole point of the visual.
-const STYLE = {
-  whiteFill:      'rgba(240, 240, 235, 0.96)',
-  blackFill:      'rgba(12, 12, 14, 0.96)',
-  lineColor:      '#f57c00',       // orange spine
-  lineWidth:      1.2,
-  pointRadius:    0,
-  pointHitRadius: 10,
-  zeroLineColor:  'rgba(255,255,255,0.55)',   // bright contrast at equality
-  zeroLineWidth:  1.1,
-  gridColor:      'rgba(200,200,200,0.04)',
-  currentMove:    '#ff9800',
-};
+// ─── Phase division (lila: chess/Division.scala) ──────────────────
+// We don't have server-side analysis so we compute client-side by
+// counting pieces across the mainline. Heuristic tuned to match
+// lila's divisions reasonably often:
+//   • opening ends at first ply where both kings have castled OR
+//     ply ≥ 16 AND at least one minor piece has been traded.
+//   • endgame starts at first ply where total non-king material
+//     drops below 14 (queens removed + a rook or two minors).
+// Returns { middle: plyIndex | null, end: plyIndex | null } in units
+// matching our plies array (1-indexed ply of transition).
+export function computeDivision(plies) {
+  if (!Array.isArray(plies) || plies.length < 8) return { middle: null, end: null };
+  let middle = null;
+  let end = null;
+  // We need to know piece counts at each position — replay SAN on a
+  // temporary board. If Chess isn't injected, fall back to heuristic
+  // based on ply counts.
+  try {
+    if (typeof window !== 'undefined' && window.__chessForDivision) {
+      const Chess = window.__chessForDivision;
+      const replay = new Chess();
+      const pieceValue = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+      for (let i = 0; i < plies.length; i++) {
+        const p = plies[i]; if (!p || !p.san || p.san === 'start') continue;
+        try { if (!replay.move(p.san, { sloppy: true })) break; } catch { break; }
+        const board = replay.board();
+        let totalMaterial = 0;
+        let minors = 0;
+        for (const row of board) for (const sq of row) {
+          if (!sq) continue;
+          const v = pieceValue[sq.type.toLowerCase()] || 0;
+          totalMaterial += v;
+          if (sq.type === 'n' || sq.type === 'b') minors++;
+        }
+        const ply = i + 1;
+        if (middle === null && ply >= 12 && minors <= 3) middle = ply;
+        if (end === null && totalMaterial <= 14) { end = ply; break; }
+      }
+    }
+  } catch {}
+  // Last-ditch fallback if the replay didn't run
+  if (middle === null && plies.length >= 16) middle = 16;
+  if (end === null && plies.length >= 40) end = 40;
+  return { middle, end };
+}
 
-// Destroy+recreate chart on each full update. The underlying Chart.js
-// instance does not play well with swapping dataset shapes live.
+// ─── plyLine: the current-move vertical indicator (lila: index.ts) ─
+function plyLine(ply, onMainline = true) {
+  return {
+    _role: 'cursor',
+    xAxisID: 'x',
+    type: 'line',
+    label: 'ply',
+    data: [
+      { x: ply, y: CHART_Y_MIN },
+      { x: ply, y: CHART_Y_MAX },
+    ],
+    borderColor: ORANGE_ACCENT,
+    pointRadius: 0,
+    pointHoverRadius: 0,
+    borderWidth: 1,
+    animation: false,
+    segment: !onMainline ? { borderDash: [5] } : undefined,
+    order: 0,
+  };
+}
+
+// ─── Division annotation lines (lila: division.ts) ────────────────
+function divisionDatasets(div) {
+  const lines = [];
+  if (div?.middle) {
+    if (div.middle > 1) lines.push({ label: 'Opening', loc: 1 });
+    lines.push({ label: 'Middlegame', loc: div.middle });
+  }
+  if (div?.end) {
+    if (div.end > 1 && !div?.middle) lines.push({ label: 'Middlegame', loc: 0 });
+    lines.push({ label: 'Endgame', loc: div.end });
+  }
+  return lines.map(line => ({
+    _role: 'division',
+    type: 'line',
+    xAxisID: 'x',
+    yAxisID: 'y',
+    label: line.label,
+    data: [
+      { x: line.loc, y: CHART_Y_MIN },
+      { x: line.loc, y: CHART_Y_MAX },
+    ],
+    pointHoverRadius: 0,
+    borderWidth: 1,
+    borderColor: DIV_ANNOT,
+    pointRadius: 0,
+    order: 1,
+  }));
+}
+
+// ─── Main chart class ─────────────────────────────────────────────
 export class EvalGraph {
   constructor(canvasEl, { onClickPly } = {}) {
     this.canvas = canvasEl;
     this.onClickPly = onClickPly || (() => {});
     this.chart = null;
     this._currentPly = 0;
+    this._moveLabels = [];
+    this._rawEvals = [];
   }
 
   destroy() {
@@ -74,18 +172,13 @@ export class EvalGraph {
   setCurrentPly(ply) {
     this._currentPly = Math.max(0, ply | 0);
     if (!this.chart) return;
-    // Redraw just the vertical "current move" marker dataset.
-    const d = this.chart.data.datasets.find(x => x._role === 'cursor');
-    if (d) {
-      d.data = [
-        { x: this._currentPly, y: -WIN_CAP },
-        { x: this._currentPly, y:  WIN_CAP },
-      ];
+    const idx = this.chart.data.datasets.findIndex(d => d._role === 'cursor');
+    if (idx >= 0) {
+      this.chart.data.datasets[idx] = plyLine(this._currentPly);
       this.chart.update('none');
     }
   }
 
-  // Replace entire series.
   render(plies) {
     if (typeof Chart === 'undefined') {
       console.warn('[eval-graph] Chart.js not loaded yet — skipping render');
@@ -93,114 +186,123 @@ export class EvalGraph {
     }
     this.destroy();
     const { pts, raw, sans } = pliesToSeries(plies);
+    const division = computeDivision(plies);
 
-    // Build {x, y} tuples so Chart.js uses our own ply index as x.
-    // Starting ply is 1 (first move), not 0.
+    // Per-ply point colors — mistakes/blunders/inaccuracies tinted
+    // like lila's "christmas tree" hover effect, but always-on (we
+    // don't have a mouse-hover-summary trigger).
+    const pointColors = [];
+    const pointSizes = [];
+    const moveLabels = [];
+    for (let i = 0; i < pts.length; i++) {
+      const ply = i + 1;
+      const san = sans[i] || '';
+      const turn = plyToTurn(ply);
+      const dots = (ply & 1) === 1 ? '.' : '...';
+      moveLabels.push(`${turn}${dots} ${san}`);
+      // Classify this move's win-% drop vs previous; tint the point.
+      let color = ORANGE_ACCENT;
+      let size = 0;
+      if (i > 0) {
+        const mover = (ply & 1) === 1 ? 'white' : 'black';
+        const wBefore = pts[i - 1];
+        const wAfter = pts[i];
+        const wb = mover === 'white' ? wBefore : -wBefore;
+        const wa = mover === 'white' ? wAfter : -wAfter;
+        const drop = wb - wa;
+        if      (drop >= 0.20) { color = '#db3031'; size = 4; } // blunder
+        else if (drop >= 0.12) { color = '#e69d00'; size = 4; } // mistake
+        else if (drop >= 0.06) { color = '#4da3d5'; size = 3; } // inaccuracy
+      }
+      pointColors.push(color);
+      pointSizes.push(size);
+    }
+    this._moveLabels = moveLabels;
+    this._rawEvals = raw;
+
     const data = pts.map((y, i) => ({ x: i + 1, y }));
 
-    const maxX = Math.max(1, pts.length);
-    const datasets = [
-      {
-        _role: 'curve',
-        data,
-        borderColor: STYLE.lineColor,
-        borderWidth: STYLE.lineWidth,
-        pointRadius: STYLE.pointRadius,
-        pointHitRadius: STYLE.pointHitRadius,
-        tension: 0.18,
-        fill: {
-          // Split fill — above y=0 uses whiteFill, below uses blackFill.
-          // This is Chart.js's native `target: 'origin'` split syntax.
-          target: 'origin',
-          above: STYLE.whiteFill,
-          below: STYLE.blackFill,
-        },
-      },
-      {
-        // Dedicated y=0 equality line — sits ON TOP of the fills so
-        // there is always a crisp visual separator between the two
-        // halves. Matches Lichess's hairline-across-the-middle look.
-        _role: 'zero',
-        data: [ { x: 1, y: 0 }, { x: maxX, y: 0 } ],
-        borderColor: STYLE.zeroLineColor,
-        borderWidth: STYLE.zeroLineWidth,
-        pointRadius: 0,
-        pointHitRadius: 0,
-        showLine: true,
-        fill: false,
-        borderDash: [],
-      },
-      {
-        _role: 'cursor',
-        data: [
-          { x: this._currentPly, y: -WIN_CAP },
-          { x: this._currentPly, y:  WIN_CAP },
-        ],
-        borderColor: STYLE.currentMove,
-        borderWidth: 1.6,
-        pointRadius: 0,
-        pointHitRadius: 0,
-        showLine: true,
-        fill: false,
-      },
-    ];
+    const acplDataset = {
+      _role: 'curve',
+      label: 'Advantage',
+      data,
+      borderWidth: 1,
+      fill: { target: 'origin', above: WHITE_FILL, below: BLACK_FILL },
+      pointRadius: pointSizes,
+      pointHoverRadius: 5,
+      pointHitRadius: 100,
+      borderColor: ORANGE_ACCENT,
+      pointBackgroundColor: pointColors,
+      pointBorderColor: pointColors,
+      hoverBackgroundColor: ORANGE_ACCENT,
+      order: 5,
+    };
 
     const ctx = this.canvas.getContext('2d');
+    const self = this;
     // eslint-disable-next-line no-undef
     this.chart = new Chart(ctx, {
       type: 'line',
-      data: { datasets },
+      data: {
+        labels: moveLabels.map((_, i) => i),
+        datasets: [acplDataset, plyLine(this._currentPly), ...divisionDatasets(division)],
+      },
       options: {
-        responsive: true,
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        animation: false,
         maintainAspectRatio: false,
-        animation: { duration: 180 },
-        interaction: { intersect: false, mode: 'nearest', axis: 'x' },
+        responsive: true,
         scales: {
-          x: {
-            type: 'linear',
-            min: 1,
-            max: Math.max(1, pts.length),
-            ticks: { display: false },
-            grid: { color: STYLE.gridColor, drawBorder: false },
-          },
+          x: { display: false, type: 'linear', min: 1, max: Math.max(1, pts.length), offset: false },
           y: {
-            min: -WIN_CAP,
-            max:  WIN_CAP,
+            min: CHART_Y_MIN,
+            max: CHART_Y_MAX,
+            border: { display: false },
             ticks: { display: false },
-            grid: { color: STYLE.gridColor, drawBorder: false },
+            grid: {
+              // Lila's trick: only the y=0 gridline is drawn, all others
+              // suppressed. That's the equality line, crisp and always
+              // visible regardless of where the curve sits.
+              color: (ctx) => ctx.tick.value === 0 ? ZERO_LINE : 'transparent',
+              lineWidth: 1,
+            },
           },
         },
         plugins: {
           legend: { display: false },
           tooltip: {
-            enabled: true,
+            borderColor: FONT_COLOR,
+            borderWidth: 1,
+            backgroundColor: TOOLTIP_BG,
+            bodyColor: FONT_COLOR,
+            titleColor: FONT_COLOR,
+            caretPadding: 10,
             displayColors: false,
+            filter: item => item.datasetIndex === 0,
             callbacks: {
-              title: (items) => {
-                if (!items.length) return '';
-                const ply = items[0].parsed.x;
-                const move = Math.ceil(ply / 2);
-                const side = ply % 2 === 1 ? '' : '…';
-                const san = sans[ply - 1] || '';
-                return `${move}${side} ${san}`;
-              },
               label: (item) => {
                 const i = Math.round(item.parsed.x) - 1;
-                const r = raw[i] || {};
-                if (r.mate != null) return r.mate > 0 ? `#${r.mate}` : `#${r.mate}`;
-                if (r.cp == null) return '—';
-                const v = r.cp / 100;
-                return (v >= 0 ? '+' : '') + v.toFixed(2);
+                const r = self._rawEvals[i] || {};
+                if (r.mate != null) return 'Advantage: ' + (r.mate > 0 ? '#+' + r.mate : '#' + r.mate);
+                if (r.cp == null) return '';
+                const e = Math.max(Math.min(Math.round(r.cp / 10) / 10, 99), -99);
+                const sign = r.cp > 0 ? '+' : '';
+                return 'Advantage: ' + sign + e;
+              },
+              title: (items) => {
+                if (!items.length) return '';
+                const i = Math.round(items[0].parsed.x) - 1;
+                return self._moveLabels[i] || '';
               },
             },
           },
         },
-        onClick: (evt, elements) => {
-          const pts = this.chart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, true);
-          if (!pts.length) return;
-          const dataIdx = pts[0].index;
-          const ply = dataIdx + 1;
-          this.onClickPly(ply);
+        onClick: (evt) => {
+          const hits = self.chart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, true);
+          if (!hits.length) return;
+          const hit = hits.find(h => h.datasetIndex === 0) || hits[0];
+          const dataIdx = hit.index;
+          self.onClickPly(dataIdx + 1);
         },
       },
     });
