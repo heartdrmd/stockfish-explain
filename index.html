@@ -585,6 +585,8 @@
             <button type="button" id="practice-pick-random" class="btn" style="font-size:11px;padding:3px 8px;" title="Pick a random opening from your favourites (single game)">🎲 Random</button>
             <button type="button" id="practice-start-queue" class="btn" style="font-size:11px;padding:3px 8px;background:rgba(255,193,7,0.2);border-color:#ffc107;" title="Start a rotation — every game will play a fresh random favourite. Tick the boxes below to use a subset.">🔀 Queue mode</button>
             <button type="button" id="practice-add-opening" class="btn" style="font-size:11px;padding:3px 8px;background:rgba(78,201,176,0.18);border-color:#4ec9b0;" title="Add a new opening from a FEN position — saves to your custom openings">➕ Add opening</button>
+            <button type="button" id="practice-fen-search" class="btn" style="font-size:11px;padding:3px 8px;" title="Paste a FEN and find any practice opening that reaches that position">🔍 FEN search</button>
+            <button type="button" id="practice-collapse-all" class="btn" style="font-size:11px;padding:3px 8px;" title="Collapse all opening folders">▼ Collapse all</button>
           </div>
           <!-- Tree-view with collapsible parent families. Replaces the
                flat <select> — the full 3,950-entry list is unreadable
@@ -904,6 +906,30 @@
       <p id="why-summary" class="muted"></p>
       <div class="modal-narration" id="why-narration"></div>
       <div class="modal-line muted"><strong>Line:</strong> <span id="why-line"></span></div>
+    </div>
+  </div>
+
+  <!-- FEN-search modal — paste any FEN and find openings whose final
+       position matches. Useful for 'is this opening already in my
+       list?' before adding a duplicate. -->
+  <div id="fen-search-modal" class="modal-backdrop" hidden>
+    <div class="modal-card" style="width:520px;max-width:96vw;">
+      <h3>🔍 Search openings by FEN</h3>
+      <p class="muted" style="font-size:12px;margin:4px 0 12px;">Paste any FEN. Matches are openings whose final position after all their moves equals this FEN (ignoring move counters).</p>
+      <div class="auth-label">
+        <label>FEN
+          <input id="fs-fen" type="text" placeholder="rnbqkbnr/pppppppp/..." autocomplete="off">
+        </label>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:4px;">
+        <button id="fs-use-current" type="button" class="btn" style="font-size:11px;">📋 Use current board FEN</button>
+        <button id="fs-search" type="button" class="btn btn-auth-primary" style="font-size:12px;">Search</button>
+      </div>
+      <div id="fs-results" style="margin-top:12px;max-height:360px;overflow-y:auto;"></div>
+      <div class="auth-error" id="fs-error"></div>
+      <div class="auth-actions">
+        <button id="fs-close" class="btn" style="flex:1;">Close</button>
+      </div>
     </div>
   </div>
 

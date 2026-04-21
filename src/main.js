@@ -3484,6 +3484,8 @@ async function main() {
     const pToggleFav   = document.getElementById('practice-toggle-fav');
     const pPickRandom  = document.getElementById('practice-pick-random');
     const pAddOpening  = document.getElementById('practice-add-opening');
+    const pFenSearch   = document.getElementById('practice-fen-search');
+    const pCollapseAll = document.getElementById('practice-collapse-all');
 
     // ─── Favourite openings store ──────────────────────────────────
     // Keyed by "Group//index" (same format as pSel.value). Value is
@@ -3946,6 +3948,121 @@ async function main() {
         try { populateOpeningSelect(); } catch {}
       });
     })();
+
+    // ───── 🔍 FEN-search modal ─────
+    // Paste any FEN, search every opening's resulting position for a
+    // match. Match key is the first 4 FEN fields (piece placement +
+    // side-to-move + castling + en-passant) so move counters differ
+    // without killing the match.
+    (() => {
+      if (!pFenSearch) return;
+      const m      = document.getElementById('fen-search-modal');
+      const iFen   = document.getElementById('fs-fen');
+      const iErr   = document.getElementById('fs-error');
+      const list   = document.getElementById('fs-results');
+      const btnUse = document.getElementById('fs-use-current');
+      const btnGo  = document.getElementById('fs-search');
+      const btnX   = document.getElementById('fs-close');
+      const fenKey = (f) => (f || '').split(' ').slice(0, 4).join(' ');
+      function openModal() {
+        if (iErr) iErr.textContent = '';
+        if (list) list.innerHTML = '';
+        if (iFen) iFen.value = board?.fen?.() || '';
+        if (m) m.hidden = false;
+        setTimeout(() => iFen?.focus(), 50);
+      }
+      function closeModal() { if (m) m.hidden = true; }
+      pFenSearch.addEventListener('click', openModal);
+      if (btnX) btnX.addEventListener('click', closeModal);
+      if (m) m.addEventListener('click', (e) => { if (e.target === m) closeModal(); });
+      if (btnUse) btnUse.addEventListener('click', () => { iFen.value = board?.fen?.() || ''; });
+      if (btnGo) btnGo.addEventListener('click', () => {
+        if (iErr) iErr.textContent = '';
+        const fen = (iFen?.value || '').trim();
+        if (!fen) { iErr.textContent = 'Paste a FEN first.'; return; }
+        try { new Chess(fen); } catch { iErr.textContent = 'Invalid FEN.'; return; }
+        const target = fenKey(fen);
+        // Walk every opening in OPENINGS + any custom entries, replay
+        // moves on a scratch chess.js, compare fenKey. Max ~3,950 +
+        // custom ≈ instant on modern hardware.
+        const hits = [];
+        const allGroups = (typeof OPENINGS !== 'undefined' ? OPENINGS : []);
+        for (const grp of allGroups) {
+          for (let i = 0; i < grp.openings.length; i++) {
+            const o = grp.openings[i];
+            try {
+              const c = new Chess();
+              for (const s of (o.moves || [])) if (!c.move(s)) break;
+              if (fenKey(c.fen()) === target) {
+                hits.push({ name: o.name, group: grp.group, eco: o.eco, key: `${grp.group}//${i}` });
+              }
+            } catch {}
+          }
+        }
+        // Also check Lichess DB openings if loaded.
+        try {
+          const lichessList = (typeof LICHESS_OPENINGS !== 'undefined') ? LICHESS_OPENINGS : [];
+          for (let i = 0; i < lichessList.length; i++) {
+            const o = lichessList[i];
+            try {
+              const c = new Chess();
+              const sans = (o.moves || '').split(/\s+/).filter(Boolean);
+              for (const s of sans) if (!c.move(s)) break;
+              if (fenKey(c.fen()) === target) {
+                hits.push({ name: o.name, group: 'Lichess DB', eco: o.eco, key: null, lichessIdx: i });
+              }
+            } catch {}
+          }
+        } catch {}
+        if (!hits.length) {
+          list.innerHTML = `<div class="cg-empty">No opening leads to this position. <button id="fs-add-this" class="btn" style="font-size:11px;margin-left:8px;">➕ Add it as a new opening</button></div>`;
+          document.getElementById('fs-add-this')?.addEventListener('click', () => {
+            closeModal();
+            // Preseed the Add-Opening modal with this FEN.
+            pAddOpening?.click();
+            setTimeout(() => {
+              const aoFen = document.getElementById('ao-fen');
+              if (aoFen) { aoFen.value = fen; aoFen.dispatchEvent(new Event('input')); }
+            }, 100);
+          });
+          return;
+        }
+        list.innerHTML = hits.map((h, idx) => {
+          const safeName = escapeHtml(h.name);
+          const safeGrp  = escapeHtml(h.group);
+          const eco = h.eco ? `<span class="cg-stats">${escapeHtml(h.eco)}</span>` : '';
+          return `<div class="cg-row" data-fs-idx="${idx}">
+            <span class="cg-opening" title="${safeName}"><strong>${safeName}</strong> <span class="cg-stats">· ${safeGrp}</span></span>
+            ${eco}
+            <button class="cg-delete" data-fs-pick="${idx}" title="Select this opening in the tree">Select</button>
+          </div>`;
+        }).join('');
+        list.querySelectorAll('[data-fs-pick]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const h = hits[+btn.dataset.fsPick];
+            if (!h || !h.key) { closeModal(); return; }
+            const pSel = document.getElementById('practice-opening');
+            if (pSel) pSel.value = h.key;
+            closeModal();
+            // Jump the tree scroll to the matching leaf if possible.
+            try { populateOpeningSelect(); } catch {}
+          });
+        });
+      });
+    })();
+
+    // ───── ▼ Collapse-all button ─────
+    // Closes every <details> in the tree. Clicked again re-expands
+    // everything (two-state toggle).
+    if (pCollapseAll) {
+      let collapsed = false;
+      pCollapseAll.addEventListener('click', () => {
+        collapsed = !collapsed;
+        const all = pTree?.querySelectorAll('details') || [];
+        all.forEach(d => { d.open = !collapsed; });
+        pCollapseAll.textContent = collapsed ? '▶ Expand all' : '▼ Collapse all';
+      });
+    }
 
     // ───── Hover preview on opening tree leaves ─────
     // Hovering a leaf pops a small Unicode chessboard showing the
