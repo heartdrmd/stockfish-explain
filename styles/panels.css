@@ -1796,6 +1796,32 @@ body.practice-mode:not(.practice-finished) .ceval-bar {
 body.practice-mode:not(.practice-finished) .pv-lines,
 body.practice-mode:not(.practice-finished) #pv-lines { min-height: 60px; }
 
+/* During a practice search the live-calc ticker updates ~10 times/s
+   with variable-width text ('depth 18 · 5.2M nodes · 45.3M/s'). On
+   narrow panels it was wrapping to 2 lines and back, pushing the
+   tabs up/down. Lock in stable layout: reserve narration height,
+   keep the ticker on one line. */
+body.practice-mode #narration-text {
+  min-height: 56px;
+  display: block;
+}
+#practice-calc-live {
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  vertical-align: bottom;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+/* Also lock the .ceval section's height during practice so nothing
+   above the tab bar resizes mid-search. */
+body.practice-mode:not(.practice-finished) .ceval { min-height: 200px; }
+/* Reserve a sane baseline for the tab panel itself — avoids collapse
+   on first render. */
+.tab-panel { min-height: 140px; }
+
 /* ─── Practice game-flow card (sidebar) ─── */
 .practice-card { display: none; }
 /* Show practice cards only when NOT explicitly hidden — the hidden
