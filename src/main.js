@@ -206,6 +206,47 @@ function showFatalBanner(err) {
   } catch {}
 }
 
+// Shared SVG-piece board renderer used by hover preview, FEN search,
+// and the Add-Opening modal. Uses the vendored cburnett piece set at
+// /assets/pieces/cburnett/*.svg. Produces a grid of squares with
+// <img> pieces inside — crisp at any size.
+function previewBoardSvg(fen, { squarePx = 50 } = {}) {
+  const rows = (fen || '').split(' ')[0].split('/');
+  if (rows.length !== 8) return '<div style="color:#f48771;font-size:12px;padding:12px;">Invalid FEN</div>';
+  const pieceFile = (ch) => {
+    const color = ch === ch.toUpperCase() ? 'w' : 'b';
+    const P = ch.toUpperCase();
+    return `/assets/pieces/cburnett/${color}${P}.svg`;
+  };
+  const total = squarePx * 8;
+  let html = `<div class="preview-board-svg" style="`
+    + `display:grid;grid-template-columns:repeat(8,${squarePx}px);`
+    + `grid-template-rows:repeat(8,${squarePx}px);`
+    + `width:${total}px;height:${total}px;box-shadow:0 4px 14px rgba(0,0,0,0.6);`
+    + `border-radius:3px;overflow:hidden;">`;
+  for (let r = 0; r < 8; r++) {
+    let file = 0;
+    for (const ch of rows[r]) {
+      if (/\d/.test(ch)) {
+        for (let k = 0; k < +ch; k++) {
+          const dark = (r + file) % 2 === 1;
+          html += `<div class="sq ${dark ? 'd' : 'l'}" style="background:${dark ? '#b58863' : '#f0d9b5'};"></div>`;
+          file++;
+        }
+      } else {
+        const dark = (r + file) % 2 === 1;
+        html += `<div class="sq ${dark ? 'd' : 'l'}" `
+             + `style="background:${dark ? '#b58863' : '#f0d9b5'};`
+             + `display:flex;align-items:center;justify-content:center;">`
+             + `<img src="${pieceFile(ch)}" style="width:${squarePx - 4}px;height:${squarePx - 4}px;pointer-events:none;" draggable="false" alt="">`
+             + `</div>`;
+        file++;
+      }
+    }
+  }
+  return html + '</div>';
+}
+
 async function main() {
   // Guards against any fireAnalysis() fired DURING main() initialization
   // (e.g. the one bootEngine kicks off after its await resolves). If
@@ -3861,28 +3902,7 @@ async function main() {
       };
       function renderPreviewBoard(fen) {
         if (!preview) return;
-        let rows;
-        try { rows = fen.split(' ')[0].split('/'); if (rows.length !== 8) throw 0; }
-        catch { preview.innerHTML = '<div style="color:#f48771;font-size:12px;">Invalid FEN</div>'; return; }
-        let html = '<div class="preview-board" style="grid-template-columns:repeat(8,32px);grid-template-rows:repeat(8,32px);width:256px;height:256px;">';
-        for (let r = 0; r < 8; r++) {
-          let file = 0;
-          for (const ch of rows[r]) {
-            if (/\d/.test(ch)) {
-              for (let k = 0; k < +ch; k++) {
-                const dark = (r + file) % 2 === 1;
-                html += `<span class="sq ${dark ? 'd' : 'l'}" style="font-size:26px;"></span>`;
-                file++;
-              }
-            } else {
-              const dark = (r + file) % 2 === 1;
-              html += `<span class="sq ${dark ? 'd' : 'l'}" style="font-size:26px;">${GLYPH[ch] || ''}</span>`;
-              file++;
-            }
-          }
-        }
-        html += '</div>';
-        preview.innerHTML = html;
+        preview.innerHTML = previewBoardSvg(fen, { squarePx: 40 });
       }
 
       function openModal() {
@@ -3973,27 +3993,7 @@ async function main() {
       };
       function renderPreview(fen) {
         if (!preview) return;
-        let rows;
-        try { rows = fen.split(' ')[0].split('/'); if (rows.length !== 8) throw 0; }
-        catch { preview.innerHTML = '<div style="color:#f48771;font-size:12px;">Invalid FEN</div>'; return; }
-        let html = '<div class="preview-board" style="grid-template-columns:repeat(8,32px);grid-template-rows:repeat(8,32px);width:256px;height:256px;border:1px solid #333;">';
-        for (let r = 0; r < 8; r++) {
-          let file = 0;
-          for (const ch of rows[r]) {
-            if (/\d/.test(ch)) {
-              for (let k = 0; k < +ch; k++) {
-                const dark = (r + file) % 2 === 1;
-                html += `<span class="sq ${dark ? 'd' : 'l'}" style="font-size:26px;"></span>`;
-                file++;
-              }
-            } else {
-              const dark = (r + file) % 2 === 1;
-              html += `<span class="sq ${dark ? 'd' : 'l'}" style="font-size:26px;">${GLYPH[ch] || ''}</span>`;
-              file++;
-            }
-          }
-        }
-        preview.innerHTML = html + '</div>';
+        preview.innerHTML = previewBoardSvg(fen, { squarePx: 40 });
       }
       function openModal() {
         if (iErr) iErr.textContent = '';
@@ -4111,26 +4111,8 @@ async function main() {
         p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
       };
       function renderBoardHtml(fen) {
-        const rows = (fen || '').split(' ')[0].split('/');
-        if (rows.length !== 8) return '<div class="preview-board"></div>';
-        let html = '<div class="preview-board">';
-        for (let r = 0; r < 8; r++) {
-          let file = 0;
-          for (const ch of rows[r]) {
-            if (/\d/.test(ch)) {
-              for (let k = 0; k < +ch; k++) {
-                const dark = (r + file) % 2 === 1;
-                html += `<span class="sq ${dark ? 'd' : 'l'}"></span>`;
-                file++;
-              }
-            } else {
-              const dark = (r + file) % 2 === 1;
-              html += `<span class="sq ${dark ? 'd' : 'l'}">${GLYPH[ch] || ''}</span>`;
-              file++;
-            }
-          }
-        }
-        return html + '</div>';
+        // Uses shared previewBoardSvg helper (cburnett SVG pieces).
+        return previewBoardSvg(fen, { squarePx: 50 });
       }
       function hideHover() {
         if (hoverEl) { hoverEl.remove(); hoverEl = null; }
