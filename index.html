@@ -303,8 +303,8 @@
 
       <div class="side-card">
         <h3>Save position</h3>
-        <button id="btn-save-as-opening" class="practice-btn save-btn" style="width:100%;">💾 Save as practice opening</button>
-        <p class="muted" style="font-size:11px;margin:6px 0 0;">Capture the current line as a named variation. It'll appear in the practice opening list next time.</p>
+        <button id="btn-save-as-opening" class="practice-btn save-btn" style="width:100%;">💾 Use current board position as new opening</button>
+        <p class="muted" style="font-size:11px;margin:6px 0 0;">Captures the moves played so far. Dialog asks for a name, folder, and which side you'll practice.</p>
       </div>
 
       <div class="side-card practice-card" id="practice-actions" hidden>
@@ -775,24 +775,32 @@
   <div id="save-opening-modal" class="modal" hidden>
     <div class="modal-card">
       <button class="modal-close" id="save-opening-close">×</button>
-      <h3>💾 Save current position as a practice opening</h3>
-      <p class="muted">Captures the moves played so far. Next time you open Practice, this variation appears in the dropdown under the group you pick.</p>
+      <h3>💾 Save this board position as a new practice opening</h3>
+      <p class="muted">Captures the moves played so far. Next time you open Practice, it appears under the folder you pick. Pick which side you'd like to practice by default — you can change it later via the star + W/B/↔ buttons.</p>
       <div class="tournament-setup">
         <div class="setting" style="grid-column: 1 / -1;">
           <label for="save-opening-name">Name</label>
           <input id="save-opening-name" type="text" placeholder="e.g. 'My Najdorf trap line'" maxlength="80">
         </div>
         <div class="setting" style="grid-column: 1 / -1;">
-          <label for="save-opening-group">Place under</label>
+          <label for="save-opening-group">Folder</label>
           <select id="save-opening-group" class="tourn-select"></select>
-          <input id="save-opening-new-group" type="text" placeholder="New group name (leave blank to reuse the one above)" style="margin-top:6px;" maxlength="60">
+          <input id="save-opening-new-group" type="text" placeholder="Or type a new folder name" style="margin-top:6px;" maxlength="60">
+        </div>
+        <div class="setting" style="grid-column: 1 / -1;">
+          <label for="save-opening-side">Practice as</label>
+          <select id="save-opening-side" class="tourn-select">
+            <option value="white">White</option>
+            <option value="black">Black</option>
+            <option value="both">Both (random each time in rotation)</option>
+          </select>
         </div>
         <div class="setting" style="grid-column: 1 / -1;">
           <small class="muted" id="save-opening-preview" style="font-family:var(--font-mono);font-size:11px;display:block;"></small>
         </div>
       </div>
       <div class="tournament-actions">
-        <button id="save-opening-submit" class="btn" style="background:var(--c-secondary);color:white">💾 Save</button>
+        <button id="save-opening-submit" class="btn" style="background:var(--c-secondary);color:white">💾 Save opening</button>
       </div>
     </div>
   </div>

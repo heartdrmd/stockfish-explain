@@ -5551,18 +5551,29 @@ async function main() {
       const name = (sName.value || '').trim();
       if (!name) { alert('Please name this opening.'); return; }
       const group = (sNewGroup.value.trim() || sGroup.value).trim();
-      if (!group) { alert('Please pick or enter a group.'); return; }
+      if (!group) { alert('Please pick or enter a folder.'); return; }
+      const sideEl = document.getElementById('save-opening-side');
+      const side = sideEl?.value || 'white';
       const moves = board.chess.history();
       if (!moves.length) { alert('No moves on the board to save.'); return; }
       const customs = loadCustoms();
-      customs.push({ group, name, moves, savedAt: Date.now() });
+      customs.push({ group, name, moves, side, savedAt: Date.now() });
       saveCustoms(customs);
+      // Auto-favourite + set side preference so user can immediately
+      // pick it via the favourites queue. Side is the key value.
+      try {
+        const FAVS_KEY = 'stockfish-explain.practice-favourites';
+        const favs = JSON.parse(localStorage.getItem(FAVS_KEY) || '{}');
+        // Custom opening key matches the tree builder's convention.
+        const key = `${group}//${name}`;
+        favs[key] = side;
+        localStorage.setItem(FAVS_KEY, JSON.stringify(favs));
+      } catch {}
       sModal.hidden = true;
-      // Visual confirmation in the narration line.
       if (ui.narrationText) {
         ui.narrationText.innerHTML =
-          `✅ Saved <strong>${name}</strong> to group <strong>${group}</strong>. ` +
-          `Open Practice to pick it from the list.`;
+          `✅ Saved <strong>${name}</strong> to folder <strong>${group}</strong> as <strong>${side}</strong>. ` +
+          `Open Practice to pick it.`;
       }
     });
   })();
