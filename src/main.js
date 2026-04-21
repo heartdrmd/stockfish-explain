@@ -3649,19 +3649,31 @@ async function main() {
       try { localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(arr)); } catch {}
     };
     const mergedOpenings = () => {
-      // Start with a deep-copy of OPENINGS so we don't mutate imports,
-      // then fold in custom entries under their declared group. If the
-      // group doesn't exist yet, append it at the end.
+      // Build the tree so custom (user-saved) groups land at the TOP
+      // of the list, BEFORE the curated preset openings. Still foldable
+      // / expandable like any other group.
+      //
+      // Ordering rule:
+      //   1. Every group that contains at least one _custom entry (in
+      //      declaration order by first custom-save time)
+      //   2. The standard curated groups from OPENINGS
       //
       // IMPORTANT: preserve the custom entry's `fen` + `side` fields —
       // without them the hover preview and practice-start handler can't
       // see the saved position and everything silently falls back to
       // the standard starting position.
-      const byGroup = new Map();
-      for (const g of OPENINGS) byGroup.set(g.group, { group: g.group, items: [...g.items] });
+      const customByGroup = new Map();      // groups that have custom entries
+      const curatedByGroup = new Map();     // curated-only groups (untouched)
+      for (const g of OPENINGS) curatedByGroup.set(g.group, { group: g.group, items: [...g.items] });
       for (const co of loadCustomOpenings()) {
-        if (!byGroup.has(co.group)) byGroup.set(co.group, { group: co.group, items: [] });
-        byGroup.get(co.group).items.push({
+        if (!customByGroup.has(co.group)) {
+          // If the custom opening lives in a curated group, steal its
+          // items so the combined group sits at the top (not duplicated).
+          const stolen = curatedByGroup.get(co.group);
+          customByGroup.set(co.group, { group: co.group, items: stolen ? [...stolen.items] : [] });
+          if (stolen) curatedByGroup.delete(co.group);
+        }
+        customByGroup.get(co.group).items.push({
           name:    co.name,
           moves:   co.moves || [],
           fen:     co.fen || null,
@@ -3669,7 +3681,10 @@ async function main() {
           _custom: true,
         });
       }
-      return Array.from(byGroup.values());
+      return [
+        ...Array.from(customByGroup.values()),
+        ...Array.from(curatedByGroup.values()),
+      ];
     };
 
     const pSearch      = document.getElementById('practice-opening-search');
@@ -3878,7 +3893,10 @@ async function main() {
         return;
       }
 
-      // ── Curated groups (flat, each group collapsible) ──
+      // ── Groups (flat, each group collapsible) ──
+      // Custom groups (those containing any _custom entry) ALREADY
+      // sort first via mergedOpenings(). We decorate them visually so
+      // the user instantly sees 'this is mine' vs curated theory.
       let curatedShown = 0;
       for (const grp of curated) {
         const matching = grp.items
@@ -3886,9 +3904,12 @@ async function main() {
           .filter(e => matchesFilter(e.o.name, e.group, e.o.eco));
         if (!matching.length) continue;
         curatedShown += matching.length;
+        const hasCustom = grp.items.some(o => o._custom);
         const details = document.createElement('details');
-        if (f) details.open = true;   // auto-expand when filtering
-        details.innerHTML = `<summary>${escapeHtml(grp.group)} <span class="tree-family-count">${matching.length}/${grp.items.length}</span></summary>`;
+        if (f || hasCustom) details.open = true;   // auto-expand custom + on search
+        if (hasCustom) details.classList.add('tree-custom-group');
+        const prefix = hasCustom ? '⭐ ' : '';
+        details.innerHTML = `<summary>${prefix}${escapeHtml(grp.group)} <span class="tree-family-count">${matching.length}/${grp.items.length}</span></summary>`;
         for (const e of matching) details.appendChild(renderLeaf(e, favs, selected));
         container.appendChild(details);
       }

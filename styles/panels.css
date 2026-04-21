@@ -2713,6 +2713,22 @@ body.practice-mode .practice-card[hidden]       { display: none !important; }
   border-radius: 3px;
   margin-left: 4px;
 }
+/* Custom-opening groups (user-saved) get a subtle gold-tinted header
+   so they read as 'yours' at a glance, distinct from curated theory. */
+.practice-opening-tree details.tree-custom-group > summary {
+  color: #ffd166;
+  font-weight: 600;
+}
+.practice-opening-tree details.tree-custom-group {
+  background: rgba(255, 209, 102, 0.04);
+  border-left: 3px solid rgba(255, 209, 102, 0.55);
+  margin: 2px 0;
+  border-radius: 4px;
+}
+.practice-opening-tree details.tree-custom-group > summary .tree-family-count {
+  color: rgba(255, 209, 102, 0.7);
+}
+
 .practice-opening-tree .tree-leaf-del {
   font-size: 11px;
   padding: 1px 5px;
