@@ -2832,9 +2832,14 @@ async function main() {
   // for the empty-mistake-bank bug: user moves in practice were
   // never evaluated before, so every other ply had cpWhite: null.
   let sweepRunning = false;
-  async function retrospectiveSweep({ minDepth = 12, onProgress } = {}) {
+  let sweepAbort = false;
+  // Expose a stop hook so the 'Stop analysis' button in the reanalyze
+  // UI can bail out mid-sweep if the user decides it's taking too long.
+  window.__stopRetrospectiveSweep = () => { sweepAbort = true; try { engine.stop(); } catch {} };
+  async function retrospectiveSweep({ minDepth = 12, movetimeMs = 0, onProgress } = {}) {
     if (sweepRunning) return false;
     sweepRunning = true;
+    sweepAbort = false;
     // Snapshot the live engine state + mute flag so we can restore.
     const wasMuted = window.__engineMuted === true;
     window.__engineMuted = true;          // silence UI during sweep
@@ -2853,22 +2858,28 @@ async function main() {
       }
       let done = 0;
       for (const t of targets) {
+        if (sweepAbort) {
+          if (onProgress) onProgress(done, targets.length, true);
+          break;
+        }
         const existing = fenEvalCache.get(t.fen);
-        if (existing && existing.depth != null && existing.depth >= minDepth) {
+        // When user picks movetime-based analysis we re-probe regardless
+        // of cached depth (user is asking for a fresher look). For depth
+        // mode, respect cached deeper analyses.
+        if (!movetimeMs && existing && existing.depth != null && existing.depth >= minDepth) {
           done++;
           if (onProgress) onProgress(done, targets.length);
           continue;
         }
-        // Quick probe at minDepth. AICoach.probeEngine returns { lines },
-        // and our piggybacked 'thinking' listener will populate the cache.
-        try { await AICoach.probeEngine(engine, t.fen, minDepth, 1); }
+        try { await AICoach.probeEngine(engine, t.fen, minDepth, 1, movetimeMs); }
         catch (err) { console.warn('[sweep] probe failed', t.fen, err); }
         done++;
         if (onProgress) onProgress(done, targets.length);
       }
-      return true;
+      return !sweepAbort;
     } finally {
       sweepRunning = false;
+      sweepAbort = false;
       window.__engineMuted = wasMuted;
       // Resume live analysis (user is looking at the current position).
       try { fireAnalysis(); } catch {}
@@ -7142,7 +7153,20 @@ async function main() {
         cta.className = 'live-graph-cta';
         cta.innerHTML = `
           <button class="btn btn-learn-mistakes" data-cta="learn">▶ LEARN FROM YOUR MISTAKES</button>
-          <button class="gs-reanalyze"           data-cta="reanalyze">🔄 Reanalyze for mistakes</button>
+          <div class="gs-reanalyze-row">
+            <label class="muted" style="font-size:10px;">Time per move:
+              <select data-cta="seconds" style="margin-left:4px;font-size:11px;">
+                <option value="1000">1 s</option>
+                <option value="2000" selected>2 s</option>
+                <option value="3000">3 s</option>
+                <option value="5000">5 s</option>
+                <option value="8000">8 s</option>
+                <option value="15000">15 s</option>
+              </select>
+            </label>
+            <button class="gs-reanalyze"           data-cta="reanalyze">🔄 Reanalyze</button>
+            <button class="gs-reanalyze-stop"      data-cta="stop" hidden>⏹ Stop</button>
+          </div>
           <span class="gs-reanalyze-status"></span>`;
         statsWrap.appendChild(cta);
         // Wire CTA
@@ -7150,23 +7174,39 @@ async function main() {
           const btn = document.getElementById('btn-learn-mistakes');
           if (btn && !btn.disabled) { btn.click(); return; }
         });
+        const stopBtn = cta.querySelector('[data-cta="stop"]');
         cta.querySelector('[data-cta="reanalyze"]').addEventListener('click', async (e) => {
           const b = e.currentTarget;
           if (b._busy) return;
           b._busy = true; b.disabled = true;
           const st = cta.querySelector('.gs-reanalyze-status');
           const orig = b.textContent;
+          const secSel = cta.querySelector('[data-cta="seconds"]');
+          const movetimeMs = parseInt(secSel?.value || '2000', 10);
           b.textContent = '🔄 Analysing…';
+          if (stopBtn) stopBtn.hidden = false;
           try {
-            await retrospectiveSweep({ minDepth: 18, onProgress: (d, t) => { if (st) st.textContent = ` ${d}/${t}`; }});
-            if (st) st.textContent = ' ✓ done';
+            const finished = await retrospectiveSweep({
+              minDepth: 18,
+              movetimeMs,
+              onProgress: (d, t, aborted) => {
+                if (!st) return;
+                if (aborted) st.textContent = ` stopped at ${d}/${t}`;
+                else st.textContent = ` ${d}/${t} (~${Math.round(movetimeMs / 1000)}s/move)`;
+              },
+            });
+            if (st) st.textContent = finished ? ' ✓ done' : ' ⏹ stopped';
             update();   // re-render stats with fresh eval cache
           } catch (err) {
             if (st) st.textContent = ' ✗ failed';
             console.warn('[reanalyze] failed', err);
           } finally {
             b.disabled = false; b.textContent = orig; b._busy = false;
+            if (stopBtn) stopBtn.hidden = true;
           }
+        });
+        stopBtn?.addEventListener('click', () => {
+          try { window.__stopRetrospectiveSweep?.(); } catch {}
         });
       }, 120);
     };

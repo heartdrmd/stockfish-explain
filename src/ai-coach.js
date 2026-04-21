@@ -120,7 +120,7 @@ export function isPremiumModel(model) {
  * @param {number} multipv   how many candidate lines to fetch (default 5)
  * @returns {Promise<{lines: Array<{uci, san, scoreKind, score, pvSan}>, depth, nodes}>}
  */
-export async function probeEngine(engine, fen, depth = 18, multipv = 5) {
+export async function probeEngine(engine, fen, depth = 18, multipv = 5, movetimeMs = 0) {
   const originalMultiPV = engine.multipv;
   engine.setMultiPV(multipv);
   try {
@@ -130,7 +130,11 @@ export async function probeEngine(engine, fen, depth = 18, multipv = 5) {
       const onBest = (ev) => { engine.removeEventListener('bestmove', onBest); resolve(ev.detail); };
       engine.addEventListener('bestmove', onBest);
     });
-    engine.start(fen, { depth });
+    // When movetimeMs > 0 it overrides depth; lets callers trade depth
+    // for fixed wall-clock time per position (used by reanalyze-for-
+    // mistakes so the user can pick 'analyse at 2 seconds a move').
+    if (movetimeMs > 0) engine.start(fen, { movetime: movetimeMs });
+    else                engine.start(fen, { depth });
     const result = await done;
 
     // Convert UCI PVs to SAN for the LLM

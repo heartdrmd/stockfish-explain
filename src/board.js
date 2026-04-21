@@ -184,33 +184,51 @@ export class BoardController extends EventTarget {
   }
 
   goToPly(n /* int or null for live */) {
+    // Rebuild from the TREE mainline, not chess.history. If the user
+    // had made a non-mainline exploratory move earlier, chess.history
+    // contains that branch instead of the original game's moves — so
+    // replaying from chess.history would desync the board position
+    // from the mainline tree.currentPath and, over time, effectively
+    // erase the original PGN from the user's perspective.
     const total = this.totalPlies();
+    const targetN = (n == null || n >= total)
+      ? total
+      : Math.max(0, n);
+    // Walk mainline (children[0] chain) to collect nodes up to targetN.
+    const pathNodes = [];
+    let path = '';
+    let cur = this.tree.root;
+    for (let i = 0; i < targetN; i++) {
+      if (!cur.children.length) break;
+      const child = cur.children[0];
+      path += child.id;
+      pathNodes.push(child);
+      cur = child;
+    }
+    // Rebuild chess from the starting FEN applying only mainline moves.
+    const replay = new Chess(this.startingFen);
+    for (const node of pathNodes) {
+      const u = node.uci;
+      try { replay.move({ from: u.slice(0,2), to: u.slice(2,4), promotion: u.length > 4 ? u[4] : undefined }); } catch { break; }
+    }
+    this.chess = replay;
+    this.tree.currentPath = path;
     if (n == null || n >= total) {
       this.viewPly = null;
-      this._historicalChess = null;    // guard against stale reads
-      this._syncTreePathToPly(total);
-      this._renderPosition(this.chess.fen(), lastMoveFromHistory(this.chess));
+      this._historicalChess = null;
+    } else {
+      this.viewPly = targetN;
+    }
+    const lastMove = pathNodes.length
+      ? [pathNodes[pathNodes.length - 1].uci.slice(0, 2), pathNodes[pathNodes.length - 1].uci.slice(2, 4)]
+      : null;
+    this._renderPosition(replay.fen(), lastMove);
+    if (n == null || n >= total) {
       this._allowUserToMoveIfTheirTurn();
     } else {
-      n = Math.max(0, n);
-      this.viewPly = n;
-      this._syncTreePathToPly(n);
-      // Replay from the GAME's starting FEN, not the standard chess array —
-      // otherwise a pasted position flashes the default start when the user
-      // scrolls back.
-      const replay = new Chess(this.startingFen);
-      const verbose = this.chess.history({ verbose: true });
-      let lastMove = null;
-      for (let i = 0; i < n; i++) {
-        const m = verbose[i];
-        lastMove = [m.from, m.to];
-        replay.move({ from: m.from, to: m.to, promotion: m.promotion });
-      }
-      this._renderPosition(replay.fen(), lastMove);
-      // KEEP movable enabled — user can play a new move from this historical
-      // position. When they do, _onUserMove branches: truncates future moves,
-      // plays the new move on top. Legal moves come from the historical chess.
-      this._historicalChess = replay;   // used by _onUserMove for piece lookups
+      // Let user play from this historical mainline ply — legal moves
+      // from the rebuilt replay board.
+      this._historicalChess = replay;
       this.cg.set({
         movable: {
           color: this.playerColor || 'both',

@@ -719,6 +719,23 @@
   cursor: wait;
   opacity: 0.6;
 }
+.gs-reanalyze-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.gs-reanalyze-stop {
+  font-size: 11px;
+  padding: 5px 10px;
+  background: rgba(244,67,54,0.18);
+  border: 1px solid rgba(244,67,54,0.5);
+  color: #ff8b80;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.gs-reanalyze-stop:hover { background: rgba(244,67,54,0.3); }
 .gs-reanalyze-status {
   font-size: 10px;
   font-family: var(--font-mono, ui-monospace, monospace);
