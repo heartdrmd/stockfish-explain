@@ -41,18 +41,19 @@ export function pliesToSeries(plies) {
   return { pts, raw, sans };
 }
 
-// Colors tuned to match the screenshot reference (Lichess-style).
-// Black fill is a deep charcoal, white fill is off-white with enough
-// contrast to read on a dark app background.
+// Colors tuned to match the Lichess analysis page closely. Black fill
+// is a near-pure black, white fill is bright off-white — maximum
+// contrast between the two halves is the whole point of the visual.
 const STYLE = {
-  whiteFill:      'rgba(235, 235, 230, 0.92)',
-  blackFill:      'rgba(20, 20, 22, 0.92)',
-  lineColor:      '#f57c00',       // orange spine — matches screenshot
-  lineWidth:      1.4,
+  whiteFill:      'rgba(240, 240, 235, 0.96)',
+  blackFill:      'rgba(12, 12, 14, 0.96)',
+  lineColor:      '#f57c00',       // orange spine
+  lineWidth:      1.2,
   pointRadius:    0,
   pointHitRadius: 10,
-  axisLine:       'rgba(200,200,200,0.2)',
-  gridColor:      'rgba(200,200,200,0.05)',
+  zeroLineColor:  'rgba(255,255,255,0.55)',   // bright contrast at equality
+  zeroLineWidth:  1.1,
+  gridColor:      'rgba(200,200,200,0.04)',
   currentMove:    '#ff9800',
 };
 
@@ -97,6 +98,7 @@ export class EvalGraph {
     // Starting ply is 1 (first move), not 0.
     const data = pts.map((y, i) => ({ x: i + 1, y }));
 
+    const maxX = Math.max(1, pts.length);
     const datasets = [
       {
         _role: 'curve',
@@ -113,6 +115,20 @@ export class EvalGraph {
           above: STYLE.whiteFill,
           below: STYLE.blackFill,
         },
+      },
+      {
+        // Dedicated y=0 equality line — sits ON TOP of the fills so
+        // there is always a crisp visual separator between the two
+        // halves. Matches Lichess's hairline-across-the-middle look.
+        _role: 'zero',
+        data: [ { x: 1, y: 0 }, { x: maxX, y: 0 } ],
+        borderColor: STYLE.zeroLineColor,
+        borderWidth: STYLE.zeroLineWidth,
+        pointRadius: 0,
+        pointHitRadius: 0,
+        showLine: true,
+        fill: false,
+        borderDash: [],
       },
       {
         _role: 'cursor',

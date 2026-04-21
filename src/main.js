@@ -4509,7 +4509,11 @@ async function main() {
       pscSave._wired = true;
       pscSave.addEventListener('click', () => {
         if (pscStatus) pscStatus.textContent = '';
-        const fen    = pUseCurrent._fen || board?.fen?.() || '';
+        // ALWAYS fetch the live board FEN at save-click time — not the
+        // cached _fen from when the checkbox was ticked. The user may
+        // have navigated the tree or played speculative moves in the
+        // gap between opening the modal and clicking save.
+        const fen    = (board?.fen?.() || pUseCurrent._fen || '').trim();
         const name   = (pscName?.value || '').trim();
         const folder = (pscFolder?.value || '').trim() || 'My openings';
         const side   = pscSide?.value || 'white';
@@ -5968,6 +5972,33 @@ async function main() {
     document.getElementById('btn-practice')?.click();
   });
 
+  // Load a cloud-stored game onto the main board. Declared here in
+  // main() scope so the My Games IIFE below can call it directly.
+  // Rebuilds board.tree via playUciMoves (derived from stored SAN) so
+  // the move list populates; without that, only the final position
+  // showed.
+  function loadCloudGameOntoBoard(game) {
+    board.newGame();
+    const plies = Array.isArray(game.plies) ? game.plies : [];
+    const uciMoves = [];
+    const replay = new Chess();
+    for (const p of plies) {
+      if (!p || !p.san || p.san === 'start') continue;
+      let m;
+      try { m = replay.move(p.san, { sloppy: true }); } catch { break; }
+      if (!m) break;
+      uciMoves.push(m.from + m.to + (m.promotion || ''));
+      if (p.cpWhite != null || p.mate != null) {
+        try { fenEvalCache.set(replay.fen(), { cpWhite: p.cpWhite ?? null, mate: p.mate ?? null, depth: p.depth || 0 }); } catch {}
+      }
+    }
+    if (uciMoves.length) board.playUciMoves(uciMoves, { animate: false });
+    try { fireAnalysis(); } catch {}
+    if (ui.narrationText) {
+      ui.narrationText.innerHTML = `📚 Loaded cloud game: <strong>${(game.opening_name || 'game')}</strong>. Walk through with ← → to review.`;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // 📚 My Games tab — full-page replacement for the old cloud-games
   //                   modal. Filters, per-game eval graph + stats,
@@ -6349,6 +6380,48 @@ async function main() {
       if (!g) return;
       loadCloudGameOntoBoard(g);
       closeTab();
+    });
+    const dLearn = document.getElementById('mg-detail-learn');
+    if (dLearn) dLearn.addEventListener('click', () => {
+      const g = detailEl._currentGame;
+      if (!g) return;
+      // Load the game first so the live mainline + eval cache exist,
+      // then hand off to the standard learn-from-mistakes entry point.
+      loadCloudGameOntoBoard(g);
+      closeTab();
+      // Wait a tick so the tree + eval cache finish populating.
+      setTimeout(() => {
+        try {
+          const btn = document.getElementById('btn-learn-mistakes');
+          if (btn && !btn.disabled) { btn.click(); return; }
+          // Fallback: directly find the first mistake and call the
+          // public entry point.
+          if (typeof window.__enterLearnMode === 'function') {
+            const tree = board.tree;
+            if (!tree || !tree.root) return;
+            // Walk mainline, classify each ply via win-chance delta
+            // (same thresholds the accuracy strip uses). First pill
+            // that is 'inaccuracy' or worse wins.
+            let cur = tree.root, prevEv = { cpWhite: 20, mate: null }, ply = 0;
+            while (cur.children && cur.children.length) {
+              const n = cur.children[0]; if (!n || !n.fen) break;
+              ply++;
+              const ev = fenEvalCache.get(n.fen) || {};
+              // Very rough: if cpWhite swung ≥ 60 cp in the wrong
+              // direction for the mover, treat as a mistake.
+              const moverIsWhite = (ply % 2 === 1);
+              const before = prevEv.cpWhite ?? 0;
+              const after  = ev.cpWhite ?? before;
+              const drop   = moverIsWhite ? (before - after) : (after - before);
+              if (drop >= 60) { window.__enterLearnMode(ply); return; }
+              prevEv = ev;
+              cur = n;
+            }
+          }
+        } catch (err) {
+          console.warn('[my-games] learn-mode launch failed', err);
+        }
+      }, 180);
     });
     dPgn.addEventListener('click', () => {
       const g = detailEl._currentGame;
@@ -7755,43 +7828,6 @@ function setupTournament(board, fireAnalysis, pauseControl) {
     if (game.uciMoves && game.uciMoves.length) {
       board.playUciMoves(game.uciMoves, { animate: false });
       setTimeout(() => board.toStart(), 50);
-    }
-  }
-
-  // Load a cloud-stored game (shape: { pgn, plies, user_color, ... })
-  // onto the main board + properly rebuild the tree so the move list
-  // populates. plies[].san is replayed through chess.js to derive
-  // UCIs, which then feed the existing playUciMoves path (same code
-  // the regular move-maker uses — keeps the tree + chessground +
-  // chess.js all in sync).
-  function loadCloudGameOntoBoard(game) {
-    board.newGame();
-    const plies = Array.isArray(game.plies) ? game.plies : [];
-    // Derive starting FEN — if the first stored ply has a startingFen
-    // or we can infer from PGN. For now assume standard startpos;
-    // cloud games currently save from standard starts only.
-    const uciMoves = [];
-    const replay = new Chess();
-    // Populate eval cache so accuracy pills + eval graph render.
-    for (const p of plies) {
-      if (!p || !p.san || p.san === 'start') continue;
-      let m;
-      try { m = replay.move(p.san, { sloppy: true }); } catch { break; }
-      if (!m) break;
-      const uci = m.from + m.to + (m.promotion || '');
-      uciMoves.push(uci);
-      if (p.cpWhite != null || p.mate != null) {
-        try { fenEvalCache.set(replay.fen(), { cpWhite: p.cpWhite ?? null, mate: p.mate ?? null, depth: p.depth || 0 }); } catch {}
-      }
-    }
-    if (uciMoves.length) {
-      board.playUciMoves(uciMoves, { animate: false });
-    }
-    // Re-fire analysis so the accuracy pills + eval panel refresh for
-    // whatever position we end up at.
-    try { fireAnalysis(); } catch {}
-    if (ui.narrationText) {
-      ui.narrationText.innerHTML = `📚 Loaded cloud game: <strong>${(game.opening_name || 'game')}</strong>. Walk through with ← → to review.`;
     }
   }
 
