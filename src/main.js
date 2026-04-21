@@ -5972,6 +5972,59 @@ async function main() {
     document.getElementById('btn-practice')?.click();
   });
 
+  // Wire click cycling + reanalyze on a rendered stats panel. Called
+  // after renderStatsPanel has populated `wrap.innerHTML`. Makes each
+  // Inaccuracies / Mistakes / Blunders row clickable (cycles through
+  // each matching ply) and the 🔄 Reanalyze button runs
+  // retrospectiveSweep over the current mainline.
+  function wireStatsInteractions(wrap, { plies, loadFirst } = {}) {
+    if (!wrap) return;
+    let gameLoaded = false;
+    wrap.addEventListener('click', async (ev) => {
+      const reanBtn = ev.target.closest('.gs-reanalyze');
+      if (reanBtn) {
+        if (reanBtn._busy) return;
+        // Reanalyze only makes sense against the currently-loaded
+        // mainline. Load the game onto the board first if we haven't.
+        if (!gameLoaded && loadFirst) { try { loadFirst(); } catch {} gameLoaded = true; }
+        reanBtn._busy = true;
+        const statusEl = wrap.querySelector('.gs-reanalyze-status');
+        const original = reanBtn.textContent;
+        reanBtn.disabled = true;
+        reanBtn.textContent = '🔄 Analysing…';
+        try {
+          await retrospectiveSweep({ minDepth: 18, onProgress: (d, t) => {
+            if (statusEl) statusEl.textContent = ` ${d}/${t}`;
+          }});
+          if (statusEl) statusEl.textContent = ' ✓ done';
+        } catch (err) {
+          if (statusEl) statusEl.textContent = ' ✗ failed';
+          console.warn('[reanalyze] failed', err);
+        } finally {
+          reanBtn.disabled = false;
+          reanBtn.textContent = original;
+          reanBtn._busy = false;
+        }
+        return;
+      }
+      const row = ev.target.closest('.gs-clickable');
+      if (!row) return;
+      const pliesCsv = row.dataset.plies || '';
+      const plyList = pliesCsv.split(',').map(n => +n).filter(Boolean);
+      if (!plyList.length) return;
+      if (!gameLoaded && loadFirst) { try { loadFirst(); } catch {} gameLoaded = true; }
+      // Cycle index stored on the element so repeated clicks advance.
+      const idx = ((row._cycleIdx | 0) % plyList.length);
+      row._cycleIdx = idx + 1;
+      const targetPly = plyList[idx];
+      // Small delay so a just-loaded game has time to populate the
+      // tree before we try to navigate.
+      setTimeout(() => {
+        try { board.goToPly?.(targetPly); } catch {}
+      }, gameLoaded ? 180 : 0);
+    });
+  }
+
   // Load a cloud-stored game onto the main board. Declared here in
   // main() scope so the My Games IIFE below can call it directly.
   // Rebuilds board.tree via playUciMoves (derived from stored SAN) so
@@ -6217,9 +6270,11 @@ async function main() {
         const whiteName = game.white_name || (game.user_color === 'white' ? (window.__currentUser?.username || 'You') : 'Stockfish');
         const blackName = game.black_name || (game.user_color === 'black' ? (window.__currentUser?.username || 'You') : 'Stockfish');
         dStatsWrap.innerHTML = [
-          renderStatsPanel({ side: 'white', name: whiteName, stats: stats.white, isUser: game.user_color === 'white' }),
-          renderStatsPanel({ side: 'black', name: blackName, stats: stats.black, isUser: game.user_color === 'black' }),
+          renderStatsPanel({ side: 'white', name: whiteName, stats: stats.white, isUser: game.user_color === 'white', byKind: stats.byKind }),
+          renderStatsPanel({ side: 'black', name: blackName, stats: stats.black, isUser: game.user_color === 'black', byKind: stats.byKind }),
+          `<div class="gs-reanalyze-wrap"><button class="gs-reanalyze" data-plies-count="${plies.length}" title="Re-run Stockfish on every position to refresh the mistake/blunder counts">🔄 Reanalyze for mistakes</button><span class="gs-reanalyze-status"></span></div>`,
         ].join('');
+        wireStatsInteractions(dStatsWrap, { plies, loadFirst: () => loadCloudGameOntoBoard(game) });
         // Stash for action buttons
         detailEl._currentGame = game;
       } catch (err) {
@@ -6521,9 +6576,16 @@ async function main() {
         const whiteName = practiceColor === 'white' ? (window.__currentUser?.username || 'You') : 'Stockfish';
         const blackName = practiceColor === 'black' ? (window.__currentUser?.username || 'You') : 'Stockfish';
         statsWrap.innerHTML = [
-          renderStatsPanel({ side: 'white', name: whiteName, stats: stats.white, isUser: practiceColor === 'white' }),
-          renderStatsPanel({ side: 'black', name: blackName, stats: stats.black, isUser: practiceColor === 'black' }),
+          renderStatsPanel({ side: 'white', name: whiteName, stats: stats.white, isUser: practiceColor === 'white', byKind: stats.byKind }),
+          renderStatsPanel({ side: 'black', name: blackName, stats: stats.black, isUser: practiceColor === 'black', byKind: stats.byKind }),
+          `<div class="gs-reanalyze-wrap"><button class="gs-reanalyze" title="Re-run Stockfish on every position to refresh the mistake/blunder counts">🔄 Reanalyze for mistakes</button><span class="gs-reanalyze-status"></span></div>`,
         ].join('');
+        // Live panel: cycling acts on the CURRENT mainline directly,
+        // no game-load step needed.
+        if (!statsWrap._wired) {
+          statsWrap._wired = true;
+          wireStatsInteractions(statsWrap, { plies: null, loadFirst: null });
+        }
       } else {
         statsWrap.innerHTML = '';
       }

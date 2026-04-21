@@ -54,7 +54,9 @@ function moveAccuracy(drop) {
 // Plies shape assumed: [{ cpWhite, mate, san }, ...]
 // Index i is the position AFTER ply i+1 has been played.
 // Index 0 corresponds to the position after move 1 (white's first move).
-// Returns { white: {...}, black: {...} } with the usual breakdown.
+// Returns { white, black, byKind } — byKind maps 'inaccuracy'/'mistake'/
+// 'blunder' → { white: [plyNum...], black: [plyNum...] } so callers
+// can cycle through mistakes Lichess-style.
 export function computeGameStats(plies) {
   const empty = () => ({
     moves: 0, inaccuracies: 0, mistakes: 0, blunders: 0,
@@ -63,8 +65,13 @@ export function computeGameStats(plies) {
   });
   const white = empty();
   const black = empty();
+  const byKind = {
+    inaccuracy: { white: [], black: [] },
+    mistake:    { white: [], black: [] },
+    blunder:    { white: [], black: [] },
+  };
   if (!Array.isArray(plies) || plies.length < 2) {
-    return { white: finalise(white), black: finalise(black) };
+    return { white: finalise(white), black: finalise(black), byKind };
   }
   for (let i = 0; i < plies.length; i++) {
     // Move at ply i was played by the side whose turn it was BEFORE
@@ -82,11 +89,12 @@ export function computeGameStats(plies) {
     bucket.moves++;
     bucket._sumLoss += cpl;
     bucket._sumAcc  += acc;
-    if      (cls.kind === 'blunder')    bucket.blunders++;
-    else if (cls.kind === 'mistake')    bucket.mistakes++;
-    else if (cls.kind === 'inaccuracy') bucket.inaccuracies++;
+    const plyNum = i + 1;
+    if      (cls.kind === 'blunder')    { bucket.blunders++;     byKind.blunder[mover].push(plyNum); }
+    else if (cls.kind === 'mistake')    { bucket.mistakes++;     byKind.mistake[mover].push(plyNum); }
+    else if (cls.kind === 'inaccuracy') { bucket.inaccuracies++; byKind.inaccuracy[mover].push(plyNum); }
   }
-  return { white: finalise(white), black: finalise(black) };
+  return { white: finalise(white), black: finalise(black), byKind };
 }
 
 function finalise(b) {
@@ -106,23 +114,33 @@ function finalise(b) {
 // Format for the stats-panel UI. Returns an HTML string.
 // `side` = 'white' | 'black'. `name` = display name. `isUser` flag
 // colours the accuracy pill blue like Lichess's own-side highlight.
-export function renderStatsPanel({ side, name, stats, isUser }) {
+// `byKind` (optional) lets inaccuracy/mistake/blunder rows become
+// clickable — they get data-plies attributes with CSV ply indexes so
+// callers can cycle through each mistake.
+export function renderStatsPanel({ side, name, stats, isUser, byKind }) {
   const dot = side === 'white' ? '●' : '○';
   const klass = isUser ? 'gs-side gs-side-user' : 'gs-side';
   const acc = stats.accuracy;
   const accColor = acc >= 90 ? '#4ec9b0' : acc >= 75 ? '#9cdcfe' : acc >= 60 ? '#dcdcaa' : '#f48771';
-  const row = (n, label, kind) => `
-    <div class="gs-row gs-${kind}">
-      <span class="gs-n">${n}</span>
-      <span class="gs-label">${label}</span>
-    </div>`;
+  const kindRow = (n, label, kind, kindKey) => {
+    const plies = (byKind && byKind[kindKey] && byKind[kindKey][side]) || [];
+    const clickable = plies.length > 0;
+    const cls = `gs-row gs-${kind}${clickable ? ' gs-clickable' : ''}`;
+    const dataAttrs = clickable
+      ? ` data-side="${side}" data-kind="${kindKey}" data-plies="${plies.join(',')}" title="Click to cycle through each ${label.toLowerCase()}"`
+      : '';
+    return `<div class="${cls}"${dataAttrs}><span class="gs-n">${n}</span><span class="gs-label">${label}</span></div>`;
+  };
   return `
     <div class="${klass}" data-side="${side}">
       <div class="gs-head"><span class="gs-dot">${dot}</span><strong>${escapeHtml(name || (side === 'white' ? 'White' : 'Black'))}</strong></div>
-      ${row(stats.inaccuracies, 'Inaccuracies', 'inacc')}
-      ${row(stats.mistakes,     'Mistakes',     'mist')}
-      ${row(stats.blunders,     'Blunders',     'blun')}
-      ${row(stats.acpl,         'Average centipawn loss', 'acpl')}
+      ${kindRow(stats.inaccuracies, 'Inaccuracies', 'inacc', 'inaccuracy')}
+      ${kindRow(stats.mistakes,     'Mistakes',     'mist',  'mistake')}
+      ${kindRow(stats.blunders,     'Blunders',     'blun',  'blunder')}
+      <div class="gs-row gs-acpl">
+        <span class="gs-n">${stats.acpl}</span>
+        <span class="gs-label">Average centipawn loss</span>
+      </div>
       <div class="gs-row gs-acc">
         <span class="gs-n" style="color:${accColor}">${stats.accuracy}%</span>
         <span class="gs-label">Accuracy</span>

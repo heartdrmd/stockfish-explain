@@ -368,6 +368,60 @@
 .gs-mist  .gs-n { color: #ffb74d; }
 .gs-blun  .gs-n { color: #ff6e63; }
 
+/* Clickable mistake rows — hover state telegraphs the cycle
+   behaviour (Lichess-style). */
+.gs-clickable {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  transition: background 0.12s;
+}
+.gs-clickable:hover {
+  background: rgba(33,150,243,0.12);
+}
+.gs-clickable .gs-label {
+  color: var(--c-font, #e6e6e6);
+}
+.gs-clickable::after {
+  content: '›';
+  margin-left: auto;
+  opacity: 0.35;
+  font-weight: 700;
+}
+.gs-clickable:hover::after { opacity: 1; }
+
+/* Reanalyze button — sits under the two side panels. */
+.gs-reanalyze-wrap {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.gs-reanalyze {
+  font-size: 11px;
+  padding: 5px 10px;
+  background: rgba(78,201,176,0.14);
+  border: 1px solid rgba(78,201,176,0.4);
+  color: #4ec9b0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.gs-reanalyze:hover:not(:disabled) {
+  background: rgba(78,201,176,0.24);
+}
+.gs-reanalyze:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.gs-reanalyze-status {
+  font-size: 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--c-font-dim, rgba(255,255,255,0.5));
+}
+
 /* ─── Live eval graph card (floating bottom-right) ───────────────── */
 .live-graph-card {
   position: fixed;
