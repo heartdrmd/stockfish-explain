@@ -1019,25 +1019,19 @@ async function main() {
     if (_autoRecovering) return;
     if (!currentFlavor || currentFlavor === 'lite-single') return;
     _autoRecovering = true;
-    console.error('[engine] silent-engine detected — simulating user ritual (lite-single → ' + currentFlavor + ')');
+    console.error('[engine] silent-engine detected — auto-recovering to ' + currentFlavor);
     try {
-      if (ui.narrationText) ui.narrationText.innerHTML = '⚠ Engine silent — auto-recovering (ritual)…';
+      if (ui.narrationText) ui.narrationText.innerHTML = '⚠ Engine silent — auto-recovering…';
       const target = currentFlavor;
-      // LITERAL simulation of the user's manual click ritual:
-      // click #1: dropdown → lite-single (fires the existing change
-      // listener which terminates + new Engine + rewire + boot lite-single)
-      // click #2: dropdown → target (same listener again)
-      // This is the ONLY code path proven to reliably kick MT engines
-      // in. We intentionally go through the exact same UI handler the
-      // user was using because NO amount of programmatic switchEngineFlavor
-      // trickery has been as reliable.
-      ui.selectFlavor.value = 'lite-single';
-      ui.selectFlavor.dispatchEvent(new Event('change'));
-      // Wait for the ST boot to complete. ~3 s is more than enough.
-      await new Promise(r => setTimeout(r, 3000));
-      ui.selectFlavor.value = target;
-      ui.selectFlavor.dispatchEvent(new Event('change'));
-      console.log('[engine] auto-recovery ritual dispatched — waiting for target boot');
+      // switchEngineFlavor(target) already performs the ST warmup
+      // internally when target is multi-threaded — no need to
+      // separately dispatch a dropdown change to 'lite-single' first.
+      // The old two-step dance booted lite-single TWICE (once from
+      // the dropdown dispatch, once from the MT-switch's internal
+      // warmup), which the latest log showed adding ~10 seconds.
+      // Call the switch helper directly for a single clean cycle.
+      await switchEngineFlavor(target);
+      console.log('[engine] auto-recovery completed — ' + target + ' should now be responsive');
     } catch (e) {
       console.warn('[engine] auto-recovery failed', e);
     } finally {
@@ -4798,7 +4792,7 @@ async function main() {
       pStart.click();
     });
 
-    pStart.addEventListener('click', () => {
+    pStart.addEventListener('click', async () => {
       const useCurrent = pUseCurrent.checked;
       // Diagnostic — snapshot the selector state at Start-click time.
       // User reported on a fresh PC that picking an opening then
@@ -4903,6 +4897,32 @@ async function main() {
           window.__practiceOpeningPlies = 0;
         }
       }
+
+      // ── Warm-up probe ──
+      // Fire a very short probe at the current board FEN BEFORE setting
+      // practice state. Goal: if the engine is silently wedged (common
+      // after long idle / first-run-after-practice-setup), the
+      // mismatch detector trips DURING this warm-up, auto-recovery
+      // fires, and by the time the user makes their first move the
+      // engine is responsive. Previously the wedge fired on the
+      // user's first move — adding 15–25 s of recovery lag mid-game.
+      try {
+        if (engineReady && !window.__skipWarmupProbe) {
+          const warmFen = board.fen();
+          const origNarration = ui.narrationText?.innerHTML;
+          if (ui.narrationText) ui.narrationText.innerHTML = '⚡ Warming up engine…';
+          // Fire probe but do NOT await bestmove — it'll finish on its
+          // own in ~400 ms (depth 3). We stop it after 700 ms regardless
+          // so the user doesn't wait if the engine is healthy.
+          engine.start(warmFen, { depth: 3 });
+          await new Promise(r => setTimeout(r, 700));
+          try { engine.stop(); } catch {}
+          // Clear the warmup message if auto-recovery didn't overwrite it.
+          if (ui.narrationText && ui.narrationText.innerHTML === '⚡ Warming up engine…') {
+            ui.narrationText.innerHTML = origNarration || '';
+          }
+        }
+      } catch (err) { console.warn('[practice] warmup probe skipped', err); }
 
       // Set practice state
       practiceColor = color;
