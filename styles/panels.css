@@ -2730,6 +2730,19 @@ body.practice-mode .practice-card[hidden]       { display: none !important; }
 .practice-opening-tree .side-pick.active[data-side-pick="white"] { background: #f5f5f5; color: #0b0b0b; border-color: #777; }
 .practice-opening-tree .side-pick.active[data-side-pick="black"] { background: #111;    color: #fff;    border-color: #000; }
 .practice-opening-tree .side-pick.active[data-side-pick="both"]  { background: #7aa7ff; color: #fff;    border-color: #4a7fd9; }
+/* Match-reason subtitle — shown under the leaf name when a search
+   query hit a non-name field (moves / ECO / alias). */
+.practice-opening-tree .tree-leaf-reason {
+  display: block;
+  font-size: 10px;
+  color: rgba(200, 210, 255, 0.58);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.01em;
+  margin-top: 1px;
+  font-weight: 400;
+}
+.practice-opening-tree .tree-leaf-reason:empty { display: none; }
+
 .practice-opening-tree .tree-lichess-badge {
   font-size: 9px;
   color: #7aa7ff;

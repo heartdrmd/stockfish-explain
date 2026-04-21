@@ -21,6 +21,27 @@ import * as OpeningExplorer        from './opening_explorer.js';
 import { renderOpeningBlock, renderOpeningForAI, detectOpening } from './openings_book.js';
 import { LICHESS_OPENINGS } from './openings_lichess.js';
 import { OPENING_ALIASES } from './openings_aliases.js';
+
+// ─── Module-scoped alias cache ─────────────────────────────────────
+// WeakMap persists across every renderTree() call so alias lookups
+// for the same opening object are constant-time after the first hit.
+// Lowercased once so the search path doesn't re-lowercase 3,990
+// entries per keystroke. (Previously this WeakMap lived inside
+// renderTree → reset on every keystroke → cache never helped.)
+const _aliasCache = new WeakMap();
+function aliasesFor(o) {
+  if (!o || typeof o !== 'object') return '';
+  const cached = _aliasCache.get(o);
+  if (cached != null) return cached;
+  const name = o.name || '';
+  let hits = [];
+  for (const key in OPENING_ALIASES) {
+    if (name.includes(key)) hits = hits.concat(OPENING_ALIASES[key]);
+  }
+  const joined = hits.join(' ').toLowerCase();
+  _aliasCache.set(o, joined);
+  return joined;
+}
 import * as Archive from './game_archive.js';
 import { EvalGraph }     from './eval-graph.js';
 import { computeGameStats, renderStatsPanel } from './game-stats.js';
@@ -3853,63 +3874,67 @@ async function main() {
       if (selected) pSel.value = selected;
 
       const container = document.createDocumentFragment();
-      // Filter matcher — multi-token search.
-      // Splits the query into whitespace-delimited tokens and requires
-      // EVERY token of length ≥ 2 to hit SOMEWHERE across the entry's
-      // searchable text (name + group + ECO + move string). Noise
-      // connectors like "with" / "the" (length ≤ 3 and not SAN-like)
-      // aren't forced, so "Benoni with Bb5" finds Benoni variations
-      // whose move list contains "Bb5".
+      // ─── Search scorer ────────────────────────────────────────────
+      // Returns { score, reason } where:
+      //   score  ∈ 0..100 (higher = better match; 0 = no match)
+      //   reason = short human-readable string ("moves: Bb5", "alias:
+      //            Moscow", "name", "ECO: A67") shown as a subtitle
+      //            under the leaf so the user sees WHY it matched.
       //
-      // Each token uses the existing fuzzyScore (substring → typo-
-      // tolerant Levenshtein → subsequence) so single-word queries
-      // behave exactly as before. Matching against moves means SAN
-      // tokens like Bb5 / O-O / exd5 can drive the search directly.
-      // Alias lookup: scan OPENING_ALIASES once per entry, return the
-      // joined alternative-name string for any key that matches the
-      // full opening name as a substring. Cached on a WeakMap so repeat
-      // renders during typing don't re-scan.
-      const _aliasCache = new WeakMap();
-      const aliasesFor = (o) => {
-        if (!o || typeof o !== 'object') return '';
-        const cached = _aliasCache.get(o);
-        if (cached != null) return cached;
-        const name = o.name || '';
-        let hits = [];
-        for (const key in OPENING_ALIASES) {
-          if (name.includes(key)) hits = hits.concat(OPENING_ALIASES[key]);
+      // Ranking rules:
+      //   exact substring in name / starts-with name   → 95-100
+      //   all tokens hit within name                   → 80
+      //   tokens split across name + moves / ECO       → 60-70
+      //   all tokens found only via aliases            → 50
+      //   fuzzy (typo) match                           → 30-40
+      //
+      // Empty query returns score 50 ("no filter — show all") so sort
+      // order degrades gracefully to whatever the natural list order is.
+      const SAN_LIKE_RE = /^(?:[oO0]-?[oO0](?:-?[oO0])?|[a-h][1-8]|[KQRBN][a-h1-8x+#=]+|[a-h][1-8x+#=]+|[0-9]{1,2}\.{1,3})$/;
+      const scoreEntry = (o, groupName) => {
+        if (!f) return { score: 50, reason: '' };
+        const name      = (o._lcName    ||= (o.name || '').toLowerCase());
+        const movesTxt  = (o._lcMoves   ||= (Array.isArray(o.moves) ? o.moves.join(' ') : String(o.moves || '')).toLowerCase());
+        const ecoTxt    = (o._lcEco     ||= (o.eco || '').toLowerCase());
+        const aliasTxt  = aliasesFor(o); // already lowercase
+        const groupTxt  = (groupName || '').toLowerCase();
+        // Substring in name is the top-tier, no tokenisation needed.
+        if (name.includes(f)) {
+          return { score: name.startsWith(f) ? 100 : 95, reason: '' };
         }
-        const joined = hits.join(' ');
-        _aliasCache.set(o, joined);
-        return joined;
-      };
-
-      const matchesFilter = (name, groupName, eco, moves, openingObj) => {
-        if (!f) return true;
-        const movesText = Array.isArray(moves) ? moves.join(' ') : String(moves || '');
-        const aliasText = aliasesFor(openingObj);
-        const haystack = [name, groupName, eco, movesText, aliasText].filter(Boolean).join(' ');
-        // Tokenise query on whitespace. Short noise words (≤ 2 chars,
-        // not a SAN square / move fragment) are dropped entirely.
         const rawTokens = f.split(/\s+/).filter(Boolean);
-        const SAN_LIKE = /^(?:[oO0]-?[oO0](?:-?[oO0])?|[a-h][1-8]|[KQRBN][a-h1-8x+#=]+|[a-h][1-8x+#=]+|[0-9]{1,2}\.{1,3})$/;
-        const tokens = rawTokens.filter(t =>
-          t.length >= 3 || SAN_LIKE.test(t) || /^[0-9]/.test(t)
-        );
+        const tokens = rawTokens.filter(t => t.length >= 3 || SAN_LIKE_RE.test(t) || /^[0-9]/.test(t));
         if (!tokens.length) {
-          // All tokens were filtered out (e.g. user typed just 'the').
-          // Fall back to the full query as before.
-          return fuzzyScore(f, haystack) > 0;
+          // Query is all filler words; fall back to fuzzy against full haystack.
+          const hs = name + ' ' + groupTxt + ' ' + ecoTxt + ' ' + movesTxt + ' ' + aliasTxt;
+          return { score: fuzzyScore(f, hs) > 0 ? 35 : 0, reason: '' };
         }
+        let nameHits = 0, moveHits = 0, ecoHits = 0, aliasHits = 0, groupHits = 0, fuzzyHits = 0;
+        const matchedReasons = [];
         for (const tok of tokens) {
-          // Per-token hit: substring in haystack OR fuzzy score > 0.
-          if (haystack.toLowerCase().includes(tok)) continue;
-          if (fuzzyScore(tok, haystack) > 0) continue;
-          // Also let SAN-like tokens match directly inside moves text.
-          if (SAN_LIKE.test(tok) && movesText.toLowerCase().includes(tok)) continue;
-          return false;
+          if (name.includes(tok))       { nameHits++;  continue; }
+          if (groupTxt.includes(tok))   { groupHits++; continue; }
+          if (ecoTxt && ecoTxt.includes(tok)) { ecoHits++; matchedReasons.push(`ECO: ${o.eco}`); continue; }
+          if (SAN_LIKE_RE.test(tok) && movesTxt.includes(tok)) {
+            moveHits++; matchedReasons.push(`moves: ${tok}`); continue;
+          }
+          if (movesTxt.includes(tok))   { moveHits++;  matchedReasons.push(`moves: ${tok}`); continue; }
+          if (aliasTxt.includes(tok))   {
+            aliasHits++;
+            // Try to lift the exact alias phrase that contained the token.
+            const idx = aliasTxt.indexOf(tok);
+            const slice = aliasTxt.slice(Math.max(0, idx - 5), idx + 20).replace(/\s+/g, ' ').trim();
+            matchedReasons.push(`alias: ${slice}`);
+            continue;
+          }
+          // Typo tolerance — fuzzyScore against name (cheapest big target).
+          if (fuzzyScore(tok, name) > 0) { fuzzyHits++; continue; }
+          return { score: 0, reason: '' };   // one token doesn't hit anywhere → skip
         }
-        return true;
+        // All tokens hit somewhere. Scoring weights:
+        const hitScore = nameHits * 22 + groupHits * 14 + moveHits * 12 + ecoHits * 12 + aliasHits * 10 + fuzzyHits * 6;
+        const base = 30 + Math.min(65, hitScore);   // range ~30..95
+        return { score: base, reason: matchedReasons.slice(0, 2).join(' · ') };
       };
 
       // ── ⭐ Favourites pinned group at the top ──
@@ -3917,11 +3942,12 @@ async function main() {
       for (const grp of [...curated, ...lichess]) {
         grp.items.forEach((o, i) => {
           const key = `${grp.group}//${i}`;
-          if (favs[key] && matchesFilter(o.name, grp.group, o.eco, o.moves, o)) {
-            favEntries.push({ key, o, group: grp.group });
-          }
+          if (!favs[key]) return;
+          const r = scoreEntry(o, grp.group);
+          if (r.score > 0) favEntries.push({ key, o, group: grp.group, _score: r.score, _reason: r.reason });
         });
       }
+      favEntries.sort((a, b) => b._score - a._score);
       if (favEntries.length) {
         const favDetails = document.createElement('details');
         favDetails.open = true;
@@ -3950,9 +3976,14 @@ async function main() {
       // the user instantly sees 'this is mine' vs curated theory.
       let curatedShown = 0;
       for (const grp of curated) {
-        const matching = grp.items
-          .map((o, i) => ({ key: `${grp.group}//${i}`, o, group: grp.group }))
-          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco, e.o.moves, e.o));
+        const scored = grp.items
+          .map((o, i) => {
+            const r = scoreEntry(o, grp.group);
+            return { key: `${grp.group}//${i}`, o, group: grp.group, _score: r.score, _reason: r.reason };
+          })
+          .filter(e => e._score > 0);
+        if (f) scored.sort((a, b) => b._score - a._score);
+        const matching = scored;
         if (!matching.length) continue;
         curatedShown += matching.length;
         const hasCustom = grp.items.some(o => o._custom);
@@ -3968,10 +3999,14 @@ async function main() {
       // ── ⚗ Lichess DB (3,690 more lines) — collapsed by default ──
       const lichessMatches = [];
       for (const grp of lichess) {
-        const items = grp.items
-          .map((o, i) => ({ key: `${grp.group}//${i}`, o, group: grp.group }))
-          .filter(e => matchesFilter(e.o.name, e.group, e.o.eco, e.o.moves, e.o));
-        if (items.length) lichessMatches.push({ grp, items });
+        const scored = grp.items
+          .map((o, i) => {
+            const r = scoreEntry(o, grp.group);
+            return { key: `${grp.group}//${i}`, o, group: grp.group, _score: r.score, _reason: r.reason };
+          })
+          .filter(e => e._score > 0);
+        if (f) scored.sort((a, b) => b._score - a._score);
+        if (scored.length) lichessMatches.push({ grp, items: scored });
       }
       const lichessCount = lichessMatches.reduce((s, x) => s + x.items.length, 0);
       if (lichessCount) {
@@ -4062,12 +4097,18 @@ async function main() {
             `<button type="button" class="play-now play-now-black" data-play-side="black" title="Practice this opening as Black (start now)"></button>` +
           `</span>`
         : '';
+      // Match-reason subtitle (shown only when the user typed a search
+      // and a non-name field drove the match, e.g. moves / ECO / alias).
+      // Helps the user see WHY an entry surfaced.
+      const reason = entry._reason
+        ? `<span class="tree-leaf-reason">${escapeHtml(entry._reason)}</span>`
+        : '';
       leaf.innerHTML =
         `<span class="tree-leaf-fav${starred ? ' starred' : ''}" data-fav="${entry.key}" title="${starred ? 'Unstar' : 'Star as favourite'}">${starred ? '★' : '☆'}</span>` +
         queueCb +
         sideChooser +
         quickPlay +
-        `<span class="tree-leaf-name">${escapeHtml(leafName)}</span>` +
+        `<span class="tree-leaf-name">${escapeHtml(leafName)}${reason}</span>` +
         `<span class="tree-leaf-eco">${escapeHtml(entry.o.eco || '')}</span>` +
         badge + custom;
       return leaf;
@@ -4496,9 +4537,16 @@ async function main() {
     })();
 
     if (pSearch) {
+      // Debounced: fast typing won't trigger a full 3,990-entry
+      // re-filter on every keystroke. ~120 ms feels snappy but avoids
+      // the 8–10× redundant renders when typing 'najdorf' quickly.
+      let _searchDebounce = 0;
       pSearch.addEventListener('input', () => {
-        populateOpeningSelect(pSearch.value);
-        updatePMoves();
+        clearTimeout(_searchDebounce);
+        _searchDebounce = setTimeout(() => {
+          populateOpeningSelect(pSearch.value);
+          updatePMoves();
+        }, 120);
       });
     }
     if (pFavsOnly) {
