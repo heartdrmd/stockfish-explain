@@ -1,207 +1,359 @@
-# stockfish-explain — session handoff
+# stockfish-explain — session handoff (2026-04-20)
 
-**Last live commit:** `9ac4525` (Stage 5 openings book + coach/AI integration)
-**Repo:** `heartdrmd/stockfish-explain` on GitHub, auto-deploys to Render on push
+**Most recent commit:** `461aa72` (SVG pieces in preview boards)
+**Repo:** `heartdrmd/stockfish-explain` on GitHub → auto-deploys to Render on push
 **Local working dir:** `/Users/nadalmaker/stockfish-web/`
-**Downloads mirror:** `/Users/nadalmaker/Downloads/stockfish-web/` (refreshed after each commit)
+**Public URL:** `https://stockfish-explain.onrender.com`
+**Gate passwords** (rotating daily, Central Time):
+- Site: `9069` + tomorrow's 2-digit day
+- Premium: `Dooha` + tomorrow's 2-digit day
 
 ---
 
 ## What this app is
 
-Browser-based chess analysis tool. Lichess-style UI. Bundles Stockfish WASM
-(variants: stock lite/full + Kaufman/Classical/AlphaZero/Avrukh/Avrukh+) and
-a proprietary positional coach. Deploys to Render as a Node/Express static
-host with password-gated AI (Anthropic API server-side).
-
-Public URL: `https://stockfish-explain.onrender.com` (once Render redeploys).
-Password scheme (rotating daily, Central Time):
-- Site: `9069` + tomorrow's 2-digit day (unlocks site + Haiku AI)
-- Premium: `Dooha` + tomorrow's 2-digit day (unlocks Sonnet/Opus)
+Browser-based chess analyzer + practice trainer. Lichess-style UI. Bundles
+multiple Stockfish WASM variants (Stock Lite/Full + Kaufman / Classical /
+AlphaZero / Avrukh / Avrukh+) AND the lichess `@lichess-org/stockfish-web`
+package. Node/Express server on Render with optional **Postgres backend**
+for multi-user sync.
 
 ---
 
-## Architecture summary
+## 🆕 Major work done THIS session (Apr 19-20, 2026)
 
-```
-src/
-  main.js             — UI wiring, gate/auth, event handlers, renderDissection
-  board.js            — chessground + chess.js + variation tree navigation
-  tree.js             — GameTree (lichess-style variations)
-  engine.js           — Stockfish WASM wrapper (UCI, MultiPV, hash, threads)
-  explain.js          — Engine info → pearl/depth/PV rendering + arrows
-  editor.js           — Position-setup board (cburnett SVGs)
+This was a long session covering a lot of ground. Commits in reverse
+chronological order since the session started — group by theme:
 
-  coach_v2.js         — Synthesised positional coach (Dorfman / Silman /
-                         Nimzowitsch / Aagaard / Capablanca / Dvoretsky /
-                         Watson / AlphaZero / Stockfish HCE concepts)
-  archetype.js        — IQP / Carlsbad / Hanging pawns / Maroczy detection
-  traps.js            — 11 trap/tactical-pattern static detectors
-  tablebase.js        — Lichess Syzygy API (≤7-piece perfect play)
-  opening_explorer.js — Lichess Masters API (win/draw/loss stats)
-  openings_book.js    — ~60 curated opening entries with plans/motifs
-  validation_harness.js — Empirical calibration tool (dev console)
+### 1. Engine reliability / silent-engine saga (biggest arc)
 
-  ai-coach.js         — Anthropic prompt builder + API call
-                         Now receives: coachV2Report + tablebase + openingExplorer
-  dorfman.js          — Legacy; superseded by coach_v2 but kept for compat
-  coach.js            — Legacy heuristic coachReport (still fed to AI)
-  tournament.js       — Engine-vs-engine self-play
-  openings.js         — 230+ opening move lines for practice/tournament
-  narrate.js          — Engine-line prose utility
-  analysis.js         — Heuristic strategy/tactics reports
-  values.js           — Kaufman/Avrukh imbalance weights
-  promotion.js        — Pawn-promotion UI overlay
+Recurring symptom: user booted a multi-thread engine (Avrukh / Full NNUE)
+and it would report `uciok` but emit ZERO `info` lines. Analysis dead.
+User's reliable workaround: switch flavor to Stock Lite 7 MB, then back.
 
-server.js             — Express server + /api/gate + /api/ai proxy
+**What we shipped to fix it:**
 
-styles/
-  panels.css          — Main stylesheet (1700+ lines)
-  board.css           — Chessground + pieces
-  layout.css          — Top-level grid
-  theme.css           — Dark theme variables
-  fonts.css           — Font imports
-```
+- Engine lifecycle hardening (`src/engine.js`):
+  - `_send()` gates pre-uciok commands (commit `a5676cd`)
+  - `stopRequested` flag filters stale info lines after `stop` (same)
+  - `stopRequested` cleared in `_doStart` so new searches always pass
+    the guard (commit `6d511db`)
+  - Always-stop-first pattern on every `start()` (commit `25b2122`)
+  - Bestmove watchdog — auto-reboot if no bestmove in 3× movetime
+    (commit `9106e09`)
+  - Options-only-when-idle queue (setoption during active search is
+    spec-violation per Stockfish docs)
+  - Suppress stale trailing bestmove from prior stopped search
+    (commit `e41d926`) — fixed "engine plays instantly even though I
+    asked for 10s" bug
+  - `_skipNextBestmove` counter to drain stale bestmoves
+
+- Mismatch detector (commit `bfae5a2`):
+  - Per-search counters: `infoReceived`, `infoDropped`, `infoDispatched`
+  - 2-second health check — dispatches `engine-silent-detected` event if
+    zero info received
+  - Made debugging concrete; used throughout later fixes.
+
+- **Auto-ritual** on boot (commit `9ec79e9` → improved in `dcf5c0b`):
+  - Before booting any MT target, boot lite-single (ST) first for 200 ms
+  - Terminate ST → new Engine → boot MT target
+  - Rationale: SAB / pthread state from a previous MT worker can
+    interfere with a fresh MT worker's thread init. ST warmup clears that
+    state.
+
+- **Reactive auto-recovery** when ritual fails (commits `7e7bd18`,
+  `e51756e`):
+  - If mismatch detector fires, main.js dispatches `ui.selectFlavor`
+    change events: set value to 'lite-single' → change event → set back
+    to target → change event
+  - Goes through the EXISTING manual flavor-switch handler, which is the
+    ONLY proven-reliable code path
+  - User said "or i just do my ritual lol" — the recovery literally
+    dispatches the same DOM events a manual ritual would
+
+- **Root cause of a class of bugs** (commit `0b806f6`):
+  - After any `engine = new Engine()`, the explainer and capture
+    listeners were orphaned on the dead engine. Fixed at all five
+    new-Engine sites (initial, flavor-switch, restart, auto-fallback,
+    auto-ritual) — see `switchEngineFlavor()` in main.js and the
+    `wireEngineCaptureListeners` helper.
+
+### 2. Practice UX
+
+- **Clock:**
+  - 3-way mode dropdown: **None / Untimed / Timed** (commit `86cadfa`)
+  - W / B letter labels instead of Unicode kings
+  - User-color matches board: if you play Black, your clock is on bottom
+  - Initial `tickingFor` reads `board.chess.turn()` (fixed off-by-one for
+    openings ending on odd-parity moves, commit `2c415dc`)
+  - Pause button freezes both sides
+  - Styles: **Jumbo** (default), Mega, Stadium, Chronos GX (blue 7-seg
+    tournament), Garde analog, Chrome analog
+  - Mobile: fixed top-bar thin clock when active (commit `795aea5`)
+
+- **Forced-move short-circuit** (commit `599852a`): when chess.js reports
+  1 legal move, play instantly after 150 ms — skip engine round-trip.
+
+- **Critical-position time boost** (same commit): if the previous
+  search's bestmove flipped ≥3 times across iterations OR the cp swing
+  between mid-iteration and end was ≥100 cp, next movetime doubles (cap
+  18 s). Mirrors Stockfish's own `timeman.cpp` logic.
+
+- **Seconds-per-move preset pulldown** (commit `ff5bb79`): Practice
+  think-time mode defaults to "Seconds / move (fixed)" with 1/2/3/5/10/
+  15/20/30/60 presets. Legacy "By depth" / "By time (ms)" still available.
+
+- **Retry fireAnalysis when engine becomes ready** (commit `4811f86`):
+  fixed "engine just sat waiting" when practice started before engine
+  boot completed.
+
+### 3. Learn-from-mistakes (lichess retro clone)
+
+Big feature. Click an accuracy pill after a game → floating panel pops
+next to the board, asks you to find a better move.
+
+- Base implementation (commit `654676e`): state machine (`find / eval /
+  win / fail / view / end`), engine probes at 1.5s movetime, win-chances
+  delta < 0.04 acceptance.
+- Lichess-styled visuals (commit `b263ab9`): title bar, counter, ✓/✗
+  glyphs, uppercase continue button.
+- Pill colors: blue = inaccuracy, gray = mistake, black = blunder
+  (commit `9509ea9`)
+- Positioning near the board with live reposition on resize/scroll
+  (commit `b74e807`)
+- Classifier ported to lichess formula (commit `aa0fe6d`):
+  `cpWin(cp) = 2/(1+exp(-0.004*cp)) - 1`, thresholds 0.06 / 0.12 / 0.20
+  on win-% delta instead of raw cp.
+- Practice filter (commit `c089e16`): only USER's moves, skip opening
+  plies (stored in `window.__practiceOpeningPlies`).
+
+### 4. Practice opening tree UX
+
+- **Hover preview** (commit `7704b2c` → SVG in `461aa72`): 250 ms hover →
+  400×400 SVG board tooltip showing opening's resulting position. Uses
+  cburnett piece set at `/assets/pieces/cburnett/*.svg`.
+- **➕ Add new opening modal** (commit `988437a`): FEN input + live
+  preview + name + folder + side (White/Black/Both). Writes to
+  `stockfish-explain.practice-custom-openings` localStorage.
+- **🔍 FEN search** (commit `e4e840b`): paste any FEN, scans all ~3,950
+  openings + Lichess DB for matches via `fenKey` (first 4 FEN fields so
+  move counters don't block matches). If no match: offers to seed the
+  Add-Opening flow.
+- **▼ Collapse all / ▶ Expand all** toggle (same commit).
+- **Save current board as new opening** (commit `9074839`): renamed
+  flow, added Side selector, auto-stars on save.
+- **Per-favourite W/B/↔ side selector** (commit `6dfefc3`): three mini
+  buttons next to the ★. 'Both' = coin-flip on each queue rotation.
+
+### 5. Multi-user / cloud sync (Phase 1-3 of a 3-phase plan)
+
+**Phase 1** — DB + auth (commit `3732fe6`):
+- `render.yaml` declares Postgres starter-plan DB
+- Schema: 7 idempotent migrations in `src/server/db.js`
+  (users, sessions, games, mistakes, srs_cards, favourites, user_prefs)
+- `src/server/auth.js` — bcryptjs + opaque session tokens
+- Endpoints: `POST /api/auth/signup|login|logout`, `GET /api/auth/me`
+- **No SESSION_SECRET needed** — we use opaque DB-stored tokens, not
+  signed cookies (commit `29e49b0`)
+
+**Phase 2** — games endpoints (commit `0794709`):
+- `src/server/games.js`
+- `POST /api/games` (autosave)
+- `GET /api/games` (list with `?from&to` date range)
+- `GET /api/games/:id` (full PGN + plies)
+- `DELETE /api/games/:id`
+- `GET /api/games/export.pgn?from=&to=` (download as multi-game PGN)
+
+**Phase 3** — client UI (commits `86b7879`, `e94f6b2`):
+- `src/api.js` — fetch wrapper with credentials
+- Auth area in header (green `👤 Sign in` or `username / Logout`)
+- Sign in / sign up modal with toggle
+- Cloud autosave in `finishPracticeGame` — POSTs PGN + plies + mistake
+  counts
+- 🗑 **Don't save** button — DELETEs the just-saved cloud game; local
+  archive entry stays
+- ☁ **My cloud games** modal — list/filter/delete/export
+
+**To activate:** create a Postgres instance in Render dashboard, paste
+its Internal Database URL into web service's `DATABASE_URL` env var.
+Migrations run on next deploy.
+
+### 6. Multi-tab coordination + mobile
+
+- Multi-tab lock via BroadcastChannel (commit `d194175`): new tab
+  opens → old tabs terminate their engine + show "another tab has this
+  app open — click to reactivate" banner.
+- Mobile fixes (commit `795aea5`): RangeError on load (applySize
+  recursion guard), clock becomes fixed top bar on mobile.
+
+### 7. Misc polish
+
+- **Blue Always-visible header buttons** (commit `a5d9bfb`): 🆕 New game
+  + 🎯 Practice stay reachable even when toolbar auto-collapses during
+  practice.
+- **Toolbar auto-collapse on practice start** — uncluttered view during
+  a game.
+- **Pause clock** button (commit `3abb460`).
+- **Kill "Resume game?" prompt on every page load** (same): now
+  auto-restores drafts <24h old silently; discards older.
+- **Live calculating indicator during practice** — shows depth/nodes/nps
+  so user knows engine is actually thinking (anti-cheat: no PV, no eval).
+- **Engine cache clear button** (🗑 Clear engine cache, commit `377326e`).
+- **Preload engines button** — warms Chrome's HTTP cache for all
+  variants. Simplified from SW-intercept to plain fetch after Chrome
+  "Aw Snap" crashes (commit `209c71b` → `c621770`).
+- **Lichess stockfish-web + NNUE** fetched at build time via
+  `scripts/fetch-lichess-stockfish.sh` (commit `975f1d2`). Provides
+  `sf-fast` flavor but currently unused in auto-ritual — ST lite-single
+  is the warmup path that actually works.
 
 ---
 
-## What shipped this session (last 5 stages)
+## Architecture
 
-| Commit | What |
-|---|---|
-| `81d2bae` | Empirical validation harness — `window.__runCoachValidation()` in devtools, 15 canonical FENs hitting Lichess masters API + sign-agreement table |
-| `1be061f` | Syzygy tablebase module — auto-fires when ≤7 pieces; queries `tablebase.lichess.ovh/standard`; gold panel in Coach |
-| `b84f08d` | Lichess Masters opening explorer — purple panel in opening phase; W/D/L bars + top moves table; `explorer.lichess.ovh/masters` |
-| `883edab` | Trap library (11 detectors: Scholar's, Fool's, Noah's Ark, Légal, Fried Liver, Shilling, Greek-gift, back-rank, hanging piece, absolute pin, en-passant) + AI coach enrichment — AI prompt now receives full coach_v2 context + tablebase + explorer |
-| `9ac4525` | Openings book with ~60 curated entries covering every family (Sicilian / 1.e4 e5 / Semi-open / QGD-QGA-Slav / Indian / English / Flank / Rare). Detection via longest-prefix SAN match. Purple opening block in Coach + AI prompt. |
+```
+stockfish-web/
+├── server.js                 — Express server, proxies AI, serves static
+├── render.yaml               — Render infra declaration (web + DB)
+├── package.json              — express, cookie-parser, pg, bcryptjs
+├── index.html                — all the DOM
+├── sw.js                     — self-uninstalling service worker
+├── scripts/
+│   ├── fetch-full-wasms.sh   — pulls custom SF variants from GitHub release
+│   └── fetch-lichess-stockfish.sh — pulls @lichess-org/stockfish-web + NNUEs
+├── src/
+│   ├── main.js               — ~5000 lines, all client wiring
+│   ├── api.js                — fetch wrapper for /api/* endpoints
+│   ├── engine.js             — Stockfish WASM worker + UCI protocol
+│   ├── board.js              — chessground + chess.js + variation tree
+│   ├── tree.js               — GameTree (lichess-style)
+│   ├── explain.js            — positional explainer
+│   ├── openings.js           — curated opening list
+│   ├── openings_lichess.js   — 3,690 openings imported from lichess
+│   ├── game_archive.js       — localStorage game archive
+│   ├── ai-coach.js           — Claude API integration (server-proxied)
+│   ├── [+ many domain modules: pawn_levers, king_attack,
+│   │                          coach_v2, archetype, values, …]
+│   └── server/
+│       ├── db.js             — Postgres pool + 7 migrations
+│       ├── auth.js           — bcryptjs + session tokens
+│       └── games.js          — /api/games endpoints
+├── styles/                   — theme.css, layout.css, board.css, panels.css
+├── vendor/                   — chessground, chess.js (vendored, not npm)
+└── assets/
+    ├── stockfish/            — 20 custom WASM variants (7 MB lite to 108 MB full)
+    ├── stockfish-web/        — lichess pre-built sf_18.{js,wasm} (~8 MB)
+    ├── nnue/                 — small.nnue (~6 MB) + big.nnue (~75 MB)
+    └── pieces/cburnett/      — SVG piece set
+```
+
+**Key runtime shapes:**
+
+- `engine` — single Engine instance, gets replaced on flavor-switch.
+  Consumer listeners (explainer + captureEngineThinkingEval) MUST be
+  re-attached on every `new Engine()`. See `switchEngineFlavor` helper.
+- `board` — single BoardController. `board.chess` = live chess.js.
+  `board.tree` = the full variation tree.
+- `practiceColor` — `'white'`, `'black'`, or `null`. Null means analysis
+  mode (no engine auto-play). Set at practice-start, cleared on
+  `new-game`.
+- `fenEvalCache` — in-memory Map of FEN→`{cpWhite, mate, depth}` used by
+  the accuracy-pill classifier + learn-mode.
+- `window.__currentUser` — `{id, username}` when logged in, `null`
+  otherwise.
+- `window.__lastSavedGameId` — set after successful cloud autosave so
+  the 🗑 Don't save button knows what to DELETE.
 
 ---
 
-## Next work — 10-chunk openings-book expansion
+## Open threads / known issues / next work
 
-Goal: grow `src/openings_book.js` from ~60 to ~200 entries, broken into 10
-chunks so Render has a working deploy after every step.
+### Known / deliberate
 
-Format for each entry (already established in `src/openings_book.js`):
+- **`lite-single` variant crashes with `RuntimeError: unreachable`** in
+  some browser states — the auto-ritual + auto-fallback chain handles
+  it, but the underlying WASM bug is unresolved. Don't make it the
+  default.
+- **Draft auto-restore uses localStorage**. If user logs in on a new
+  device, they don't see their old drafts from the previous device.
+  Acceptable — drafts are ephemeral.
+- **Mistake bank + SRS cards + favourites + user_prefs** have DB tables
+  but no client wiring yet (Phase 4, not built this session).
+- **Opening-book skip in learn-mode** — lichess excludes moves that
+  appear in master DB. We skip based on user-defined opening-plies
+  length, which is simpler but misses "user made a great move in the
+  book".
 
-```js
-{ name: '...', eco: '...', parent: '...',
-  moves: ['e4','e5',...],
-  structure: '1-sentence paraphrase in original words',
-  whitePlans: ['plan 1', 'plan 2', 'plan 3'],
-  blackPlans: ['plan 1', 'plan 2', 'plan 3'],
-  pitfalls: ['pitfall'],
-  motifs: ['motif1', 'motif2'],
-},
-```
+### Feature backlog (not started)
 
-IMPORTANT: all narrative text must be paraphrased original wording. Move
-sequences and ECO codes are factual data and are fine to reproduce as-is.
-Do not copy prose from any published opening book, chess.com article, or
-Wikipedia entry.
+- Phase 4 DB sync: mistake bank, SRS cards, favourites, prefs — extend
+  `src/server/games.js` pattern to new endpoints, wire client.
+- Shared/public game database (famous games library).
+- Smallnet + separate NNUE hot-swap (biggest cold-boot win, requires
+  rebuilding Stockfish).
+- Brotli-precompress WASM + NNUE (~35% smaller downloads).
+- Proper mobile redesign (side panel → bottom sheet is workable but
+  rough).
 
-### The 10 chunks (commit + push after each)
+### Tiny things observed but not fixed
 
-1. **Sicilian** — Classical Richter-Rauzer, Four Knights, Kalashnikov, Lowenthal, Paulsen umbrella, Closed Sicilian, Bc4 Quiet, Chekhover, KIA vs Sicilian, Wing Gambit, Hyperaccelerated Dragon (~11 entries)
-2. **1.e4 e5** — Ruy Zaitsev, Breyer, Smyslov, Anti-Marshall 8.h3/8.a4, Steinitz, Schliemann, Classical, Bird, Open Ruy, Pianissimo variants, Scotch Four Knights, Scotch Gambit, Three Knights, Centre, Danish, Bishop's, Ponziani, Latvian, Elephant (~15)
-3. **French** — Winawer sub-lines, Classical Steinitz, McCutcheon, Rubinstein, Burn, Fort Knox, KIA vs French (~8)
-4. **Caro/Pirc/Modern/Alekhine/Scandi** — Caro Two Knights, Fantasy, Modern (Bronstein-Larsen), Karpov; Pirc Austrian, 150 Attack, Byrne, Monkey's Bum; Alekhine Four Pawns, Exchange, Chase; Scandi Modern, Portuguese (~12)
-5. **QGD/QGA** — Lasker, Tartakower, Semi-Tarrasch, Ragozin, Vienna, Tarrasch; QGA Central, Furman, Janowski; Albin, Marshall, Chigorin, Baltic, Triangle (~12)
-6. **Slav/Semi-Slav/Catalan** — Chebanenko, Exchange Slav, Schlechter, Slav Gambit, Anti-Meran, Moscow, Anti-Moscow, Botvinnik, Shabalov-Shirov, Closed Catalan, Bogo 4.Bd2/4.Nbd2 (~11)
-7. **KID/Grünfeld** — 9.Ne1 Mar del Plata, Bayonet, Sämisch, Four Pawns, Fianchetto, Averbakh, Classical Exchange; Grünfeld Russian, Modern Exchange, Fianchetto, Bf4, Qb3, Hungarian (~13)
-8. **Nimzo/QID/Benoni/Benko/Dutch/Budapest** — Nimzo Classical/Sämisch/Leningrad/Kasparov/Hübner/Noa/Keres; QID Petrosian, Kasparov-Petrosian, Fianchetto; Benoni Classical/Taimanov/Four Pawns/Fianchetto/Flick-Knife; Benko Declined; Dutch Classical/Stonewall/Staunton/Anti-Dutch; Old Indian; Budapest, Fajarowicz; Blumenfeld (~22)
-9. **English + flank** — English Hedgehog, Double Fianchetto, Botvinnik, Anti-KID, Anti-QGD, Anti-Slav, Mikenas, Kramnik-Shirov, Réti Classical, KIA systems, Réti Gambit, Zukertort; Bird Classical, From's, Sokolsky, Larsen, Grob, Anderssen, Mieses, Van't Kruijs, Ware, Hungarian, Amar, Polish, Durkin (~20)
-10. **Rare + d-pawn specials** — London Classical, Colle-Zukertort, Torre, Pseudo-Trompowsky, Trompowsky, Veresov, Richter-Veresov, Jobava London, BDG main, BDG Ryder, Stonewall Attack, London vs KID, Torre vs KID, Englund Main/Declined, Czech/Rat, Mikenas/Queen's Knight, English Defence, Owen's, Modern vs 1.d4, Anti-Dutch variants, Jerome, Halloween, Cochrane, Max Lange, Schilling-Kostic, Fischer 1.b3 vs 1.e5, BDG Lemberger (~20)
+- `HTTP 401 [openings]` spam in the log — some /api/openings endpoint
+  returns unauthorized. Cosmetic, doesn't affect anything.
+- FEN-search's "Select" button only jumps the practice picker — doesn't
+  scroll the tree to the match. Nice-to-have.
 
-### Execution pattern per chunk
+---
 
+## How to pick up from here
+
+1. **Read this file and the most recent 10-20 commits** — `git log --oneline -30`
+   shows the thread.
+2. **To continue DB work (Phase 4)**: extend `src/server/games.js`
+   pattern. Mistake bank endpoints are obvious next (`/api/mistakes`
+   POST/GET/DELETE), then SRS (`/api/srs/due`, `/api/srs/grade`), then
+   favourites (`/api/favourites` PUT/GET), then prefs
+   (`/api/user_prefs`). Client mirrors: add API helpers in `src/api.js`,
+   wire into existing localStorage callers with `if
+   (window.__currentUser) api.xxx(...)` dual-write.
+3. **If engine issues reappear**: check the auto-recovery path. The
+   mismatch detector logs `⚠ MISMATCH: 2 s passed, worker emitted ZERO
+   info`. If this fires and recovery succeeds, no action needed. If
+   recovery fails, the log's caller stack on every `stop()` call tells
+   you which code path terminated the engine.
+4. **To add a new preview board anywhere**: use
+   `previewBoardSvg(fen, { squarePx })` — it's a top-level helper in
+   main.js.
+5. **To add an auth-protected endpoint**: import `requireAuth` from
+   `src/server/auth.js` and use as middleware (see
+   `src/server/games.js` for examples).
+
+---
+
+## Environment setup quick-ref
+
+Render dashboard:
+- Web service: `stockfish-explain` · Node · Starter $7/mo · Ohio
+- Database: `stockfish-explain-db` (MANUALLY create via + New →
+  PostgreSQL; set `DATABASE_URL` env var on web service to its
+  Internal URL)
+- Env vars on web service:
+  - `ANTHROPIC_API_KEY` — Claude API (gated via daily passwords)
+  - `DATABASE_URL` — Postgres connection string (from the DB service)
+
+Local dev:
 ```bash
-cd /Users/nadalmaker/stockfish-web
-
-# 1. Edit src/openings_book.js — add N entries to BOOK_RAW array
-#    (the file auto-sorts longest-prefix-first at load, so insertion order doesn't matter)
-
-# 2. Smoke test
-ANTHROPIC_API_KEY=test_placeholder PORT=8200 node server.js &
-SERVER_PID=$!
-sleep 1
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8200/
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8200/src/openings_book.js
-kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null
-
-# 3. Commit + push + refresh Downloads
-git add src/openings_book.js
-git commit -m "Expand openings book: chunk N — <families>"
-git push
-rm -rf /Users/nadalmaker/Downloads/stockfish-web
-cp -R /Users/nadalmaker/stockfish-web /Users/nadalmaker/Downloads/stockfish-web
+cd ~/stockfish-web
+npm install
+node server.js                          # port 8000 by default
+# OR for COOP/COEP in dev (multi-thread WASM needs it):
+python3 scripts/serve.py
 ```
 
----
-
-## Secondary backlog (after 10 chunks done)
-
-- **Empirical weight calibration** — run `window.__runCoachValidation()`
-  end-to-end and feed the suggested weight deltas back into
-  `coach_v2.js::scoreFactors`.
-- **More trap detectors** — 11 shipped; could add Monticelli, Marshall
-  Petroff, Tarrasch, Siberian, Kieninger, Rubinstein QGD, Magnus-Smith,
-  Poisoned Pawn, Fishing-Pole, Englund decline (~10 more named traps).
-- **Generic-pattern detectors** — knight fork setup, discovered attack,
-  overloaded defender, smothered-mate prerequisites, pinned-pawn push,
-  loose-piece double attack. Specs are already in `traps.js` comments.
-- **Opening-explorer inline with openings-book block** — currently two
-  separate panels; merging would be cleaner UX.
-- **Inline practice-from-archetype** — from the Coach panel, offer "Play
-  this structure vs the engine" launching Practice pre-loaded with the
-  current FEN and a skill-level picker.
+Without `DATABASE_URL`, the server still runs — just localStorage-only
+mode (guests). Login endpoints return 500.
 
 ---
 
-## Dev / local test
-
-```bash
-cd /Users/nadalmaker/stockfish-web
-npm install                                       # once, to install express + cookie-parser
-ANTHROPIC_API_KEY=<real-key> PORT=8000 node server.js
-# open http://localhost:8000
-```
-
-Today's passwords are printed in the server's startup log.
-
----
-
-## Deploy
-
-```bash
-git push   # triggers Render auto-deploy (autoDeploy: true in render.yaml)
-```
-
-Render builds Node service, fetches full WASM binaries from GitHub Releases
-via `scripts/fetch-full-wasms.sh` (too big for git — 108 MB each).
-ANTHROPIC_API_KEY env var is set once in the Render dashboard.
-
----
-
-## Known quirks
-
-- Rate limit on agent dispatches: Anthropic backend throttles if you spawn
-  many parallel research agents. Do them serially.
-- Session context window: last session reached 88% — a fresh session with
-  this file in front of it has full capacity.
-- `navigator.deviceMemory` is quantized at 8 GB max and returns undefined
-  in Firefox/Safari — hash picker treats it as a floor, not ceiling.
-- GitHub Pages can't run server code or set COOP/COEP; multi-threaded
-  Stockfish only works on Render (or locally via python3 scripts/serve.py).
-- `coach_v2.js` has 4 call sites in `main.js`; all now pass `sanHistory`
-  via the engineSnapshot object. If you add a 5th call site, include it.
-
----
-
-## Opening the new session
-
-> Read /Users/nadalmaker/stockfish-web/HANDOFF.md first. Then proceed with
-> Chunk 1 of the 10-chunk openings-book expansion plan. Commit and push
-> after each chunk. All narrative text must be paraphrased in original
-> words — do not reproduce prose from any published source. Move
-> sequences and ECO codes are factual and are fine to reproduce as-is.
+*Written 2026-04-20 while active context was at ~91%. Most recent work
+captured verbatim; earlier session history was already compressed by the
+time this was written but the git log preserves everything.*
