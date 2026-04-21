@@ -6508,28 +6508,95 @@ async function main() {
       }
     }
 
-    async function refreshList({ append = false } = {}) {
-      if (!window.__currentUser) {
-        listEl.innerHTML = '<div class="mg-empty">Sign in (top-right) to see your saved games.</div>';
-        listFoot.hidden = true;
-        return;
+    // Map a local-archive game (Archive.loadGames shape) onto the
+    // cloud game shape so the SAME list/detail renderer works for
+    // both sources. Tag id with a prefix so the click handlers know
+    // which source to read from.
+    function normalizeLocalGame(g) {
+      return {
+        id:             'local-' + g.id,
+        _localId:       g.id,
+        _isLocal:       true,
+        played_at:      g.date || new Date(g.id).toISOString(),
+        result:         g.result || '*',
+        opening_name:   g.opening?.name || null,
+        opening_eco:    g.opening?.eco || null,
+        white_name:     g.mode === 'practice' && g.userColor === 'white' ? (g.userName || 'You') : (g.mode === 'practice' ? 'Stockfish' : null),
+        black_name:     g.mode === 'practice' && g.userColor === 'black' ? (g.userName || 'You') : (g.mode === 'practice' ? 'Stockfish' : null),
+        user_color:     g.userColor || null,
+        mode:           g.mode || 'analysis',
+        mistakes_count: countByKind(g.plies, 'mistake') + countByKind(g.plies, 'blunder'),
+        blunders_count: countByKind(g.plies, 'blunder'),
+        ply_count:      Array.isArray(g.plies) ? g.plies.length : 0,
+        // Full fields needed for detail-pane renderer.
+        pgn:            g.pgn,
+        plies:          g.plies,
+      };
+    }
+    function countByKind(plies, kind) {
+      if (!Array.isArray(plies) || plies.length < 2) return 0;
+      let n = 0;
+      for (let i = 1; i < plies.length; i++) {
+        try {
+          const q = classifyAccuracy ? classifyAccuracy(plies[i - 1], plies[i]) : null;
+          if (q === kind) n++;
+        } catch {}
       }
+      return n;
+    }
+    function loadLocalGamesNormalized() {
+      try {
+        return (Archive.loadGames() || []).map(normalizeLocalGame);
+      } catch { return []; }
+    }
+
+    async function refreshList({ append = false } = {}) {
       if (!append) {
         listEl.innerHTML = '<div class="mg-empty">Loading…</div>';
         state.page = 0;
         state.games = [];
       }
+      // GUEST mode — no login → show local archive only.
+      if (!window.__currentUser) {
+        const local = applyClientResultFilter(loadLocalGamesNormalized());
+        state.games = local;
+        state.total = local.length;
+        if (local.length) {
+          renderList();
+          // Small banner: tell the user how to also sync to cloud.
+          listEl.insertAdjacentHTML('afterbegin',
+            `<div class="mg-empty" style="font-size:11px;color:#9cdcfe;">💡 ${local.length} game(s) saved locally on this device. Sign in to sync across devices.</div>`);
+        } else {
+          listEl.innerHTML = '<div class="mg-empty">No games yet. Play a practice game — it auto-saves here.</div>';
+        }
+        listFoot.hidden = true;
+        return;
+      }
+      // LOGGED-IN — pull cloud games, plus any local archive entries
+      // that aren't yet in the cloud (user played offline / before login).
       try {
         const q = buildServerQuery();
         q.limit  = state.pageSize;
         q.offset = state.page * state.pageSize;
         const res = await api.listGames(q);
-        const incoming = applyClientResultFilter(res.games || []);
-        state.total = res.total || 0;
-        state.games = append ? state.games.concat(incoming) : incoming;
+        const cloud = applyClientResultFilter(res.games || []);
+        const local = applyClientResultFilter(loadLocalGamesNormalized());
+        // Merge + sort by played_at desc. Cloud games first on ties.
+        const merged = [...cloud, ...local].sort((a, b) =>
+          new Date(b.played_at).getTime() - new Date(a.played_at).getTime());
+        state.total = (res.total || 0) + local.length;
+        state.games = append ? state.games.concat(merged) : merged;
         renderList();
       } catch (err) {
-        listEl.innerHTML = `<div class="mg-empty" style="color:#f48771;">Error: ${escHtml(err.message || err)}</div>`;
+        // Network failed — fall back to local so the user still sees something.
+        const local = applyClientResultFilter(loadLocalGamesNormalized());
+        state.games = local;
+        state.total = local.length;
+        renderList();
+        if (local.length) {
+          listEl.insertAdjacentHTML('afterbegin',
+            `<div class="mg-empty" style="font-size:11px;color:#f48771;">⚠ Cloud fetch failed (${escHtml(err.message || err)}). Showing local games only.</div>`);
+        }
       }
     }
 
@@ -6594,7 +6661,30 @@ async function main() {
         dSub.textContent = `${date} · ${modeLabel}${side} · ${game.result || '*'}`;
         // Eval graph
         const plies = Array.isArray(game.plies) ? game.plies : [];
-        if (!graph) graph = new EvalGraph(dGraphCanv, { onClickPly: () => {} });
+        // Click-to-jump: clicking any point (especially the
+        // mistake/blunder/inaccuracy coloured dots) loads the game
+        // onto the board and navigates to that ply for immediate
+        // post-game review. No need to click 'Learn from mistakes'
+        // first — the graph itself is a scrub bar.
+        const graphJump = (ply) => {
+          try {
+            // Make sure the game is loaded onto the main board so we
+            // have a real mainline to navigate.
+            if (!graph._loadedGameId || graph._loadedGameId !== game.id) {
+              loadCloudGameOntoBoard(game);
+              graph._loadedGameId = game.id;
+            }
+            closeTab();
+            if (typeof window.__openReviewMode === 'function') {
+              window.__openReviewMode(game);
+            }
+            setTimeout(() => {
+              try { board.goToPly?.(ply); } catch {}
+            }, 180);
+          } catch (err) { console.warn('[my-games] graph-jump failed', err); }
+        };
+        if (!graph) graph = new EvalGraph(dGraphCanv, { onClickPly: graphJump });
+        else graph.onClickPly = graphJump;
         graph.render(plies);
         // Per-side stats
         const stats = computeGameStats(plies);
@@ -6713,6 +6803,29 @@ async function main() {
       refreshList({ append: true });
     });
 
+    // Helper: parse a row's data-id and resolve to { game } regardless
+    // of source (cloud integer id OR local prefix "local-<ts>").
+    function parseRowId(raw) {
+      const s = String(raw || '');
+      return s.startsWith('local-')
+        ? { isLocal: true,  localId: +s.slice(6),  cloudId: null }
+        : { isLocal: false, localId: null,         cloudId: +s };
+    }
+    async function getGameForRow(raw) {
+      const { isLocal, localId, cloudId } = parseRowId(raw);
+      if (isLocal) {
+        const g = Archive.getGame(localId);
+        if (!g) return null;
+        // Wrap to match cloud shape (same normalizer we use for list).
+        const norm = normalizeLocalGame(g);
+        norm.plies = g.plies;
+        norm.pgn = g.pgn;
+        return norm;
+      }
+      const r = await api.getGame(cloudId);
+      return r?.game || null;
+    }
+
     // ─── List interactions ───────────────────────────────────────
     listEl.addEventListener('click', async (e) => {
       const delBtn = e.target.closest('.mg-action-delete');
@@ -6720,12 +6833,17 @@ async function main() {
       const row    = e.target.closest('.mg-row');
       if (delBtn) {
         e.stopPropagation();
-        const id = +delBtn.dataset.id;
-        if (!id) return;
-        if (!confirm('Delete this game from the cloud? This cannot be undone.')) return;
+        const raw = delBtn.dataset.id;
+        if (!raw) return;
+        const { isLocal, localId, cloudId } = parseRowId(raw);
+        const confirmMsg = isLocal
+          ? 'Delete this game from local storage? This cannot be undone.'
+          : 'Delete this game from the cloud? This cannot be undone.';
+        if (!confirm(confirmMsg)) return;
         try {
-          await api.deleteGame(id);
-          if (state.selectedId === id) {
+          if (isLocal) Archive.deleteGame(localId);
+          else         await api.deleteGame(cloudId);
+          if (String(state.selectedId) === String(raw)) {
             state.selectedId = null;
             detailEl.hidden = true;
             document.body.classList.remove('mg-detail-open');
@@ -6739,14 +6857,15 @@ async function main() {
       }
       if (pgnBtn) {
         e.stopPropagation();
-        const id = +pgnBtn.dataset.id;
+        const raw = pgnBtn.dataset.id;
         try {
-          const { game } = await api.getGame(id);
+          const game = await getGameForRow(raw);
+          if (!game) { alert('Could not find that game.'); return; }
           const blob = new Blob([game.pgn || ''], { type: 'application/x-chess-pgn' });
           const url  = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `game-${id}.pgn`;
+          a.download = `game-${raw}.pgn`;
           a.click();
           setTimeout(() => URL.revokeObjectURL(url), 1000);
         } catch (err) {
@@ -6755,23 +6874,20 @@ async function main() {
         return;
       }
       if (row) {
-        const id = +row.dataset.id;
-        if (!id) return;
+        const raw = row.dataset.id;
+        if (!raw) return;
         // Row click = "open this game for review" — load onto the main
         // board + close the tab + kick the floating eval card into
-        // full-width review mode (Lichess-style post-game analysis
-        // layout). Show the quick-switch picker so the user can jump
-        // to another game without reopening the full tab.
+        // full-width review mode. Works for both cloud AND local games.
         try {
-          const { game } = await api.getGame(id);
+          const game = await getGameForRow(raw);
+          if (!game) { alert('Could not find that game.'); return; }
           detailEl._currentGame = game;
           loadCloudGameOntoBoard(game);
           closeTab();
           if (typeof window.__openReviewMode === 'function') {
             window.__openReviewMode(game);
           }
-          // Quick-switch picker removed per user feedback — if they
-          // want another game they can reopen the My Games tab.
         } catch (err) {
           alert('Load failed: ' + (err.message || err));
         }
@@ -7368,6 +7484,8 @@ async function main() {
         renderAuthUi();
         closeAuth();
         console.log('[auth] signed in as', res.user.username);
+        // Upload any local games the user played before signing in.
+        try { await syncLocalGamesToCloud(); } catch {}
       } catch (err) {
         if (authError) authError.textContent = err.message || 'Something went wrong';
       }
@@ -7384,7 +7502,82 @@ async function main() {
     const u = await currentUser();
     window.__currentUser = u;
     renderAuthUi();
+    if (u) syncLocalGamesToCloud();
   })();
+
+  // ─── Auto-sync local archive → Postgres on login ────────────────
+  // Anything in the local archive that has NOT been uploaded yet
+  // gets POSTed to /api/games. Tracks successes in a localStorage
+  // Set so subsequent runs don't re-upload. Called:
+  //   - on initial page load if a session is already active
+  //   - right after a successful sign-in / sign-up
+  const CLOUD_SYNCED_KEY = 'stockfish-explain.archive.cloud-synced-ids';
+  function loadSyncedIds() {
+    try { return new Set(JSON.parse(localStorage.getItem(CLOUD_SYNCED_KEY) || '[]')); }
+    catch { return new Set(); }
+  }
+  function saveSyncedIds(set) {
+    try { localStorage.setItem(CLOUD_SYNCED_KEY, JSON.stringify([...set])); } catch {}
+  }
+  async function syncLocalGamesToCloud() {
+    if (!window.__currentUser) return;
+    let localGames = [];
+    try { localGames = Archive.loadGames() || []; } catch { return; }
+    if (!localGames.length) return;
+    const synced = loadSyncedIds();
+    const pending = localGames.filter(g => !synced.has(g.id));
+    if (!pending.length) return;
+    console.log(`[cloud-sync] uploading ${pending.length} local game(s) to Postgres`);
+    let ok = 0, fail = 0;
+    for (const g of pending) {
+      try {
+        // Match the body shape api.saveGame expects (see finishPracticeGame
+        // at main.js:2911). User color / white_name / black_name best-
+        // effort reconstructed from the archive record.
+        const mistakesCount = (g.plies || []).filter((p, i) => {
+          if (!i) return false;
+          try {
+            const q = classifyAccuracy(g.plies[i - 1], p);
+            return q === 'inaccuracy' || q === 'mistake';
+          } catch { return false; }
+        }).length;
+        const blundersCount = (g.plies || []).filter((p, i) => {
+          if (!i) return false;
+          try { return classifyAccuracy(g.plies[i - 1], p) === 'blunder'; }
+          catch { return false; }
+        }).length;
+        await api.saveGame({
+          pgn:            g.pgn,
+          result:         g.result || '*',
+          opening_name:   g.opening?.name || null,
+          opening_eco:    g.opening?.eco  || null,
+          white_name:     g.mode === 'practice'
+                           ? (g.userColor === 'white' ? (g.userName || 'You') : 'Stockfish')
+                           : null,
+          black_name:     g.mode === 'practice'
+                           ? (g.userColor === 'black' ? (g.userName || 'You') : 'Stockfish')
+                           : null,
+          user_color:     g.userColor || null,
+          mode:           g.mode || 'analysis',
+          plies:          g.plies || [],
+          mistakes_count: mistakesCount,
+          blunders_count: blundersCount,
+        });
+        synced.add(g.id);
+        ok++;
+      } catch (err) {
+        console.warn('[cloud-sync] upload failed for game', g.id, err);
+        fail++;
+      }
+    }
+    saveSyncedIds(synced);
+    console.log(`[cloud-sync] done — ${ok} uploaded, ${fail} failed`);
+    if (ok && ui.narrationText) {
+      ui.narrationText.innerHTML += `<div style="color:#4ec9b0;font-size:12px;margin-top:4px;">☁ Synced ${ok} local game${ok === 1 ? '' : 's'} to cloud.</div>`;
+    }
+  }
+  // Expose so any caller (or a later sign-in) can re-trigger.
+  window.__syncLocalGamesToCloud = syncLocalGamesToCloud;
 
   // Cloud games browser modal (list / download / per-game delete).
   const dlModal = document.getElementById('dl-games-modal');
