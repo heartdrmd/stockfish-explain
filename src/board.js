@@ -69,6 +69,15 @@ export class BoardController extends EventTarget {
       const target = this._coordsToKey(e.clientX, e.clientY);
       if (!target) return;
 
+      // DEFER TO CHESSGROUND when a piece is already selected. If the
+      // user clicked one of their own pieces first, cg.state.selected
+      // holds that square — chessground will handle the next click as
+      // the destination natively. Our target-first logic used to cut in
+      // and show a "which piece?" candidates prompt when more than one
+      // of the user's pieces could reach the target, overriding the
+      // selection they'd already made. That exact bug. One-line fix.
+      if (this.cg && this.cg.state && this.cg.state.selected) return;
+
       // FIRST: if the user previously clicked a target and we highlighted
       // candidates, this click might be them picking the source.
       if (this._pendingTargetSources && this._pendingTargetSources.includes(target)) {
