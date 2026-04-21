@@ -75,7 +75,20 @@ export class BoardController extends EventTarget {
     this.rootEl.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       const target = this._coordsToKey(e.clientX, e.clientY);
-      if (!target) return;
+      if (!target) {
+        console.log('[move-input] pointerdown off-board', { x: e.clientX, y: e.clientY });
+        return;
+      }
+      const snapshot = {
+        target,
+        pieceAtTarget: this.chess.get(target) || null,
+        turn: this.chess.turn(),
+        cgSelected: this.cg?.state?.selected || null,
+        viewPly: this.viewPly,
+        pendingTarget: this._pendingTarget,
+        pendingCount: this._pendingTargetSources?.length || 0,
+      };
+      console.log('[move-input] pointerdown', snapshot);
 
       // DEFER TO CHESSGROUND when a piece is already selected. If the
       // user clicked one of their own pieces first, cg.state.selected
@@ -85,6 +98,7 @@ export class BoardController extends EventTarget {
       // of the user's pieces could reach the target, overriding the
       // selection they'd already made.
       if (this.cg && this.cg.state && this.cg.state.selected) {
+        console.log('[move-input] → bail: already-selected (chessground will handle)', { selected: this.cg.state.selected, target });
         this._logInputPath('bail:already-selected', target);
         return;
       }
@@ -100,6 +114,7 @@ export class BoardController extends EventTarget {
         ? this._historicalChess
         : this.chess;
       if (this._nearMissOwnPiece(e.clientX, e.clientY, effectiveChess)) {
+        console.log('[move-input] → bail: near-miss-own-piece (treating as click on nearby piece)', { target });
         this._logInputPath('bail:near-miss-own-piece', target);
         return;
       }
@@ -108,6 +123,7 @@ export class BoardController extends EventTarget {
       // candidates, this click might be them picking the source.
       if (this._pendingTargetSources && this._pendingTargetSources.includes(target)) {
         const prevTarget = this._pendingTarget;
+        console.log('[move-input] → resolve pending target-first', { source: target, target: prevTarget });
         this._clearTargetFirst();
         self._onUserMove(target, prevTarget, {});
         this._logInputPath('resolve:pending-source', `${target}→${prevTarget}`);
@@ -116,11 +132,15 @@ export class BoardController extends EventTarget {
 
       // If stale pending state exists (armed from a prior interaction
       // but the user has clicked somewhere unrelated now) — clear it.
-      if (this._pendingTargetSources) this._clearTargetFirst();
+      if (this._pendingTargetSources) {
+        console.log('[move-input] clearing stale pending target-first state');
+        this._clearTargetFirst();
+      }
 
       const p = effectiveChess.get(target);
       // If our piece is on this square, chessground handles its own drag.
       if (p && p.color === effectiveChess.turn()) {
+        console.log('[move-input] → bail: own-piece on target (chessground will select it)', { piece: p, target });
         this._logInputPath('bail:own-piece', target);
         return;
       }
@@ -131,8 +151,15 @@ export class BoardController extends EventTarget {
         legalSources = effectiveChess.moves({ verbose: true })
                                      .filter(m => m.to === target)
                                      .map(m => m.from);
-      } catch { return; }
-      if (!legalSources.length) return;
+      } catch (err) {
+        console.warn('[move-input] chess.moves threw', err);
+        return;
+      }
+      if (!legalSources.length) {
+        console.log('[move-input] no legal moves to target → target-first aborted', { target });
+        return;
+      }
+      console.log('[move-input] target-first: lighting up candidates', { target, sources: legalSources });
 
       // Light up the candidate sources (same chessground auto-shapes).
       this._highlightCandidates(legalSources);
@@ -156,17 +183,21 @@ export class BoardController extends EventTarget {
           const src = this._coordsToKey(ue.clientX, ue.clientY);
           this._clearTargetFirst();
           if (src && legalSources.includes(src)) {
+            console.log('[move-input] target-drag → playing', { src, target });
             self._onUserMove(src, target, {});
+          } else {
+            console.log('[move-input] target-drag released on non-source, cancelled', { releasedOn: src, target });
           }
-          // else: illegal release, silently cancel
           return;
         }
 
         // Click path — target-first click resolution.
         if (legalSources.length === 1) {
+          console.log('[move-input] target-first: single source → playing', { source: legalSources[0], target });
           this._clearTargetFirst();
           self._onUserMove(legalSources[0], target, {});
         } else {
+          console.log('[move-input] target-first: multiple candidates, waiting for source click', { target, sources: legalSources });
           // Multiple candidates — leave highlights armed for the next click
           this._pendingTarget = target;
           this._pendingTargetSources = legalSources;
@@ -434,10 +465,19 @@ export class BoardController extends EventTarget {
   }
 
   async _onUserMove(orig, dest, _meta) {
+    console.log('[move] _onUserMove called', {
+      orig, dest,
+      meta: _meta || {},
+      chessTurn: this.chess.turn(),
+      isAtLive: this.isAtLive(),
+      viewPly: this.viewPly,
+      fenBefore: this.chess.fen(),
+    });
     if (!this.isAtLive()) {
       // User moved from an old ply — truncate chess.js to the view ply
       // and branch from here. The variation tree keeps the old line as a
       // sibling; chess.js is rebuilt for legality of the new move.
+      console.log('[move] branching from historical ply', { viewPly: this.viewPly });
       const verbose = this.chess.history({ verbose: true });
       const keep = this.viewPly || 0;
       this.chess = new Chess(this.startingFen);
@@ -450,7 +490,10 @@ export class BoardController extends EventTarget {
     }
 
     const piece = this.chess.get(orig);
-    if (!piece) return;
+    if (!piece) {
+      console.warn('[move] no piece at orig square — bailing', { orig });
+      return;
+    }
 
     let promotion = null;
     if (piece.type === 'p'
@@ -467,15 +510,18 @@ export class BoardController extends EventTarget {
     } catch (e) {
       // Illegal — reset board to current truth and clear input state so
       // the user can try a different move immediately.
+      console.warn('[move] chess.move threw (illegal)', { orig, dest, promotion, err: String(e) });
       this._renderPosition(this.chess.fen(), lastMoveFromHistory(this.chess));
       this._resetInputState();
       return;
     }
     if (!move) {
+      console.warn('[move] chess.move returned null (illegal move rejected)', { orig, dest, promotion });
       this._renderPosition(this.chess.fen(), lastMoveFromHistory(this.chess));
       this._resetInputState();
       return;
     }
+    console.log('[move] chess.move OK', { san: move.san, from: move.from, to: move.to, captured: move.captured || null, flags: move.flags });
 
     if (promotion) {
       const color = piece.color === 'w' ? 'white' : 'black';
@@ -494,6 +540,10 @@ export class BoardController extends EventTarget {
       this.tree.currentPath,
     );
     if (addRes) this.tree.currentPath = addRes.path;
+    console.log('[move] tree updated', {
+      uci, created: addRes?.created, path: this.tree.currentPath,
+      newFen: this.chess.fen(),
+    });
 
     this._syncToChessground([orig, dest]);
     this.dispatchEvent(new CustomEvent('move', { detail: { move, fen: this.chess.fen() } }));
