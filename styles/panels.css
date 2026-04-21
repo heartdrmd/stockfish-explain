@@ -605,7 +605,12 @@ details.dissect-details[open] summary {
   padding: 12px;
   display: flex;
   flex-direction: column;
-  max-height: 420px;
+  /* Let the wrap grow to a generous chunk of the viewport — the
+     #move-list inside scrolls internally. The old 420 px cap meant the
+     notation + (new) notation-below-slot + input all had to share that
+     budget, squeezing moves down to only 2–3 visible rows after
+     loading a long game. */
+  max-height: min(78vh, 780px);
 }
 
 .move-list-header {

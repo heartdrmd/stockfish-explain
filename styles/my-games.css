@@ -783,10 +783,11 @@
 .notation-below-slot .gs-side { font-size: 12px; padding: 8px 10px; margin-bottom: 6px; }
 .notation-below-slot .live-graph-cta { margin-top: 6px; }
 
-/* Keep enough room under the move list — 6 rows of moves always
-   visible, even if the review stats below are tall. */
+/* Keep enough room under the move list — at least ~8 rows of moves
+   visible, even when the review stats below are populated. */
 #move-list {
-  min-height: 140px;
+  min-height: 220px;
+  flex: 1 1 220px;
 }
 
 /* Collapse toggle on stats panels so the notation can claim full
