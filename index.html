@@ -83,6 +83,8 @@
             title="Open the My Games tab — filter, replay, analyse, delete your saved games">📚 My Games</button>
     <button id="btn-live-graph" class="btn always-visible"
             title="Toggle the live evaluation graph. Hidden during practice by default (anti-cheat) but you can turn it on anytime.">📈 Graph</button>
+    <button id="btn-explorer" class="btn always-visible"
+            title="Opening explorer — Masters / Lichess / Tablebase stats for the current position">📖 Explorer</button>
     <!-- Auth area — single slot that flips between 'Sign in' and 'Hi, user / Logout'. -->
     <span id="auth-area" class="always-visible auth-area">
       <button id="btn-signin"   class="btn btn-auth always-visible" title="Sign in to sync games across devices">👤 Sign in</button>
@@ -1189,6 +1191,15 @@
       <canvas id="live-eval-graph"></canvas>
     </div>
     <div class="live-graph-stats" id="live-graph-stats"></div>
+  </div>
+
+  <!-- 📖 Opening Explorer — floating panel, toggled from header -->
+  <div id="explorer-card" class="explorer-card" hidden>
+    <div class="explorer-head">
+      <strong>📖 Opening Explorer</strong>
+      <button id="explorer-close" class="btn btn-mini" title="Hide the explorer">✕</button>
+    </div>
+    <div class="explorer-body" id="explorer-body"></div>
   </div>
 
   <!-- AGPL-3.0: network users must be informed where to get the source.

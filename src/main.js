@@ -23,6 +23,7 @@ import { LICHESS_OPENINGS } from './openings_lichess.js';
 import * as Archive from './game_archive.js';
 import { EvalGraph }     from './eval-graph.js';
 import { computeGameStats, renderStatsPanel } from './game-stats.js';
+import { ExplorerPanel } from './opening_explorer_ui.js';
 
 // Expose Chess to eval-graph's computeDivision helper — avoids a
 // circular import while still letting it replay SAN to count pieces
@@ -6722,6 +6723,47 @@ async function main() {
     try {
       if (localStorage.getItem(STORAGE_KEY) === '1') show();
     } catch {}
+
+    // Explorer panel — toggled from 📖 Explorer header button.
+    (() => {
+      const btn    = document.getElementById('btn-explorer');
+      const card   = document.getElementById('explorer-card');
+      const closeBtn = document.getElementById('explorer-close');
+      const bodyEl = document.getElementById('explorer-body');
+      if (!btn || !card || !bodyEl) return;
+      const STORAGE = 'stockfish-explain.explorer-visible';
+      let panel = null;
+      function show() {
+        card.hidden = false;
+        try { localStorage.setItem(STORAGE, '1'); } catch {}
+        if (!panel) {
+          panel = new ExplorerPanel(bodyEl, {
+            getFen: () => board?.fen?.() || '',
+            onPlayUci: (uci) => {
+              try { board.playUciMoves([uci], { animate: true }); } catch {}
+            },
+          });
+        }
+        panel.refresh();
+      }
+      function hide() {
+        card.hidden = true;
+        try { localStorage.setItem(STORAGE, '0'); } catch {}
+      }
+      btn.addEventListener('click', () => card.hidden ? show() : hide());
+      closeBtn?.addEventListener('click', hide);
+      // Live refresh on every board move.
+      let rafPending = false;
+      board.addEventListener('move', () => {
+        if (card.hidden || !panel) return;
+        if (rafPending) return;
+        rafPending = true;
+        requestAnimationFrame(() => { rafPending = false; panel.refresh(); });
+      });
+      board.addEventListener('new-game', () => { if (!card.hidden && panel) panel.refresh(); });
+      // Restore persisted visibility.
+      try { if (localStorage.getItem(STORAGE) === '1') show(); } catch {}
+    })();
 
     // Public: open the graph in full-width "review mode" with a big
     // chart + side-by-side stats + Learn/Reanalyze CTA column. Called

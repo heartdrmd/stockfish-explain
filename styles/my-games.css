@@ -3,6 +3,114 @@
    Lichess analysis page (split-fill eval graph, crisp accuracy
    breakdown) but written from scratch — no CSS copied from lila. */
 
+/* ─── Opening Explorer card (floating) ───────────────────────────── */
+.explorer-card {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  max-height: 70vh;
+  z-index: 500;
+  background: rgba(20, 20, 22, 0.96);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+  backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+}
+.explorer-card[hidden] { display: none; }
+.explorer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.explorer-body { overflow-y: auto; flex: 1; min-height: 200px; }
+
+.exp-tabs {
+  display: flex;
+  gap: 2px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.04);
+  padding: 2px;
+  margin-bottom: 8px;
+}
+.exp-tab {
+  flex: 1;
+  padding: 5px 8px;
+  background: transparent;
+  border: 0;
+  color: rgba(255,255,255,0.6);
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.exp-tab:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.exp-tab-active {
+  background: #1976d2;
+  color: #fff;
+}
+.exp-refresh {
+  padding: 5px 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  color: #bbb;
+  cursor: pointer;
+  font-size: 13px;
+}
+.exp-refresh:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+.exp-empty, .exp-loading { padding: 24px 12px; text-align: center; color: rgba(255,255,255,0.5); font-size: 12px; }
+
+.exp-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.exp-row {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.exp-row:hover td { background: rgba(33,150,243,0.12); }
+.exp-row td { padding: 5px 6px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.exp-san { font-weight: 700; min-width: 54px; font-family: var(--font-mono, ui-monospace, monospace); }
+.exp-count { text-align: right; color: rgba(255,255,255,0.6); min-width: 60px; font-family: var(--font-mono, ui-monospace, monospace); }
+.exp-bar { width: 100%; position: relative; }
+.exp-bar-inner {
+  display: flex;
+  height: 14px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.04);
+}
+.exp-w { background: #f0f0eb; }
+.exp-d { background: #888; }
+.exp-b { background: #0c0c0e; }
+.exp-pct { font-size: 9px; opacity: 0.55; display: block; margin-top: 2px; font-family: var(--font-mono, ui-monospace, monospace); }
+.exp-total { font-size: 10px; color: rgba(255,255,255,0.45); text-align: center; padding: 8px 0; }
+
+.exp-top-games { margin-top: 10px; }
+.exp-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); margin-bottom: 4px; }
+.exp-top-games ul { list-style: none; margin: 0; padding: 0; font-size: 11px; }
+.exp-top-games li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.exp-top-games em { font-style: normal; color: #ffb74d; margin: 0 6px; }
+.exp-year { float: right; opacity: 0.5; font-size: 10px; }
+
+.exp-tb-verdict {
+  font-weight: 700;
+  text-align: center;
+  padding: 6px 0 10px;
+  font-size: 13px;
+  color: #4ec9b0;
+}
+.exp-tb-win  td { background: rgba(76,175,80,0.08); }
+.exp-tb-loss td { background: rgba(244,67,54,0.08); }
+.exp-tb-cat { text-transform: capitalize; color: rgba(255,255,255,0.7); }
+.exp-tb-dtm { font-family: var(--font-mono, ui-monospace, monospace); color: rgba(255,255,255,0.55); }
+
 /* ─── Site footer (AGPL-3.0 source-code notice) ──────────────────── */
 .site-footer {
   padding: 10px 16px;
