@@ -2755,6 +2755,38 @@ body.practice-mode .practice-card[hidden]       { display: none !important; }
   color: rgba(255, 209, 102, 0.7);
 }
 
+/* One-click "practice now" launchers on unstarred leaves.
+   Two small solid squares separated by a gap so the white square on a
+   light row and the black square next to it don't visually blur. */
+.practice-opening-tree .tree-leaf-play {
+  display: inline-flex;
+  gap: 5px;
+  margin: 0 4px 0 2px;
+  flex-shrink: 0;
+}
+.practice-opening-tree .play-now {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #444;
+  border-radius: 2px;
+  cursor: pointer;
+  padding: 0;
+  display: inline-block;
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+.practice-opening-tree .play-now-white {
+  background: #f5f5f0;
+  border-color: #888;
+}
+.practice-opening-tree .play-now-black {
+  background: #101012;
+  border-color: #000;
+}
+.practice-opening-tree .play-now:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 2px rgba(78,201,176,0.55);
+}
+
 .practice-opening-tree .tree-leaf-del {
   font-size: 11px;
   padding: 1px 5px;

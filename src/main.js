@@ -4003,10 +4003,21 @@ async function main() {
             `<button type="button" class="side-pick ${side === 'both'  ? 'active' : ''}" data-side-pick="both"  title="Practice as either — random each time the queue picks this">↔</button>` +
           `</span>`
         : '';
+      // One-click practice launchers (unstarred only — starred
+      // entries use their existing W/B/↔ side chooser for the same
+      // purpose, wired below). Two small solid squares separated by
+      // a gap so white-on-black and black-on-light don't blur together.
+      const quickPlay = !starred
+        ? `<span class="tree-leaf-play" data-play-key="${entry.key}">` +
+            `<button type="button" class="play-now play-now-white" data-play-side="white" title="Practice this opening as White (start now)"></button>` +
+            `<button type="button" class="play-now play-now-black" data-play-side="black" title="Practice this opening as Black (start now)"></button>` +
+          `</span>`
+        : '';
       leaf.innerHTML =
         `<span class="tree-leaf-fav${starred ? ' starred' : ''}" data-fav="${entry.key}" title="${starred ? 'Unstar' : 'Star as favourite'}">${starred ? '★' : '☆'}</span>` +
         queueCb +
         sideChooser +
+        quickPlay +
         `<span class="tree-leaf-name">${escapeHtml(leafName)}</span>` +
         `<span class="tree-leaf-eco">${escapeHtml(entry.o.eco || '')}</span>` +
         badge + custom;
@@ -4060,17 +4071,46 @@ async function main() {
           console.log('[custom-delete] tree rebuilt, entry should be gone');
           return;
         }
-        // Side pick (W / B / Both) — highest priority so clicks don't
-        // fall through to the leaf-select handler.
+        // One-click "practice now" launcher on unstarred leaves.
+        // Two solid squares (white / black) per opening; clicking one
+        // selects the opening, sets the side, and fires Start.
+        const playBtn = ev.target.closest('.play-now');
+        if (playBtn) {
+          ev.stopPropagation();
+          const wrap = playBtn.closest('[data-play-key]');
+          const key  = wrap?.dataset.playKey;
+          const pickSide = playBtn.dataset.playSide;   // 'white' | 'black'
+          if (!key || !pickSide) return;
+          pSel.value = key;
+          pColor.value = pickSide;
+          updatePMoves();
+          console.log('[practice-tree] quick-play', { key, side: pickSide });
+          // Fire Start; async click handler inside handles the rest.
+          pStart.click();
+          return;
+        }
+        // Side pick (W / B / Both) on STARRED leaves — now DOUBLES as
+        // a quick-launch: click a side → set favourite side + start
+        // practice as that side immediately. (Previously only set the
+        // favourite without launching; that dance needed a second
+        // click on Start.)
         const sideBtn = ev.target.closest('[data-side-pick]');
         if (sideBtn) {
           const wrap = sideBtn.closest('[data-side-key]');
           const key  = wrap?.dataset.sideKey;
+          const pick = sideBtn.dataset.sidePick; // 'white' | 'black' | 'both'
           if (key) {
             const favs = loadFavs();
-            favs[key] = sideBtn.dataset.sidePick; // 'white' | 'black' | 'both'
+            favs[key] = pick;
             saveFavs(favs);
+            // For 'both', respect current pColor; else honour the click.
+            const playSide = pick === 'both' ? (pColor.value || 'white') : pick;
+            pSel.value = key;
+            pColor.value = playSide;
+            updatePMoves();
             renderTree();
+            console.log('[practice-tree] starred-side click → start', { key, side: playSide });
+            pStart.click();
           }
           ev.stopPropagation();
           return;
