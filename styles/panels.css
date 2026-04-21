@@ -711,21 +711,26 @@ details.dissect-details[open] summary {
   padding: 2px 0;
 }
 
-/* Each mainline ply-pair is a 3-column grid: [num.] [white] [black] */
+/* Each mainline ply-pair is a 3-column grid: [num.] [white] [black].
+   Tuned for neat consistent columns so 20-move games don't visually
+   drift: fixed-width number column, white + black cells flex-equal. */
 .mg-row {
   display: grid;
-  grid-template-columns: 42px 1fr 1fr;
+  grid-template-columns: 38px minmax(0, 1fr) minmax(0, 1fr);
   align-items: baseline;
+  column-gap: 6px;
+  padding: 1px 2px;
 }
-.mg-row:nth-of-type(odd)  { background: rgba(255,255,255,0.015); }
-.mg-row:hover             { background: rgba(255,255,255,0.04); }
+.mg-row:nth-of-type(odd)  { background: rgba(255,255,255,0.02); }
+.mg-row:hover             { background: rgba(255,255,255,0.055); }
 .mg-num {
   text-align: right;
-  padding: 4px 8px 4px 6px;
-  font-size: 13px;
+  padding: 4px 6px 4px 4px;
+  font-size: 12px;
   color: var(--c-font-dim);
   font-weight: 600;
   user-select: none;
+  font-variant-numeric: tabular-nums;
 }
 .mg-move {
   padding: 4px 8px;
@@ -733,6 +738,9 @@ details.dissect-details[open] summary {
   border-radius: 3px;
   transition: background 0.08s, color 0.08s;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 .mg-move:hover { background: var(--c-bg-zebra2); }
 .mg-move.current {

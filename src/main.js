@@ -6209,7 +6209,19 @@ async function main() {
       flashPill(ui.engineMode, `Log downloaded (${LOG_BUFFER.length} lines)`, 1400);
     });
   }
-  document.getElementById('btn-undo').addEventListener('click', () => board.undo());
+  document.getElementById('btn-undo').addEventListener('click', () => {
+    // Double-check during an ACTIVE practice game so a stray click on
+    // the header Undo button doesn't wipe the last move you just
+    // played. In analysis / post-game review, undo is harmless and
+    // the confirm would be annoying — so we skip it there.
+    const inActivePractice =
+      document.body.classList.contains('practice-mode') &&
+      !document.body.classList.contains('practice-finished');
+    if (inActivePractice) {
+      if (!confirm('Take back the last move? The engine will re-think its next reply.')) return;
+    }
+    board.undo();
+  });
 
   // Copy FEN
   document.getElementById('btn-copy-fen').addEventListener('click', async () => {
