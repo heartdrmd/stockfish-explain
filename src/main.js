@@ -6613,9 +6613,8 @@ async function main() {
           if (typeof window.__openReviewMode === 'function') {
             window.__openReviewMode(game);
           }
-          if (typeof window.__openQuickPicker === 'function') {
-            window.__openQuickPicker(state.games, id);
-          }
+          // Quick-switch picker removed per user feedback — if they
+          // want another game they can reopen the My Games tab.
         } catch (err) {
           alert('Load failed: ' + (err.message || err));
         }
@@ -6854,21 +6853,27 @@ async function main() {
       if (graph) { graph.destroy(); graph = null; }
     }
 
+    // Helper: return the card to its floating position in <body> and
+    // clear review-mode styling. Called by any toggle-off path.
+    function exitReviewMode() {
+      card.classList.remove('review-mode');
+      const mtWrap = document.getElementById('live-movetime-wrap');
+      if (mtWrap) mtWrap.hidden = true;
+      if (card.parentElement && card.parentElement.id === 'board-below-slot') {
+        document.body.appendChild(card);
+      }
+    }
     btn.addEventListener('click', () => {
       // Header toggle always opens the COMPACT floating card. Review
-      // mode (full-width bottom dock) is only activated via the
+      // mode (docked below board) is only activated via the
       // window.__openReviewMode path from My Games row-click.
       if (card.hidden) {
-        card.classList.remove('review-mode');
-        const mtWrap = document.getElementById('live-movetime-wrap');
-        if (mtWrap) mtWrap.hidden = true;
+        exitReviewMode();
         show();
       } else hide();
     });
     closeBtn?.addEventListener('click', () => {
-      card.classList.remove('review-mode');
-      const mtWrap = document.getElementById('live-movetime-wrap');
-      if (mtWrap) mtWrap.hidden = true;
+      exitReviewMode();
       hide();
     });
 
@@ -6977,6 +6982,13 @@ async function main() {
     // from My Games when the user clicks a game row.
     window.__openReviewMode = (game) => {
       card.classList.add('review-mode');
+      // Dock the card into the slot below the board so the timeline
+      // is embedded in the page flow (user feedback: 'should be
+      // below the board, not floating').
+      const slot = document.getElementById('board-below-slot');
+      if (slot && card.parentElement !== slot) {
+        slot.appendChild(card);
+      }
       show();
       // Render the movetime bar chart beneath the eval graph. Only
       // visible in review mode (CSS gates its height).

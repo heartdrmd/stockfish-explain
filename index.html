@@ -364,6 +364,12 @@
         <button id="board-nav-flip"  class="nav-btn" title="Flip board (F)">⇅</button>
         <span id="board-nav-ply" class="nav-ply muted">—</span>
       </div>
+      <!-- Docking slot for the review-mode eval graph card. The live
+           graph lives at the bottom of <body> by default (floating
+           compact) and gets relocated here when the user clicks a
+           game from My Games, so the timeline sits embedded directly
+           beneath the board instead of floating in the viewport. -->
+      <div id="board-below-slot" class="board-below-slot"></div>
     </section>
 
     <section class="eval-gauge" id="eval-gauge" aria-label="Evaluation (white's view)">
