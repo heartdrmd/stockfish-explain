@@ -3956,18 +3956,51 @@ async function main() {
     // without killing the match.
     (() => {
       if (!pFenSearch) return;
-      const m      = document.getElementById('fen-search-modal');
-      const iFen   = document.getElementById('fs-fen');
-      const iErr   = document.getElementById('fs-error');
-      const list   = document.getElementById('fs-results');
-      const btnUse = document.getElementById('fs-use-current');
-      const btnGo  = document.getElementById('fs-search');
-      const btnX   = document.getElementById('fs-close');
+      const m        = document.getElementById('fen-search-modal');
+      const iFen     = document.getElementById('fs-fen');
+      const iErr     = document.getElementById('fs-error');
+      const list     = document.getElementById('fs-results');
+      const btnUse   = document.getElementById('fs-use-current');
+      const btnReset = document.getElementById('fs-reset-start');
+      const btnGo    = document.getElementById('fs-search');
+      const btnX     = document.getElementById('fs-close');
+      const preview  = document.getElementById('fs-preview-wrap');
+      const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
       const fenKey = (f) => (f || '').split(' ').slice(0, 4).join(' ');
+      const GLYPH = {
+        P:'♙', R:'♖', N:'♘', B:'♗', Q:'♕', K:'♔',
+        p:'♟', r:'♜', n:'♞', b:'♝', q:'♛', k:'♚',
+      };
+      function renderPreview(fen) {
+        if (!preview) return;
+        let rows;
+        try { rows = fen.split(' ')[0].split('/'); if (rows.length !== 8) throw 0; }
+        catch { preview.innerHTML = '<div style="color:#f48771;font-size:12px;">Invalid FEN</div>'; return; }
+        let html = '<div class="preview-board" style="grid-template-columns:repeat(8,32px);grid-template-rows:repeat(8,32px);width:256px;height:256px;border:1px solid #333;">';
+        for (let r = 0; r < 8; r++) {
+          let file = 0;
+          for (const ch of rows[r]) {
+            if (/\d/.test(ch)) {
+              for (let k = 0; k < +ch; k++) {
+                const dark = (r + file) % 2 === 1;
+                html += `<span class="sq ${dark ? 'd' : 'l'}" style="font-size:26px;"></span>`;
+                file++;
+              }
+            } else {
+              const dark = (r + file) % 2 === 1;
+              html += `<span class="sq ${dark ? 'd' : 'l'}" style="font-size:26px;">${GLYPH[ch] || ''}</span>`;
+              file++;
+            }
+          }
+        }
+        preview.innerHTML = html + '</div>';
+      }
       function openModal() {
         if (iErr) iErr.textContent = '';
         if (list) list.innerHTML = '';
-        if (iFen) iFen.value = board?.fen?.() || '';
+        const fen = board?.fen?.() || START_FEN;
+        if (iFen) iFen.value = fen;
+        renderPreview(fen);
         if (m) m.hidden = false;
         setTimeout(() => iFen?.focus(), 50);
       }
@@ -3975,7 +4008,9 @@ async function main() {
       pFenSearch.addEventListener('click', openModal);
       if (btnX) btnX.addEventListener('click', closeModal);
       if (m) m.addEventListener('click', (e) => { if (e.target === m) closeModal(); });
-      if (btnUse) btnUse.addEventListener('click', () => { iFen.value = board?.fen?.() || ''; });
+      if (btnUse)   btnUse.addEventListener('click',   () => { iFen.value = board?.fen?.() || ''; renderPreview(iFen.value); });
+      if (btnReset) btnReset.addEventListener('click', () => { iFen.value = START_FEN;          renderPreview(iFen.value); });
+      if (iFen)     iFen.addEventListener('input',     () => renderPreview(iFen.value));
       if (btnGo) btnGo.addEventListener('click', () => {
         if (iErr) iErr.textContent = '';
         const fen = (iFen?.value || '').trim();
@@ -4076,18 +4111,22 @@ async function main() {
         p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
       };
       function renderBoardHtml(fen) {
-        const rows = fen.split(' ')[0].split('/');
+        const rows = (fen || '').split(' ')[0].split('/');
+        if (rows.length !== 8) return '<div class="preview-board"></div>';
         let html = '<div class="preview-board">';
         for (let r = 0; r < 8; r++) {
+          let file = 0;
           for (const ch of rows[r]) {
             if (/\d/.test(ch)) {
               for (let k = 0; k < +ch; k++) {
-                const dark = (r + k) % 2 === 1;
+                const dark = (r + file) % 2 === 1;
                 html += `<span class="sq ${dark ? 'd' : 'l'}"></span>`;
+                file++;
               }
             } else {
-              const dark = (r + html.match(/<span/g).length - r * 8) % 2 === 1;
+              const dark = (r + file) % 2 === 1;
               html += `<span class="sq ${dark ? 'd' : 'l'}">${GLYPH[ch] || ''}</span>`;
+              file++;
             }
           }
         }
@@ -4111,12 +4150,14 @@ async function main() {
         hoverEl.className = 'tree-hover-preview';
         hoverEl.innerHTML = renderBoardHtml(fen);
         document.body.appendChild(hoverEl);
-        // Position to the RIGHT of the leaf, clamped to viewport.
-        const prevW = 220;
+        // Position to the RIGHT of the leaf, clamped to viewport. The
+        // preview is now 400×400 (was 208×208) so clamp accordingly.
+        const prevW = 420;
+        const prevH = 420;
         let left = r.right + 8;
         if (left + prevW > window.innerWidth - 8) left = Math.max(8, r.left - prevW - 8);
-        let top = r.top - 20;
-        if (top + 240 > window.innerHeight) top = window.innerHeight - 250;
+        let top = r.top - 40;
+        if (top + prevH > window.innerHeight - 8) top = Math.max(8, window.innerHeight - prevH - 8);
         if (top < 8) top = 8;
         hoverEl.style.left = left + 'px';
         hoverEl.style.top  = top + 'px';
