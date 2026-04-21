@@ -3,6 +3,21 @@
    Lichess analysis page (split-fill eval graph, crisp accuracy
    breakdown) but written from scratch — no CSS copied from lila. */
 
+/* ─── Site footer (AGPL-3.0 source-code notice) ──────────────────── */
+.site-footer {
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  border-top: 1px solid rgba(255,255,255,0.05);
+  background: rgba(0,0,0,0.2);
+}
+.site-footer a {
+  color: rgba(122,167,255,0.9);
+  text-decoration: none;
+}
+.site-footer a:hover { color: #fff; text-decoration: underline; }
+
 /* ─── Blue header button ────────────────────────────────────────── */
 .btn-my-games {
   background: linear-gradient(180deg, #2196f3 0%, #1976d2 100%);
