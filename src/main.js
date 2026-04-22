@@ -3487,12 +3487,27 @@ async function main() {
       });
     });
 
-    // Auto-scroll the current move into view (lila behavior). Scroll
-    // the nearest scrollable ancestor — the move list itself scrolls
-    // internally via overflow-y:auto in panels.css.
+    // Auto-scroll the current move into view — ONLY within the move
+    // list's own scroll container. scrollIntoView() (even with
+    // block:'nearest') can propagate up to scroll the window when the
+    // move list itself is partially out-of-viewport — the user's
+    // nicely-positioned board would get yanked to the top every time
+    // they clicked a blunder on the eval graph. Manual math instead:
+    // compute the current move's offset WITHIN the scroll container
+    // and only adjust that container's scrollTop, never the window.
     try {
       const cur = ui.moveList.querySelector('.mg-move.current');
-      if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      if (cur) {
+        const container = ui.moveList;
+        const cRect = container.getBoundingClientRect();
+        const mRect = cur.getBoundingClientRect();
+        // Already visible inside the scroller? Do nothing.
+        if (mRect.top < cRect.top) {
+          container.scrollTop += mRect.top - cRect.top - 8;  // 8 px padding
+        } else if (mRect.bottom > cRect.bottom) {
+          container.scrollTop += mRect.bottom - cRect.bottom + 8;
+        }
+      }
     } catch {}
   }
 
