@@ -156,10 +156,18 @@
   font-weight: 600;
 }
 .pv-line .pv-moves {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   color: var(--c-font);
   word-spacing: 0.2em;
   font-family: var(--font-san);
+  /* Keep each PV line on a SINGLE row — long lines (12+ ply deep)
+     were wrapping to 2-3 visual rows, pushing sibling PV lines
+     out of the panel. Truncate with an ellipsis; user can click
+     the line to explore it in full. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pv-move {
   cursor: pointer;
