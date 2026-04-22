@@ -440,8 +440,11 @@ export class BoardController extends EventTarget {
     // diverge from chessground's own key mapping by whole squares
     // (observed 2-rank offset → user clicking bishop, chessground
     // selecting empty square 2 rows away).
-    const boardEl = this._boardEl || this.rootEl.querySelector('cg-board');
-    if (boardEl) this._boardEl = boardEl;
+    // Always re-query cg-board (don't cache) — if a cached reference
+    // became detached or the element was replaced, getBoundingClientRect
+    // would return (0,0,0,0) and every click would read as off-board.
+    // One querySelector per click is microseconds; worth the safety.
+    const boardEl = this.rootEl.querySelector('cg-board');
     const bounds = (boardEl || this.rootEl).getBoundingClientRect();
     const relX = x - bounds.left;
     const relY = y - bounds.top;
@@ -472,8 +475,7 @@ export class BoardController extends EventTarget {
     // hits, which made the log hard to read and (worse) swallowed
     // pending-source source-pick clicks on own-piece legal sources.
     try {
-      const boardEl = this._boardEl || this.rootEl.querySelector('cg-board');
-      if (boardEl) this._boardEl = boardEl;
+      const boardEl = this.rootEl.querySelector('cg-board');
       const bounds = (boardEl || this.rootEl).getBoundingClientRect();
       const sqW = bounds.width / 8;
       const sqH = bounds.height / 8;

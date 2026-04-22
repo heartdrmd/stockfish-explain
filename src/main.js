@@ -5242,6 +5242,16 @@ async function main() {
         //   fenEvalCache.clear → fresh eval cache (old evals were for
         //                        positions that no longer exist)
         //   __practiceOpeningPlies reset below after opening plays
+        //
+        // CRITICAL: set board.playerColor BEFORE newGame + SAN replay
+        // so the per-move _syncToChessground call (which reads
+        // this.playerColor) sets chessground's movable.color correctly
+        // for the CURRENT game. Previously this was set AFTER replay
+        // → first practice as black after a white game left
+        // chessground with movable.color='white' and blocked every
+        // black move. User saw clicks select squares but no move
+        // executed until they opened practice a second time.
+        board.playerColor = color;
         board.newGame();
         try { clearDraft(); } catch {}
         try { if (typeof fenEvalCache !== 'undefined') fenEvalCache.clear(); } catch {}
