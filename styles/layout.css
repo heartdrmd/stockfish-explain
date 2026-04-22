@@ -287,18 +287,19 @@ body.nav-collapsed .site-header { min-height: 40px; padding: 6px 14px; }
   min-width: 0;
 }
 
-/* Reorder so notation sits in the MIDDLE (right under the engine
-   power bar) with the engine "thinking" panel + coach tabs below.
-   User request: notation above computer thinking — matches lila's
-   right-column hierarchy where the move tree is prominent and the
-   live ceval output is secondary. CSS order only — HTML order is
-   preserved so JS queries and focus-order stay intact. */
+/* Right-column hierarchy (top → bottom):
+   1. Engine power on/off
+   2. Engine thinking (score/depth/PV)
+   3. Move accuracy strip
+   4. Notation (move list)
+   5. Coach tabs, eval timeline, pawn strip
+   CSS order only — HTML order is preserved so JS queries stay intact. */
 .tools > .engine-power-row { order: 0; }
-.tools > .move-list-wrap   { order: 1; }
-.tools > .ceval            { order: 2; }
-.tools > .tabbed           { order: 3; }
-.tools > #eval-timeline    { order: 4; }
-.tools > #accuracy-strip   { order: 5; }
+.tools > .ceval            { order: 1; }
+.tools > #accuracy-strip   { order: 2; }
+.tools > .move-list-wrap   { order: 3; }
+.tools > .tabbed           { order: 4; }
+.tools > #eval-timeline    { order: 5; }
 .tools > #pawn-strip       { order: 6; }
 
 /* ─── Mobile (#24) — phone-width optimisation ─── */
