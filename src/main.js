@@ -8184,6 +8184,116 @@ async function main() {
     if (dlStatus) dlStatus.textContent = '✓ Download started. If nothing happens, check browser downloads.';
     setTimeout(() => { if (dlModal) dlModal.hidden = true; }, 1200);
   });
+  // ─── Reset data (🗑) — wipes local mistakes/drills and optionally ─
+  //      deletes all cloud games. Destructive, so confirmation modal
+  //      lets the user opt-in to each bucket independently.
+  const btnResetData = document.getElementById('btn-reset-data');
+  if (btnResetData) btnResetData.addEventListener('click', async () => {
+    // Build an ad-hoc modal on the fly (no HTML template needed for
+    // a one-off destructive confirmation).
+    const existing = document.getElementById('reset-data-modal');
+    if (existing) existing.remove();
+    const m = document.createElement('div');
+    m.id = 'reset-data-modal';
+    m.className = 'modal';
+    m.style.zIndex = '99999';
+    const loggedIn = !!window.__currentUser;
+    m.innerHTML = `
+      <div class="modal-card" style="max-width:480px;">
+        <button class="modal-close" id="reset-close" aria-label="Close">×</button>
+        <h3 style="margin-top:0;">🗑 Reset data</h3>
+        <p class="muted" style="font-size:12px;margin:6px 0 14px;">
+          Destructive. Pick which buckets to wipe. Each option runs
+          independently — unchecked boxes are untouched.
+        </p>
+        <label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:8px;cursor:pointer;">
+          <input type="checkbox" id="reset-local-archive" style="margin-top:2px;">
+          <div>
+            <div style="font-weight:600;">Local archived games + Mistake Bank</div>
+            <div class="muted" style="font-size:11px;">Clears the browser's stockfish-explain.archive.games. The Mistake Bank is derived from these games, so it clears too.</div>
+          </div>
+        </label>
+        <label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:8px;cursor:pointer;">
+          <input type="checkbox" id="reset-srs" style="margin-top:2px;">
+          <div>
+            <div style="font-weight:600;">Drill queue (spaced-repetition cards)</div>
+            <div class="muted" style="font-size:11px;">Clears stockfish-explain.srs.cards. You'll start with an empty drill list.</div>
+          </div>
+        </label>
+        <label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid ${loggedIn ? 'var(--c-border)' : 'rgba(255,255,255,0.04)'};border-radius:6px;margin-bottom:8px;cursor:${loggedIn ? 'pointer' : 'not-allowed'};opacity:${loggedIn ? '1' : '0.5'};">
+          <input type="checkbox" id="reset-cloud-games" style="margin-top:2px;" ${loggedIn ? '' : 'disabled'}>
+          <div>
+            <div style="font-weight:600;">All cloud games (Postgres)</div>
+            <div class="muted" style="font-size:11px;">${loggedIn
+              ? `Calls DELETE /api/games/:id for every game under your account (${window.__currentUser?.username || 'you'}). Irreversible.`
+              : 'Only available when logged in.'}</div>
+          </div>
+        </label>
+        <div id="reset-status" class="muted" style="font-size:11px;min-height:16px;margin-top:8px;"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+          <button id="reset-cancel" class="btn">Cancel</button>
+          <button id="reset-confirm" class="btn" style="background:var(--c-bad);color:white;">Wipe selected</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(m);
+    const close = () => m.remove();
+    m.querySelector('#reset-close').addEventListener('click', close);
+    m.querySelector('#reset-cancel').addEventListener('click', close);
+    m.addEventListener('click', (e) => { if (e.target === m) close(); });
+    m.querySelector('#reset-confirm').addEventListener('click', async () => {
+      const wipeLocal  = m.querySelector('#reset-local-archive').checked;
+      const wipeSrs    = m.querySelector('#reset-srs').checked;
+      const wipeCloud  = m.querySelector('#reset-cloud-games').checked;
+      if (!wipeLocal && !wipeSrs && !wipeCloud) {
+        m.querySelector('#reset-status').textContent = 'Pick at least one bucket.';
+        return;
+      }
+      if (!confirm('Final confirm: wipe selected data? This cannot be undone.')) return;
+      const status = m.querySelector('#reset-status');
+      try {
+        if (wipeLocal) {
+          Archive.clearArchive();
+          status.textContent = '✓ Local archive cleared.';
+        }
+        if (wipeSrs) {
+          try { localStorage.removeItem('stockfish-explain.srs.cards'); } catch {}
+          status.textContent = (status.textContent + ' ✓ Drill queue cleared.').trim();
+        }
+        if (wipeCloud && loggedIn) {
+          status.textContent = '⏳ Fetching cloud games…';
+          let deleted = 0, failed = 0;
+          // Fetch in pages of 500 until exhausted.
+          const allIds = [];
+          let offset = 0;
+          while (true) {
+            const page = await api.listGames({ limit: 500, offset });
+            const games = page.games || [];
+            if (!games.length) break;
+            for (const g of games) allIds.push(g.id);
+            if (games.length < 500) break;
+            offset += games.length;
+          }
+          status.textContent = `⏳ Deleting ${allIds.length} cloud game${allIds.length === 1 ? '' : 's'}…`;
+          for (const id of allIds) {
+            try { await api.deleteGame(id); deleted++; }
+            catch (err) { console.warn('[reset] cloud delete failed', id, err); failed++; }
+            if ((deleted + failed) % 10 === 0) {
+              status.textContent = `⏳ Deleting cloud games: ${deleted + failed}/${allIds.length}…`;
+            }
+          }
+          status.textContent += ` ✓ Cloud: ${deleted} deleted, ${failed} failed.`;
+        }
+      } catch (err) {
+        status.textContent = '⚠ Error: ' + (err.message || err);
+        console.warn('[reset] failed', err);
+      }
+      // Refresh any open views that depend on this data.
+      try { updateLearnButton?.(); } catch {}
+      setTimeout(close, 2500);
+    });
+  });
+
   if (btnToggleToolbar) {
     // Default to collapsed toolbar if the user has never explicitly
     // expanded it. The toolbar eats ~60 px of vertical real-estate
