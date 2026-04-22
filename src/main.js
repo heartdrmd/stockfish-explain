@@ -3349,10 +3349,31 @@ async function main() {
       }
     }
 
+    // Lichess-style SAN → piece-figurine prefix. Replaces the first
+    // char (N/B/R/Q/K) with the unicode piece glyph, keeping the
+    // remaining SAN (destination, capture x, check +, mate #) as text.
+    // Pawn moves have no prefix letter — left unchanged.
+    function figurine(san, moverColor) {
+      if (!san) return san;
+      const c = san.charCodeAt(0);
+      if (c < 0x41 || c > 0x5a) return san;  // not an uppercase letter → pawn or castling
+      if (san === 'O-O' || san === 'O-O-O' || san.startsWith('O-')) return san;
+      const white = moverColor === 'w';
+      const map = white
+        ? { K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘' }
+        : { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞' };
+      const glyph = map[san[0]];
+      if (!glyph) return san;
+      return `<span class="mg-piece">${glyph}</span>${san.slice(1)}`;
+    }
     // Render a single move cell
     function mvCell(node, path, cls = '') {
       const isCurrent = path === currentPath ? ' current' : '';
-      return `<span class="mg-move ${cls}${isCurrent}" data-path="${path}">${node.san}</span>`;
+      // node.ply is the ply-count AFTER the move was played:
+      //   ply 1 = after white's 1st move → white moved → 'w'
+      //   ply 2 = after black's 1st move → black moved → 'b'
+      const moverColor = (node.ply % 2 === 1) ? 'w' : 'b';
+      return `<span class="mg-move ${cls}${isCurrent}" data-path="${path}">${figurine(node.san, moverColor)}</span>`;
     }
 
     // Render a single variation (sibling + its continuation) inline.
@@ -3367,8 +3388,9 @@ async function main() {
         const full  = Math.floor(sibParentNode.ply / 2) + 1;
         const num   = white ? `${full}. ` : `${full}... `;
         const curCls = sibPath === currentPath ? ' current' : '';
+        const sibMover = (sibNode.ply % 2 === 1) ? 'w' : 'b';
         parts.push(`<span class="mg-var-num">${num}</span>` +
-                   `<span class="mg-move mg-var-move${curCls}" data-path="${sibPath}">${sibNode.san}</span>`);
+                   `<span class="mg-move mg-var-move${curCls}" data-path="${sibPath}">${figurine(sibNode.san, sibMover)}</span>`);
       }
       // Continue down this branch's mainline (children[0] chain), re-stating
       // ply when a nested sub-variation exists or at every new full-move.
@@ -3385,7 +3407,8 @@ async function main() {
         else if (pendingRestate)        num = `${full}... `;
         const curCls = npath === currentPath ? ' current' : '';
         if (num) parts.push(`<span class="mg-var-num">${num}</span>`);
-        parts.push(`<span class="mg-move mg-var-move${curCls}" data-path="${npath}">${next.san}</span>`);
+        const nextMover = (next.ply % 2 === 1) ? 'w' : 'b';
+        parts.push(`<span class="mg-move mg-var-move${curCls}" data-path="${npath}">${figurine(next.san, nextMover)}</span>`);
         // Render nested sub-variations of `next` inline (rare — we cap at 2 deep)
         if (node.children.length > 1) {
           for (const nested of node.children.slice(1)) {
@@ -3459,6 +3482,14 @@ async function main() {
         openMoveContextMenu(e, el.dataset.path);
       });
     });
+
+    // Auto-scroll the current move into view (lila behavior). Scroll
+    // the nearest scrollable ancestor — the move list itself scrolls
+    // internally via overflow-y:auto in panels.css.
+    try {
+      const cur = ui.moveList.querySelector('.mg-move.current');
+      if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    } catch {}
   }
 
   // Replay chess.js up to `path` and update UI. Treats the tree path's

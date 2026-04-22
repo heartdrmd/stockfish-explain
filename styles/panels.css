@@ -707,49 +707,45 @@ details.dissect-details[open] summary {
 /* ──────────────────────────────────────────────────────────────── */
 .tview2-column {
   font-family: var(--font-san);
-  font-size: 13px;
-  line-height: 1.25em;
-  padding: 1px 0;
+  font-size: 15px;
+  line-height: 1.2em;
+  padding: 0;
 }
 
-/* Mainline ply-pair grid: [num · white · black].
-   Tightened to lila-compact: 28 px index cell (was 40), 22 px row
-   min-height (was 30), line-height 1.35 on moves (was 1.75). Makes
-   ~8 more plies visible without scrolling and matches lila's dense
-   right-column notation look. */
+/* Lichess-classic mainline grid — move number | white | black.
+   Tight rows (28 px), clean large text, subtle full-cell highlight
+   on current move (no border). Matches the screenshot of lila's
+   right-column notation. */
 .mg-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr);
   align-items: stretch;
-  min-height: 22px;
+  min-height: 28px;
 }
-.mg-row:hover { background: rgba(255,255,255,0.015); }
+.mg-row:hover { background: rgba(255,255,255,0.02); }
 
-/* Index cell: zebra-tinted, centered, dimmer text, right border. */
+/* Index cell: dimmer grey, right-aligned. No zebra, no border —
+   cleaner than our earlier look, matches the screenshot. */
 .mg-num {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 0 2px;
-  font-size: 11px;
-  line-height: 1.25;
-  color: var(--c-font-dimmer, rgba(255,255,255,0.45));
-  font-weight: 500;
+  justify-content: flex-end;
+  padding: 0 10px 0 4px;
+  font-size: 13px;
+  color: var(--c-font-dimmer, rgba(255,255,255,0.4));
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   user-select: none;
-  background: var(--c-bg-zebra, rgba(255,255,255,0.02));
-  border-right: 1px solid rgba(255,255,255,0.06);
 }
 
-/* Move cell — compact, tabular, individually hoverable. */
+/* Move cell — clean, large, tight, full-cell clickable. */
 .mg-move {
   display: flex;
   align-items: center;
-  padding: 0 4px 0 6px;
-  font-size: 13px;
-  line-height: 1.35;
+  padding: 0 8px;
+  font-size: 15px;
+  line-height: 1.2;
   cursor: pointer;
-  border-radius: 2px;
   transition: background 0.06s, color 0.06s;
   white-space: nowrap;
   overflow: hidden;
@@ -758,16 +754,27 @@ details.dissect-details[open] summary {
   color: var(--c-font, #e6e6e6);
 }
 .mg-move:hover {
-  background: var(--c-bg-zebra2, rgba(255,255,255,0.05));
+  background: rgba(255,255,255,0.06);
   color: var(--c-font-clear, #fff);
 }
+/* Current move: subtle dark-blue fill — NO border (border causes
+   layout jitter and doesn't match lila's look). */
 .mg-move.current {
-  background: var(--c-primary);
+  background: #3692e7;  /* lila's notation-highlight blue */
   color: white;
-  font-weight: 700;
-  border: 1px solid var(--c-accent, rgba(255,255,255,0.35));
+  font-weight: 600;
 }
 .mg-main { font-weight: 500; }
+
+/* Piece figurine glyph — inline, lifts slightly above the line so
+   the glyph and SAN text share a visual baseline. */
+.mg-piece {
+  display: inline-block;
+  font-family: "Segoe UI Symbol", "Apple Color Emoji", "Noto Sans Symbols", sans-serif;
+  margin-right: 1px;
+  line-height: 1;
+  font-weight: normal;
+}
 .mg-empty { cursor: default; color: var(--c-font-dimmer, rgba(255,255,255,0.4)); }
 .mg-empty:hover { background: transparent; color: var(--c-font-dimmer, rgba(255,255,255,0.4)); }
 
@@ -777,7 +784,7 @@ details.dissect-details[open] summary {
    their side's moves. */
 .move-list-side-header {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr);
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
