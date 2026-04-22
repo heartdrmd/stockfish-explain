@@ -495,7 +495,24 @@ export class Engine extends EventTarget {
     const myId = this._searchId;
     this._activeSearchId = null;      // drop any trailing bestmove
     this._pendingStart = { fen, opts, myId };
+    console.log('[engine] start() queued', { myId, wasSearching, fen: fen.slice(0,40) + '…' });
     this._send('isready');             // barrier — readyok triggers _doStart
+    // Safety net: if readyok gets swallowed by some other consumer
+    // (background bignet swap's _waitFor, a stray message handler,
+    // Stockfish stalling on a net load, etc.) the practice engine
+    // would sit idle forever — the 01:05:40 log showed exactly this.
+    // Fallback fires _doStart unconditionally after 1500 ms if the
+    // pending entry hasn't been consumed by readyok.
+    if (this._pendingStartTimer) clearTimeout(this._pendingStartTimer);
+    this._pendingStartTimer = setTimeout(() => {
+      this._pendingStartTimer = 0;
+      if (!this._pendingStart) return;            // readyok handled it
+      if (this._pendingStart.myId !== myId) return; // superseded
+      const p = this._pendingStart;
+      this._pendingStart = null;
+      console.warn('[engine] readyok timeout — forcing _doStart', { myId });
+      this._doStart(p.fen, p.opts, p.myId);
+    }, 1500);
   }
 
   _doStart(fen, opts = {}, searchId = null) {
@@ -663,11 +680,14 @@ export class Engine extends EventTarget {
     // (myId == current _searchId) runs.
     if (line.startsWith('readyok') && this._pendingStart) {
       const { fen, opts, myId } = this._pendingStart;
+      if (this._pendingStartTimer) { clearTimeout(this._pendingStartTimer); this._pendingStartTimer = 0; }
       if (myId === this._searchId) {
+        console.log('[engine] readyok consumed → _doStart', { myId });
         this._pendingStart = null;
         this._doStart(fen, opts, myId);
       } else {
         // Superseded by a later start(); just discard.
+        console.log('[engine] readyok consumed → superseded, discarding', { pendingMyId: myId, currentSearchId: this._searchId });
         this._pendingStart = null;
       }
     }
