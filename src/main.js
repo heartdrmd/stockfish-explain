@@ -7460,10 +7460,49 @@ async function main() {
     // curve so the newest point lands in the right place.
     engine.addEventListener('bestmove', requestUpdate);
 
+    // Secondary toggle wired to the nav row inside the move list
+    // header (📈 button). Clicks the main graph btn so state stays in
+    // sync. Also docks the card into the right-column slot so the
+    // graph spans the move-list width, per user request.
+    const navGraphBtn  = document.getElementById('nav-graph');
+    const notationSlot = document.getElementById('notation-graph-slot');
+    function relocateForSidebar() {
+      if (!notationSlot) return;
+      if (card.classList.contains('review-mode')) return;  // keep docked below board in review
+      if (!card.hidden && card.parentElement !== notationSlot) {
+        notationSlot.appendChild(card);
+        card.classList.add('sidebar-docked');
+      }
+    }
+    function restoreFloating() {
+      if (card.classList.contains('sidebar-docked')) {
+        card.classList.remove('sidebar-docked');
+        document.body.appendChild(card);
+      }
+    }
+    if (navGraphBtn) {
+      navGraphBtn.addEventListener('click', () => {
+        if (card.hidden) {
+          show();
+          relocateForSidebar();
+        } else {
+          hide();
+          restoreFloating();
+        }
+        navGraphBtn.classList.toggle('active', !card.hidden);
+      });
+    }
+    // If state is already visible (restored from localStorage), sync
+    // the nav button highlight.
+    function syncNavGraphBtn() {
+      if (navGraphBtn) navGraphBtn.classList.toggle('active', !card.hidden);
+    }
+
     // Restore prior toggle state.
     try {
-      if (localStorage.getItem(STORAGE_KEY) === '1') show();
+      if (localStorage.getItem(STORAGE_KEY) === '1') { show(); relocateForSidebar(); }
     } catch {}
+    syncNavGraphBtn();
 
     // ═══════════════════════════════════════════════════════════════════
     // 🎓 Practice coach — ADDITIVE overlay.

@@ -882,6 +882,33 @@
   padding: 8px 12px;
 }
 .live-graph-card[hidden] { display: none; }
+
+/* Sidebar-docked graph (toggled from the 📈 button in the move-list
+   header). Card flows inline above the notation at the SAME width
+   as the move-list column — no floating overlay, no fixed width. */
+.live-graph-card.sidebar-docked {
+  position: static;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 6px;
+  padding: 8px 10px 10px;
+}
+.live-graph-card.sidebar-docked .live-graph-body {
+  height: clamp(100px, 18vh, 200px);
+}
+/* Slot beneath the move-list header where the docked graph lives. */
+.notation-graph-slot { width: 100%; }
+.notation-graph-slot:empty { display: none; }
+
+/* Highlight the nav-row graph button when the graph is visible. */
+#nav-graph.active {
+  background: var(--c-primary);
+  color: white;
+}
 .live-graph-head {
   display: flex; justify-content: space-between; align-items: center;
   font-size: 12px; margin-bottom: 6px;
