@@ -378,27 +378,27 @@
     </section>
 
     <section class="tools">
-      <!-- Engine output -->
-      <div class="ceval">
-        <!-- Huge engine on/off toggle + Threat button. The power button
-             mirrors the 🔒 Engine lock in the header so users can't miss
-             the engine state. Threat passes the move to the other side
-             (null-move) and analyzes what they'd do — exposing the
-             opponent's biggest plan/threat. -->
-        <div class="engine-power-row">
-          <button id="engine-power" class="engine-power" aria-live="polite">
-            <span class="engine-power-dot" aria-hidden="true"></span>
-            <span class="engine-power-label">ENGINE: ON · analyzing</span>
-            <span class="engine-power-sub">click to stop</span>
-          </button>
-          <button id="btn-threat" class="threat-btn"
-                  title="Pass to the other side and see what they'd do — their biggest threat. Keyboard: x">
-            <span class="threat-label">🎯 THREAT</span>
-            <span class="threat-sub">what's their best move? (x)</span>
-          </button>
-        </div>
-        <div id="threat-output" class="threat-output" hidden></div>
+      <!-- Engine power + threat — kept at top so the ON/OFF toggle is
+           always at hand. The "thinking" readout (score/depth/PV)
+           has been split out below the move list per lila-style
+           layout where notation is primary and ceval secondary. -->
+      <div class="engine-power-row">
+        <button id="engine-power" class="engine-power" aria-live="polite">
+          <span class="engine-power-dot" aria-hidden="true"></span>
+          <span class="engine-power-label">ENGINE: ON · analyzing</span>
+          <span class="engine-power-sub">click to stop</span>
+        </button>
+        <button id="btn-threat" class="threat-btn"
+                title="Pass to the other side and see what they'd do — their biggest threat. Keyboard: x">
+          <span class="threat-label">🎯 THREAT</span>
+          <span class="threat-sub">what's their best move? (x)</span>
+        </button>
+      </div>
+      <div id="threat-output" class="threat-output" hidden></div>
 
+      <!-- Engine output (score / depth / PV lines) — moved below
+           move list via CSS `order`. -->
+      <div class="ceval">
         <div class="ceval-top">
           <span id="score-pearl" class="pearl">—</span>
           <div class="ceval-meta">

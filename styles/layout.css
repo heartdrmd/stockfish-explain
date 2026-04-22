@@ -287,6 +287,20 @@ body.nav-collapsed .site-header { min-height: 40px; padding: 6px 14px; }
   min-width: 0;
 }
 
+/* Reorder so notation sits in the MIDDLE (right under the engine
+   power bar) with the engine "thinking" panel + coach tabs below.
+   User request: notation above computer thinking — matches lila's
+   right-column hierarchy where the move tree is prominent and the
+   live ceval output is secondary. CSS order only — HTML order is
+   preserved so JS queries and focus-order stay intact. */
+.tools > .engine-power-row { order: 0; }
+.tools > .move-list-wrap   { order: 1; }
+.tools > .ceval            { order: 2; }
+.tools > .tabbed           { order: 3; }
+.tools > #eval-timeline    { order: 4; }
+.tools > #accuracy-strip   { order: 5; }
+.tools > #pawn-strip       { order: 6; }
+
 /* ─── Mobile (#24) — phone-width optimisation ─── */
 /* On narrow screens (< 640px), the tools panel becomes a sticky
    bottom-sheet that the user can expand from a peek strip. The
