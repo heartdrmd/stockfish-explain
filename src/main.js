@@ -5386,6 +5386,13 @@ async function main() {
       } catch (err) {
         console.warn('[archive] failed to archive practice game', err);
       }
+      // Kick LIVE analysis on the final position. retrospectiveSweep
+      // held the engine hostage for the per-ply sweep, so by the time
+      // this async chain finishes the engine is idle and no one is
+      // driving the eval bar / PV lines. User reported 'engine didn't
+      // kick in immediately — had to turn off/on'; this restores
+      // live analysis automatically.
+      try { fireAnalysis(); } catch {}
     })();
     // Swap the card UI into post-game state
     const pLive = document.getElementById('practice-live');
