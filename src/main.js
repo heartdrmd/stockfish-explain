@@ -4865,7 +4865,73 @@ async function main() {
     };
     refreshReplayButton();
 
-    pStren.addEventListener('input', () => { pStrenV.textContent = pStren.value; });
+    pStren.addEventListener('input', () => {
+      pStrenV.textContent = pStren.value;
+      // Any manual skill change → preset goes Custom.
+      const ps = document.getElementById('practice-preset');
+      if (ps && ps.value !== 'custom') { ps.value = 'custom'; updatePresetHint(); }
+    });
+
+    // ─── Strength presets ─────────────────────────────────────────────
+    // Bundles skill + seconds-per-move in a single user-picked tier,
+    // from Beginner ('hangs pieces') to GM ('full strength'). Applying
+    // a preset updates both controls AND the hint line; manually
+    // touching either slider flips back to 'Custom'.
+    const PRESETS = {
+      beginner:   { skill:  0, seconds: 1,  hint: 'Hangs pieces, misses one-move threats. Safe to try brand-new openings against.' },
+      novice:     { skill:  3, seconds: 1,  hint: 'Basic tactics. Misses 2-move combinations. Beginners\u2019 rating range.' },
+      casual:     { skill:  6, seconds: 2,  hint: 'Sees most 1-move threats. Occasional positional misjudgement.' },
+      club:       { skill:  9, seconds: 2,  hint: 'Club-level play. Mostly sound, some inaccuracies in sharp positions.' },
+      'solid-club':{skill: 12, seconds: 3,  hint: 'Steady play, solid calculation at short time controls.' },
+      tournament: { skill: 14, seconds: 5,  hint: 'Tournament-strength amateur. Rarely blunders in quiet positions.' },
+      expert:     { skill: 16, seconds: 8,  hint: 'Expert-level consistency. Sees deeper tactical patterns.' },
+      master:     { skill: 18, seconds: 12, hint: 'Master-level: punishes inaccuracies, calculates forcing lines deeply.' },
+      im:         { skill: 19, seconds: 20, hint: 'IM strength \u2014 no major blunders, finds the right plan.' },
+      gm:         { skill: 20, seconds: 30, hint: 'GM strength \u2014 full Stockfish at 30 s/move. Crushing.' },
+    };
+    const pPreset = document.getElementById('practice-preset');
+    const pPresetHint = document.getElementById('practice-preset-hint');
+    const pSecondsSel = document.getElementById('practice-seconds-preset');
+    function updatePresetHint() {
+      if (!pPreset || !pPresetHint) return;
+      const v = pPreset.value;
+      if (v === 'custom') {
+        pPresetHint.textContent = 'Custom \u2014 adjust skill + time sliders independently.';
+      } else if (PRESETS[v]) {
+        pPresetHint.textContent = PRESETS[v].hint;
+      }
+    }
+    function applyPreset(key) {
+      const p = PRESETS[key];
+      if (!p) return;
+      pStren.value = String(p.skill);
+      pStrenV.textContent = String(p.skill);
+      // Force mode back to 'seconds' so the seconds-preset dropdown is
+      // the active time control; this mirrors how the preset intends
+      // to set fixed seconds/move.
+      if (pMode) pMode.value = 'seconds';
+      if (pSecondsSel) {
+        // If exact match exists in the dropdown, pick it; else set
+        // closest below.
+        const opt = Array.from(pSecondsSel.options).find(o => +o.value === p.seconds);
+        pSecondsSel.value = opt ? opt.value : String(p.seconds);
+      }
+      // Trigger the mode change handler so the UI shows the right row.
+      pMode?.dispatchEvent(new Event('change'));
+    }
+    if (pPreset) {
+      pPreset.addEventListener('change', () => {
+        const v = pPreset.value;
+        if (v !== 'custom') applyPreset(v);
+        updatePresetHint();
+      });
+      // Moving the seconds preset manually → switch preset to Custom.
+      pSecondsSel?.addEventListener('change', () => {
+        if (pPreset.value !== 'custom') { pPreset.value = 'custom'; updatePresetHint(); }
+      });
+      // Initial state
+      updatePresetHint();
+    }
     pMode.addEventListener('change', () => {
       if (pMode.value === 'depth')    pVal.value = 14;
       if (pMode.value === 'movetime') pVal.value = 1500;

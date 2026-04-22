@@ -655,6 +655,23 @@
             <option value="black">Black</option>
           </select>
         </div>
+        <div class="setting" style="grid-column: 1 / -1;">
+          <label for="practice-preset" style="font-weight:600;">🎚 Strength preset</label>
+          <select id="practice-preset" class="tourn-select">
+            <option value="custom">⚙ Custom (use sliders below)</option>
+            <option value="beginner">🐣 Beginner · hangs pieces</option>
+            <option value="novice">👦 Novice · basic tactics miss</option>
+            <option value="casual">🎭 Casual · sees 1-move threats</option>
+            <option value="club">🏡 Club player · solid, some misses</option>
+            <option value="solid-club" selected>♟ Solid club · steady play</option>
+            <option value="tournament">🎯 Tournament · rarely blunders</option>
+            <option value="expert">🎓 Expert · consistent accuracy</option>
+            <option value="master">🏆 Master · punishes inaccuracies</option>
+            <option value="im">👑 IM · no major blunders</option>
+            <option value="gm">🦁 GM · full strength</option>
+          </select>
+          <small class="muted" id="practice-preset-hint">Steady play, solid calculation at short time controls.</small>
+        </div>
         <div class="setting">
           <label for="practice-strength">Engine strength (Skill 0-20)</label>
           <div class="range-wrap">
