@@ -166,6 +166,18 @@ export class BoardController extends EventTarget {
         console.log('[move-input] no legal moves to target → target-first aborted', { target });
         return;
       }
+      // User feedback: the 'multiple candidates, which piece?' prompt
+      // reads as a move failure even when the user already knew which
+      // piece they wanted. Now: target-first ONLY fires when exactly
+      // ONE piece can reach the target (single-source convenience).
+      // If multiple sources exist → bail, don't highlight, don't arm
+      // pending state. User's click falls through and they pick the
+      // piece first (click-piece-then-target) — the normal chessground
+      // flow nobody ever misreads.
+      if (legalSources.length > 1) {
+        console.log('[move-input] target-first: multi-source bail (user picks piece first)', { target, candidateCount: legalSources.length });
+        return;
+      }
       console.log('[move-input] target-first: lighting up candidates', { target, sources: legalSources });
 
       // Light up the candidate sources (same chessground auto-shapes).
@@ -564,8 +576,20 @@ export class BoardController extends EventTarget {
       newFen: this.chess.fen(),
     });
 
+    // Chessground state sync — this kicks off the visual slide
+    // animation. Run it synchronously so the animation frame renders
+    // with zero competition.
     this._syncToChessground([orig, dest]);
-    this.dispatchEvent(new CustomEvent('move', { detail: { move, fen: this.chess.fen() } }));
+    // Non-visual paperwork (move-list re-render, eval strip, engine
+    // stop+start, graph update) runs in the NEXT animation frame
+    // (Option B). The heavy sync work doesn't compete with the first
+    // animation frame, so the piece-slide feels noticeably snappier
+    // on slower devices. requestAnimationFrame gives us ~16 ms of
+    // headroom before listeners run — invisible to the human eye.
+    const moveFen = this.chess.fen();
+    requestAnimationFrame(() => {
+      this.dispatchEvent(new CustomEvent('move', { detail: { move, fen: moveFen } }));
+    });
   }
 
   _syncToChessground(lastMove) {
