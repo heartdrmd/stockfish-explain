@@ -5362,10 +5362,35 @@ async function main() {
     }
   });
 
-  // "New game" from the post-game card — re-opens the practice modal.
+  // "New game" from the post-game card — restart the SAME opening
+  // with the last-used settings. Behaves like the Replay-Last button:
+  // open modal → apply last settings → click Start (in one motion).
+  // Rationale: after finishing a practice game the user almost always
+  // wants another rep of the same line; forcing them through the
+  // opening picker on every attempt is friction. If they want a
+  // DIFFERENT opening, the top "🎯 Practice" button opens the picker.
   const btnPracticeAgain = document.getElementById('btn-practice-again');
   if (btnPracticeAgain) btnPracticeAgain.addEventListener('click', () => {
     const practiceBtn = document.getElementById('btn-practice');
+    const replayBtn   = document.getElementById('practice-replay');
+    const last = (() => {
+      try { return JSON.parse(localStorage.getItem('stockfish-explain.practice-last-settings') || 'null'); }
+      catch { return null; }
+    })();
+    // If we have last settings, open the modal (needed for its dropdowns
+    // to be interactable) and immediately click the Replay button, which
+    // applies settings + starts. The user never sees the modal — it pops
+    // and closes in the same frame.
+    if (last && practiceBtn && replayBtn) {
+      practiceBtn.click();
+      // rAF so the modal's internal init (option rebuild, tree render)
+      // completes before we click Replay.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => replayBtn.click());
+      });
+      return;
+    }
+    // No history → fall back to the picker.
     if (practiceBtn) practiceBtn.click();
   });
 
