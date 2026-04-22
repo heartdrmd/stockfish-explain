@@ -166,22 +166,24 @@ export class BoardController extends EventTarget {
         console.log('[move-input] no legal moves to target → target-first aborted', { target });
         return;
       }
-      // User feedback: the 'multiple candidates, which piece?' prompt
-      // reads as a move failure even when the user already knew which
-      // piece they wanted. Now: target-first ONLY fires when exactly
-      // ONE piece can reach the target (single-source convenience).
-      // If multiple sources exist → bail, don't highlight, don't arm
-      // pending state. User's click falls through and they pick the
-      // piece first (click-piece-then-target) — the normal chessground
-      // flow nobody ever misreads.
-      if (legalSources.length > 1) {
-        console.log('[move-input] target-first: multi-source bail (user picks piece first)', { target, candidateCount: legalSources.length });
-        return;
+      // Multi-source policy:
+      //   - CLICK (no drag)   → bail silently; the 'which piece?'
+      //                         prompt was confusing. User picks the
+      //                         piece first (chessground flow).
+      //   - DRAG from target  → still supported: dragging TO a legal
+      //                         source disambiguates, so we let it
+      //                         through via the onUp handler below.
+      // Single-source path keeps the candidate highlight so the user
+      // sees which piece will move.
+      const isSingleSource = legalSources.length === 1;
+      if (isSingleSource) {
+        console.log('[move-input] target-first: lighting up candidate', { target, sources: legalSources });
+        this._highlightCandidates(legalSources);
+      } else {
+        console.log('[move-input] target-first: multi-source, drag enabled but no click prompt', { target, candidateCount: legalSources.length });
+        // Highlights kept off — would have looked like the old
+        // confusing "which piece?" prompt. Drag still tracks below.
       }
-      console.log('[move-input] target-first: lighting up candidates', { target, sources: legalSources });
-
-      // Light up the candidate sources (same chessground auto-shapes).
-      this._highlightCandidates(legalSources);
 
       const startX = e.clientX, startY = e.clientY;
       let dragged = false;
@@ -218,10 +220,13 @@ export class BoardController extends EventTarget {
           this._clearTargetFirst();
           self._onUserMove(legalSources[0], target, { via: 'target-first-single' });
         } else {
-          console.log('[move-input] target-first: multiple candidates, waiting for source click', { target, sources: legalSources });
-          // Multiple candidates — leave highlights armed for the next click
-          this._pendingTarget = target;
-          this._pendingTargetSources = legalSources;
+          // Multi-source CLICK (no drag): bail silently. The old
+          // "multiple candidates, waiting for source click" prompt was
+          // confusing. User picks the piece first via chessground's
+          // native flow on their NEXT click. Drag path above still
+          // handles the reverse-drag-from-target case.
+          console.log('[move-input] target-first: multi-source click, no prompt (use click-piece-first)', { target, sources: legalSources });
+          this._clearTargetFirst();
         }
       };
       document.addEventListener('pointermove', onMove);

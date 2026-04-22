@@ -2627,7 +2627,16 @@ async function main() {
     if (board.goToPly) board.goToPly(_learn.targetPly - 1);
     // Fast engine probe at pre-mistake fen, 1.5 s.
     engine.setMultiPV(1);
+    // Snapshot the fen we're probing at. If a concurrent call (e.g.
+    // fireAnalysis) interrupts us, engine.currentFen will no longer
+    // match — in which case the bestmove event we receive is for the
+    // INTERRUPTING search, not our probe. Check and bail.
+    const probeFen = prev.fen;
     const onBest = (ev) => {
+      if (engine.currentFen !== probeFen) {
+        console.log('[learn-mode] bestmove ignored — probe was interrupted', { probeFen, currentFen: engine.currentFen });
+        return;   // wait for the real one (we'll re-fire if no arrow appears)
+      }
       engine.removeEventListener('bestmove', onBest);
       const hist = engine.history || [];
       const last = hist[hist.length - 1];
@@ -2641,10 +2650,11 @@ async function main() {
           const m = c.move({ from: bestUci.slice(0,2), to: bestUci.slice(2,4), promotion: bestUci[4] || undefined });
           _learn.bestSan = m ? m.san : bestUci;
         } catch { _learn.bestSan = bestUci; }
-        // Highlight the best move on the board with a bright green
-        // arrow (lila retroCtrl's setAutoShapes on view-solution).
+        // Re-check the board is still on the pre-mistake position
+        // before drawing — guards against late-arriving arrows
+        // painting over a different position.
         try {
-          if (board.drawArrows) {
+          if (board.drawArrows && board.fen() === probeFen) {
             board.drawArrows([{
               orig: bestUci.slice(0, 2),
               dest: bestUci.slice(2, 4),
