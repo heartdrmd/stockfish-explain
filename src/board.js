@@ -70,6 +70,21 @@ export class BoardController extends EventTarget {
       self._onRightClickSquare(key, e);
     });
 
+    // Keep chessground's cached bounds fresh when the board element
+    // itself resizes — chessground only listens for window resize +
+    // document scroll, so CSS-driven reflows (panel show/hide, flex
+    // reorder, board-resize handle) can leave stale bounds. Observing
+    // rootEl covers all those cases.
+    try {
+      if (typeof ResizeObserver === 'function') {
+        const ro = new ResizeObserver(() => {
+          try { self.cg?.state?.dom?.bounds?.clear?.(); } catch {}
+        });
+        ro.observe(this.rootEl);
+        this._boundsObserver = ro;
+      }
+    } catch {}
+
     // Target-first input. Two modes:
     //  (a) pointerdown on empty/enemy square → start tracking. On pointerup,
     //      if released on a legal source square (i.e. user "dragged back"
@@ -80,6 +95,14 @@ export class BoardController extends EventTarget {
     //      highlight candidates, next click picks source.
     this.rootEl.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
+      // Chessground caches its board bounds via util.memo and only
+      // invalidates on scroll/resize events. Any layout shift that
+      // moves the board without either (panel show/hide, flex reorder,
+      // toolbar toggle, etc.) leaves chessground with STALE bounds —
+      // clicks map to squares 1-2 ranks off from where the user
+      // actually clicked. Invalidate the cache every pointerdown so
+      // the next bounds() call reads fresh. Cheap — one rect lookup.
+      try { this.cg?.state?.dom?.bounds?.clear?.(); } catch {}
       const target = this._coordsToKey(e.clientX, e.clientY);
       if (!target) {
         console.log('[move-input] pointerdown off-board', { x: e.clientX, y: e.clientY });
