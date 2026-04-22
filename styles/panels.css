@@ -766,12 +766,16 @@ details.dissect-details[open] summary {
 }
 .mg-main { font-weight: 500; }
 
-/* Piece figurine glyph — inline, lifts slightly above the line so
-   the glyph and SAN text share a visual baseline. */
+/* Piece figurine glyph — force TEXT presentation so the OS doesn't
+   swap in a color-emoji font. Emoji rendering was ~2× wider than
+   text and overflowed the cell, hiding the destination (Bg2 → "♗ g").
+   Explicitly exclude emoji fallbacks; prefer narrow text-capable
+   symbol fonts. */
 .mg-piece {
   display: inline-block;
-  font-family: "Segoe UI Symbol", "Apple Color Emoji", "Noto Sans Symbols", sans-serif;
-  margin-right: 1px;
+  font-family: "DejaVu Sans", "Segoe UI Symbol", "Noto Sans Symbols2", "Arial Unicode MS", sans-serif;
+  font-variant-emoji: text;
+  margin-right: 2px;
   line-height: 1;
   font-weight: normal;
 }

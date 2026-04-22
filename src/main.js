@@ -3364,7 +3364,11 @@ async function main() {
         : { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞' };
       const glyph = map[san[0]];
       if (!glyph) return san;
-      return `<span class="mg-piece">${glyph}</span>${san.slice(1)}`;
+      // Append variation-selector-15 (U+FE0E) to force TEXT presentation.
+      // Without it some systems (especially macOS) render ♘/♞/♗/♝ as
+      // wide color emojis which then overflow the move cell and hide
+      // the destination square (e.g. "Nbd7" showed as just "♞ b").
+      return `<span class="mg-piece">${glyph}\uFE0E</span>${san.slice(1)}`;
     }
     // Render a single move cell
     function mvCell(node, path, cls = '') {
