@@ -464,58 +464,21 @@ export class Engine extends EventTarget {
       console.log('[engine] start() ignored — engine not ready yet');
       return;
     }
-    // Lila-style barrier (see lila ui/ceval stockfishProtocol):
-    //   1. send 'stop' so Stockfish emits a bestmove for the prior
-    //      search (if any) and becomes idle.
-    //   2. bump _searchId and clear _activeSearchId so any bestmove
-    //      arriving BEFORE our new 'go' is dropped as stale.
-    //   3. send 'isready' as a sync barrier. When 'readyok' arrives
-    //      we know the stop+flush completed; _handleLine then fires
-    //      _doStart(pending) and sets _activeSearchId = myId.
-    // Rapid-fire start() calls coalesce: _pendingStart is overwritten
-    // every time, so only the LAST queued start actually runs —
-    // killing the practice-start ghost-bestmove bug where SAN replay
-    // fired 4+ _doStarts and Stockfish replied with a stale bestmove
-    // in 9 ms.
+    // Simple synchronous path — no barrier. stop() + doStart same tick.
+    // The readyok-barrier approach stalled the engine when readyok was
+    // swallowed by a background bignet-swap _waitFor. Ghost-bestmove
+    // protection now lives in (a) main.js suppressing engine.start
+    // during SAN replay, (b) _pendingGos count below.
     const wasSearching = this.searching;
-    if (wasSearching) {
-      const caller = (new Error().stack || '').split('\n').slice(2, 4).map(s => s.trim()).join(' ← ');
-      console.log('[engine] stop() called', {
-        wasSearching: true,
-        caller,
-        searchId: this._searchId,
-        infoReceivedSoFar: this._infoReceived,
-        infoDispatchedSoFar: this._infoDispatched,
-      });
-      this.stopRequested = true;
-      this._send('stop');
-    }
-    this.searching = false;
-    this._searchId = (this._searchId || 0) + 1;
-    const myId = this._searchId;
-    this._activeSearchId = null;      // drop any trailing bestmove
-    this._pendingStart = { fen, opts, myId };
-    console.log('[engine] start() queued', { myId, wasSearching, fen: fen.slice(0,40) + '…' });
-    this._send('isready');             // barrier — readyok triggers _doStart
-    // Safety net: if readyok gets swallowed by some other consumer
-    // (background bignet swap's _waitFor, a stray message handler,
-    // Stockfish stalling on a net load, etc.) the practice engine
-    // would sit idle forever — the 01:05:40 log showed exactly this.
-    // Fallback fires _doStart unconditionally after 1500 ms if the
-    // pending entry hasn't been consumed by readyok.
-    if (this._pendingStartTimer) clearTimeout(this._pendingStartTimer);
-    this._pendingStartTimer = setTimeout(() => {
-      this._pendingStartTimer = 0;
-      if (!this._pendingStart) return;            // readyok handled it
-      if (this._pendingStart.myId !== myId) return; // superseded
-      const p = this._pendingStart;
-      this._pendingStart = null;
-      console.warn('[engine] readyok timeout — forcing _doStart', { myId });
-      this._doStart(p.fen, p.opts, p.myId);
-    }, 1500);
+    this.stop();
+    // Track how many bestmoves we're still expecting from Stockfish's
+    // internal queue. Each `go` → exactly one bestmove. When rapid
+    // starts stack up, we want to DROP all but the last bestmove.
+    this._pendingGos = (this._pendingGos || 0) + 1;
+    this._doStart(fen, opts);
   }
 
-  _doStart(fen, opts = {}, searchId = null) {
+  _doStart(fen, opts = {}) {
 
     this.history  = [];
     this.topMoves = new Map();
@@ -525,19 +488,9 @@ export class Engine extends EventTarget {
 
     // ───── Mismatch detector ─────
     // Track per-search diagnostics so we can catch the "engine should
-    // be analyzing, nothing appearing" state. Counters:
-    //   infoReceived  — total 'info' lines from worker
-    //   infoDropped   — lines dropped by stopRequested guard
-    //   infoDispatched — lines that fired 'thinking' event
-    // A silent engine = infoReceived stays 0 despite _doStart firing,
-    // OR infoDispatched stays 0 while infoDropped climbs. Either way
-    // we log a clear warning after 2 seconds.
-    // searchId was bumped by start() and passed through; only fall
-    // back to self-increment for legacy direct _doStart callers.
-    if (searchId != null) this._searchId = searchId;
-    else this._searchId = (this._searchId || 0) + 1;
+    // be analyzing, nothing appearing" state.
+    this._searchId = (this._searchId || 0) + 1;
     const myId = this._searchId;
-    this._activeSearchId = myId;
     this._infoReceived = 0;
     this._infoDropped = 0;
     this._infoDispatched = 0;
@@ -673,25 +626,6 @@ export class Engine extends EventTarget {
     // calls stop being blocked by the pre-uciok gate.
     if (line.startsWith('uciok')) this.uciokReceived = true;
 
-    // Lila-style search barrier: readyok means the engine has finished
-    // processing the prior 'stop' (and flushed its bestmove). Any
-    // pending start queued by start() can now dispatch the real
-    // position+go. If multiple starts coalesced, only the latest
-    // (myId == current _searchId) runs.
-    if (line.startsWith('readyok') && this._pendingStart) {
-      const { fen, opts, myId } = this._pendingStart;
-      if (this._pendingStartTimer) { clearTimeout(this._pendingStartTimer); this._pendingStartTimer = 0; }
-      if (myId === this._searchId) {
-        console.log('[engine] readyok consumed → _doStart', { myId });
-        this._pendingStart = null;
-        this._doStart(fen, opts, myId);
-      } else {
-        // Superseded by a later start(); just discard.
-        console.log('[engine] readyok consumed → superseded, discarding', { pendingMyId: myId, currentSearchId: this._searchId });
-        this._pendingStart = null;
-      }
-    }
-
     if (line.startsWith('info')) {
       // Drop info lines that arrive AFTER we've asked to stop. They
       // belong to the old search; using them mutates state under a
@@ -731,18 +665,14 @@ export class Engine extends EventTarget {
       }));
     }
     else if (line.startsWith('bestmove')) {
-      // Lila-style gate: a bestmove only counts when it belongs to
-      // the currently-active search. _activeSearchId is null between
-      // start()'s stop+isready barrier and _doStart (triggered by
-      // readyok), so any bestmove arriving in that window — from the
-      // prior search we just stopped — gets dropped. This replaced
-      // the old _skipNextBestmove counter which miscounted when
-      // multiple starts stacked up during practice SAN replay.
-      if (this._activeSearchId == null) {
-        console.log('[engine] dropped stale bestmove (no active search)', line);
+      // Each `go` produces exactly one bestmove. If we've queued more
+      // gos than bestmoves received, this one is stale — a later go
+      // is still pending and will emit the REAL bestmove. Drop.
+      this._pendingGos = Math.max(0, (this._pendingGos || 1) - 1);
+      if (this._pendingGos > 0) {
+        console.log('[engine] suppressed stale bestmove (still expecting ' + this._pendingGos + ' more)', line);
         return;
       }
-      this._activeSearchId = null;    // this search is done
       this.searching = false;
       this.stopRequested = false;
       if (this._healthCheckId) { clearTimeout(this._healthCheckId); this._healthCheckId = 0; }

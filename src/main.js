@@ -3050,6 +3050,18 @@ async function main() {
     // bootEngine's post-await fireAnalysis() races the rest of main().
     if (!mainInitDone) { pendingFireAnalysis = true; return; }
 
+    // Root-cause guard for practice-start ghost-bestmove: during SAN
+    // replay of an opening (and similar bulk move loads), every move
+    // event cascades here and fires engine.start(). 4-7 overlapping
+    // searches in 50 ms confuse Stockfish's bestmove queue — a stale
+    // bestmove from an aborted search can leak through and get played
+    // (the 9 ms a2a3 in the 00:24:52 log). Skip engine work during
+    // replay; the caller fires ONE analysis at the end.
+    if (window.__practiceReplayInProgress) {
+      console.log('[analysis] suppressed during practice replay');
+      return;
+    }
+
     // Invalidate any practice-mode bestmove listener that's still waiting
     // on the previous position — when engine.stop() below triggers, the
     // worker will emit a final bestmove for the OLD search, and without
@@ -5060,8 +5072,13 @@ async function main() {
           window.__practiceOpeningPlies = 0;
         } else if (op.moves && op.moves.length) {
           console.log('[practice-start] taking SAN-replay branch,', op.moves.length, 'moves');
-          const played = playOpening(op.moves);
-          if (played) board.playUciMoves(played.uciMoves, { animate: false });
+          window.__practiceReplayInProgress = true;
+          try {
+            const played = playOpening(op.moves);
+            if (played) board.playUciMoves(played.uciMoves, { animate: false });
+          } finally {
+            window.__practiceReplayInProgress = false;
+          }
           window.__practiceOpeningPlies = op.moves.length;
         } else {
           console.log('[practice-start] taking START-POS branch (no moves, no fen)');
