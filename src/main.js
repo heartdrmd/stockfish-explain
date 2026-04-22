@@ -2685,12 +2685,24 @@ async function main() {
     _learn.bestBeforeCpWhite = prev.cpWhite ?? 0;
     const stm = prev.fen.split(' ')[1];
     _learn.solverColor = stm === 'w' ? 'w' : 'b';
+    // Lock scroll position through the DOM churn below: goToPly,
+    // flipBoard, panel creation + layout reflow can each nudge the
+    // window scroll (e.g. a hidden panel becoming visible shifts the
+    // board offset). User reported the page scrolling down every time
+    // they advanced to the next mistake, losing the board view they
+    // had lined up. Restore scroll on the next frame after everything
+    // settles.
+    const savedScrollY = window.scrollY;
+    const savedScrollX = window.scrollX;
     // Jump board to pre-mistake position.
     if (board.goToPly) board.goToPly(targetPly - 1);
     if (board.orientation !== (_learn.solverColor === 'w' ? 'white' : 'black')) {
       try { board.flipBoard(); } catch {}
     }
     _renderLearnPanel('find');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.scrollTo(savedScrollX, savedScrollY));
+    });
     // Listen for the user's next move on the LIVE board.
     const onMove = async (ev) => {
       if (!_learn.active) { board.removeEventListener('move', onMove); return; }
@@ -2778,6 +2790,39 @@ async function main() {
     }
   };
   applyHiddenPanels();
+
+  // ─── Move-list header "👁 Hide panels" toggle ──────────────────────
+  // Hides BOTH the vertical eval bar (next to the board) and the move
+  // accuracy strip in a single click — so the user can clean up the UI
+  // for a no-distraction playing view. Click again to restore. State
+  // persisted per-browser.
+  (() => {
+    const KEY = 'stockfish-explain.panels-hidden-toggle';
+    const btn = document.getElementById('nav-hide-panels');
+    if (!btn) return;
+    const gauge = document.getElementById('eval-gauge');
+    const accuracyStrip = document.getElementById('accuracy-strip');
+    const getHidden = () => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } };
+    const setHidden = (v) => { try { localStorage.setItem(KEY, v ? '1' : '0'); } catch {} };
+    const apply = (hidden) => {
+      if (gauge) {
+        if (hidden) { gauge.dataset.userHidden = '1'; gauge.hidden = true; }
+        else        { delete gauge.dataset.userHidden; gauge.hidden = false; }
+      }
+      if (accuracyStrip) {
+        if (hidden) { accuracyStrip.dataset.userHidden = '1'; accuracyStrip.hidden = true; }
+        else        { delete accuracyStrip.dataset.userHidden; /* renderer restores .hidden based on content */ }
+      }
+      btn.classList.toggle('active', hidden);
+      btn.innerHTML = hidden ? '👁 Show panels' : '👁 Hide panels';
+    };
+    apply(getHidden());
+    btn.addEventListener('click', () => {
+      const nowHidden = !getHidden();
+      setHidden(nowHidden);
+      apply(nowHidden);
+    });
+  })();
 
   // Per-panel ✕ button
   document.addEventListener('click', (e) => {

@@ -630,7 +630,19 @@ details.dissect-details[open] summary {
 
 .nav-buttons {
   display: flex;
-  gap: 2px;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+/* Wide-label nav button — for the hide-panels toggle. Big enough
+   to press comfortably, distinct from the arrow nav buttons. */
+.nav-btn-wide {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.nav-btn-wide.active {
+  background: var(--c-primary);
+  color: white;
 }
 
 /* Board-level nav (always visible under the board) */
