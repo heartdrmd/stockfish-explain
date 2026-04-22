@@ -638,17 +638,9 @@ details.dissect-details[open] summary {
 
 .nav-buttons {
   display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 2px;
 }
-/* Wide-label nav button — for the hide-panels toggle. Big enough
-   to press comfortably, distinct from the arrow nav buttons. */
-.nav-btn-wide {
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 500;
-}
-.nav-btn-wide.active {
+.nav-btn.active {
   background: var(--c-primary);
   color: white;
 }
@@ -722,158 +714,47 @@ details.dissect-details[open] summary {
 }
 
 /* ──────────────────────────────────────────────────────────────── */
-/* Move list — Lichess tview2-column look.                          */
-/* Based on lichess-org/lila ui/lib/css/tree/_tree.scss.            */
+/* Move list — BARE MINIMUM <table> layout.                          */
+/* No grid, no flex, no figurines, no side-header, no variations.    */
+/* Just: num | white | black rows. Bold piece letter (N/B/R/Q/K).    */
 /* ──────────────────────────────────────────────────────────────── */
-.tview2-column {
+.move-table {
+  width: 100%;
+  border-collapse: collapse;
   font-family: var(--font-san);
   font-size: 15px;
-  line-height: 1.2em;
-  padding: 0;
+  table-layout: fixed;
 }
-
-/* Grid the ENTIRE move list as one 3-column grid: num | white | black.
-   Using a top-level grid (instead of per-row flex) guarantees all
-   columns stay aligned from top to bottom, even when rows contain
-   different content. .mg-row uses display:contents so its children
-   become grid members of the parent. */
-#move-list.tview2-column {
-  display: grid;
-  grid-template-columns: 38px 1fr 1fr;
-  align-items: center;
-  row-gap: 0;
+.move-table td {
+  padding: 4px 8px;
+  line-height: 1.4;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.mg-row { display: contents; }
-.mg-row:hover .mg-num,
-.mg-row:hover .mg-move { background: rgba(255,255,255,0.02); }
-
-/* Index cell — right-aligned, dim. */
-.mg-num {
-  padding: 4px 8px 4px 4px;
+.mt-num {
+  width: 36px;
+  color: var(--c-font-dimmer, rgba(255,255,255,0.4));
   font-size: 13px;
   text-align: right;
-  color: var(--c-font-dimmer, rgba(255,255,255,0.4));
-  font-weight: 400;
+  padding-right: 8px;
   font-variant-numeric: tabular-nums;
   user-select: none;
-  line-height: 1.4;
 }
-
-/* Move cell — fills its grid column. No clipping: lila lets SAN
-   flow freely so Rxa8+, Qxd5# don't get their destination chopped. */
-.mg-move {
-  padding: 4px 8px;
-  font-size: 15px;
-  line-height: 1.4;
+.mt-move {
   cursor: pointer;
-  transition: background 0.06s, color 0.06s;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
   color: var(--c-font, #e6e6e6);
+  font-variant-numeric: tabular-nums;
+  transition: background 0.06s;
 }
-.mg-move:hover {
-  background: rgba(255,255,255,0.06);
-  color: var(--c-font-clear, #fff);
-}
-/* Current move: subtle dark-blue fill — NO border (border causes
-   layout jitter and doesn't match lila's look). */
-.mg-move.current {
-  background: #3692e7;  /* lila's notation-highlight blue */
+.mt-move:hover { background: rgba(255,255,255,0.06); }
+.mt-move.current {
+  background: #3692e7;
   color: white;
-  font-weight: 600;
 }
-.mg-main { font-weight: 500; }
-
-/* Piece figurine glyph — force TEXT presentation so the OS doesn't
-   swap in a color-emoji font. Emoji rendering was ~2× wider than
-   text and overflowed the cell, hiding the destination (Bg2 → "♗ g").
-   Explicitly exclude emoji fallbacks; prefer narrow text-capable
-   symbol fonts. */
-.mg-piece {
-  display: inline-block;
-  font-family: "DejaVu Sans", "Segoe UI Symbol", "Noto Sans Symbols2", "Arial Unicode MS", sans-serif;
-  font-variant-emoji: text;
-  margin-right: 2px;
-  line-height: 1;
-  font-weight: normal;
-}
-.mg-empty { cursor: default; color: var(--c-font-dimmer, rgba(255,255,255,0.4)); }
-.mg-empty:hover { background: transparent; color: var(--c-font-dimmer, rgba(255,255,255,0.4)); }
-
-/* Top-of-list orientation header — shows who's playing each side.
-   Lichess conveys this via board orientation alone; we add a small
-   explicit banner so the user never has to guess which column is
-   their side's moves. */
-.move-list-side-header {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) minmax(0, 1fr);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--c-font-dimmer, rgba(255,255,255,0.5));
-  border-bottom: 1px solid var(--c-border, rgba(255,255,255,0.06));
-  padding: 3px 0;
-  margin-bottom: 2px;
-  user-select: none;
-}
-.move-list-side-header > span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  justify-content: center;
-}
-.move-list-side-header .mlsh-white::before {
-  content: ''; width: 10px; height: 10px; border-radius: 2px;
-  background: #f5f5f0; border: 1px solid #999;
-}
-.move-list-side-header .mlsh-black::before {
-  content: ''; width: 10px; height: 10px; border-radius: 2px;
-  background: #0f0f11; border: 1px solid #000;
-}
-
-/* Variations inline between mainline rows — kept extremely subtle
-   so the mainline visual rhythm dominates. Previous heavy block
-   (border + bg + padding) was rendering as a mystery '◀●▶' strip
-   between each move when the variation content was tiny. */
-.mg-variations {
-  padding: 1px 8px 1px 38px;
-  font-family: var(--font-san);
-  font-size: 12px;
-  line-height: 1.25;
-  color: var(--c-font-dim);
-  opacity: 0.7;
-}
-.mg-variations:empty { display: none; }
-.mg-var {
-  display: inline;
-  margin-right: 6px;
-}
-.mg-var-num {
-  color: var(--c-accent);
-  font-weight: 600;
-  font-size: 12px;
-  margin-right: 2px;
-}
-.mg-var-move {
-  font-weight: 500;
-  padding: 1px 4px;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: background 0.08s;
-}
-.mg-var-move:hover  { background: rgba(255,255,255,0.08); color: var(--c-font-clear); }
-.mg-var-move.current {
-  background: var(--c-accent);
-  color: #111;
-  font-weight: 700;
-}
-.mg-var-nested {
-  color: var(--c-font-dim);
-  font-size: 13px;
-  margin: 0 3px;
-  opacity: 0.85;
-}
+.mt-move b { font-weight: 700; }  /* piece letter (N/B/R/Q/K) */
+.mt-empty { cursor: default; }
 
 /* Right-click context menu on a move */
 .move-context-menu {

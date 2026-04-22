@@ -2805,16 +2805,19 @@ async function main() {
     const getHidden = () => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } };
     const setHidden = (v) => { try { localStorage.setItem(KEY, v ? '1' : '0'); } catch {} };
     const apply = (hidden) => {
-      if (gauge) {
-        if (hidden) { gauge.dataset.userHidden = '1'; gauge.hidden = true; }
-        else        { delete gauge.dataset.userHidden; gauge.hidden = false; }
-      }
+      // Use inline style.display — the .uniboard .eval-gauge rule
+      // uses a class selector (specificity 0-2-0) which beats the
+      // [hidden] attribute (0-1-0). Inline style wins any selector
+      // short of !important. That was why the previous 'Hide'
+      // toggle ran but visually did nothing.
+      if (gauge) gauge.style.display = hidden ? 'none' : '';
       if (accuracyStrip) {
-        if (hidden) { accuracyStrip.dataset.userHidden = '1'; accuracyStrip.hidden = true; }
-        else        { delete accuracyStrip.dataset.userHidden; /* renderer restores .hidden based on content */ }
+        accuracyStrip.style.display = hidden ? 'none' : '';
+        if (hidden) accuracyStrip.dataset.userHidden = '1';
+        else        delete accuracyStrip.dataset.userHidden;
       }
       btn.classList.toggle('active', hidden);
-      btn.innerHTML = hidden ? '👁 Show panels' : '👁 Hide panels';
+      btn.title = hidden ? 'Show eval bar + move accuracy' : 'Hide eval bar + move accuracy';
     };
     apply(getHidden());
     btn.addEventListener('click', () => {
@@ -3369,20 +3372,14 @@ async function main() {
     }
   });
 
-  // Render the variation tree as an inline, lichess-style move list.
-  // Mainline flows left-to-right in rows of two plies (white + black);
-  // sidelines are rendered inline as "(…)" blocks after the ply they
-  // branched from. Left-click a move navigates to it; right-click
-  // opens a context menu (Promote / Delete / Copy PGN).
-  // lichess-style move list: mainline in a 3-column grid
-  //   [ N. ]  [ White move ]  [ Black move ]
-  // Variations render as full-width rows between ply rows, recursively.
+  // Bare-minimum lichess-style move table. Plain <table> with one
+  // <tr> per full-move (num | white | black). Bold piece letter
+  // (N/B/R/Q/K) in SAN — no unicode figurines, no grid/flex tricks.
   function renderMoveList() {
     const tree = board.tree;
     const currentPath = tree.currentPath;
 
-    // Collect mainline nodes and remember each ply's siblings
-    const mainline = [];      // array of { node, path }
+    const mainline = [];
     {
       let cur = tree.root;
       let path = '';
@@ -3394,52 +3391,34 @@ async function main() {
       }
     }
 
-    // Lichess-style SAN → piece-figurine prefix. Replaces the first
-    // char (N/B/R/Q/K) with the unicode piece glyph, keeping the
-    // remaining SAN (destination, capture x, check +, mate #) as text.
-    // Pawn moves have no prefix letter — left unchanged.
-    function figurine(san, moverColor) {
-      if (!san) return san;
-      const c = san.charCodeAt(0);
-      if (c < 0x41 || c > 0x5a) return san;  // not an uppercase letter → pawn or castling
+    // Bold the piece letter in SAN (e.g. "Nxf6+" → "<b>N</b>xf6+").
+    // Pawn moves and castling pass through unchanged. No unicode
+    // figurines (user request: clean standard notation).
+    function boldPiece(san) {
+      if (!san) return '';
       if (san === 'O-O' || san === 'O-O-O' || san.startsWith('O-')) return san;
-      const white = moverColor === 'w';
-      const map = white
-        ? { K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘' }
-        : { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞' };
-      const glyph = map[san[0]];
-      if (!glyph) return san;
-      // Append variation-selector-15 (U+FE0E) to force TEXT presentation.
-      // Without it some systems (especially macOS) render ♘/♞/♗/♝ as
-      // wide color emojis which then overflow the move cell and hide
-      // the destination square (e.g. "Nbd7" showed as just "♞ b").
-      return `<span class="mg-piece">${glyph}\uFE0E</span>${san.slice(1)}`;
+      const c = san.charCodeAt(0);
+      if (c < 0x41 || c > 0x5a) return san;  // not uppercase letter
+      return `<b>${san[0]}</b>${san.slice(1)}`;
     }
-    // Render a single move cell
-    function mvCell(node, path, cls = '') {
+    function mvCell(node, path) {
       const isCurrent = path === currentPath ? ' current' : '';
-      // node.ply is the ply-count AFTER the move was played:
-      //   ply 1 = after white's 1st move → white moved → 'w'
-      //   ply 2 = after black's 1st move → black moved → 'b'
-      const moverColor = (node.ply % 2 === 1) ? 'w' : 'b';
-      return `<span class="mg-move ${cls}${isCurrent}" data-path="${path}">${figurine(node.san, moverColor)}</span>`;
+      return `<td class="mt-move${isCurrent}" data-path="${path}">${boldPiece(node.san)}</td>`;
     }
 
-    // Render a single variation (sibling + its continuation) inline.
-    // Walks the sibling's children[0] chain until it stops (no prefix
-    // numbering for follow-ups except after branch points).
+    // Keep renderVariation as a no-op stub — callers exist below.
+    // Variations are still stored in the tree; right-click context
+    // menu on the main move list can still promote/navigate them.
     function renderVariation(sibNode, sibParentNode, sibParentPath) {
       const sibPath = sibParentPath + sibNode.id;
       const parts = [];
-      // First move — always gets ply number (white "N." or black "N...")
       {
         const white = sibParentNode.ply % 2 === 0;
         const full  = Math.floor(sibParentNode.ply / 2) + 1;
         const num   = white ? `${full}. ` : `${full}... `;
         const curCls = sibPath === currentPath ? ' current' : '';
-        const sibMover = (sibNode.ply % 2 === 1) ? 'w' : 'b';
         parts.push(`<span class="mg-var-num">${num}</span>` +
-                   `<span class="mg-move mg-var-move${curCls}" data-path="${sibPath}">${figurine(sibNode.san, sibMover)}</span>`);
+                   `<span class="mg-move mg-var-move${curCls}" data-path="${sibPath}">${boldPiece(sibNode.san)}</span>`);
       }
       // Continue down this branch's mainline (children[0] chain), re-stating
       // ply when a nested sub-variation exists or at every new full-move.
@@ -3456,8 +3435,7 @@ async function main() {
         else if (pendingRestate)        num = `${full}... `;
         const curCls = npath === currentPath ? ' current' : '';
         if (num) parts.push(`<span class="mg-var-num">${num}</span>`);
-        const nextMover = (next.ply % 2 === 1) ? 'w' : 'b';
-        parts.push(`<span class="mg-move mg-var-move${curCls}" data-path="${npath}">${figurine(next.san, nextMover)}</span>`);
+        parts.push(`<span class="mg-move mg-var-move${curCls}" data-path="${npath}">${boldPiece(next.san)}</span>`);
         // Render nested sub-variations of `next` inline (rare — we cap at 2 deep)
         if (node.children.length > 1) {
           for (const nested of node.children.slice(1)) {
@@ -3471,45 +3449,25 @@ async function main() {
       return parts.join(' ');
     }
 
-    // Build the grid
-    const rows = [];
+    // Build the table rows
+    const trs = [];
     for (let i = 0; i < mainline.length; i += 2) {
       const whiteEntry = mainline[i];
       const blackEntry = mainline[i + 1];
-      const fullmove = Math.floor(whiteEntry.node.ply / 2) + 1;   // whiteEntry is a white move since i is even
-
-      // The row itself
-      let row = `<div class="mg-num">${fullmove}.</div>`;
-      row += mvCell(whiteEntry.node, whiteEntry.path, 'mg-main');
-      if (blackEntry) row += mvCell(blackEntry.node, blackEntry.path, 'mg-main');
-      else            row += `<div class="mg-move mg-empty"></div>`;
-      rows.push(`<div class="mg-row">${row}</div>`);
-
-      // Variations rendering suppressed — user feedback was that
-      // the inter-row variation blocks added noise without giving
-      // value; lila's notation column keeps mainline-only by default
-      // and opens variations in a right-click popup. We keep the
-      // tree so siblings are still navigable, but stop painting
-      // them between rows.
+      const fullmove = Math.floor(whiteEntry.node.ply / 2) + 1;
+      let tr = `<tr class="mt-row"><td class="mt-num">${fullmove}.</td>`;
+      tr += mvCell(whiteEntry.node, whiteEntry.path);
+      tr += blackEntry ? mvCell(blackEntry.node, blackEntry.path) : `<td class="mt-move mt-empty"></td>`;
+      tr += '</tr>';
+      trs.push(tr);
     }
 
-    // Side-orientation header — matches which column is which color.
-    // Also flips the visual order if the user is viewing from Black's
-    // orientation (not the game data — purely the display orientation).
-    const headerHtml = rows.length
-      ? `<div class="move-list-side-header" aria-hidden="true">
-           <span></span>
-           <span class="mlsh-white">White</span>
-           <span class="mlsh-black">Black</span>
-         </div>`
-      : '';
-
-    ui.moveList.innerHTML = rows.length
-      ? headerHtml + rows.join('')
+    ui.moveList.innerHTML = trs.length
+      ? `<table class="move-table"><tbody>${trs.join('')}</tbody></table>`
       : '<div class="muted" style="padding: 8px 10px">No moves yet.</div>';
 
     // Click / right-click handlers on every move cell
-    ui.moveList.querySelectorAll('.mg-move').forEach(el => {
+    ui.moveList.querySelectorAll('.mt-move').forEach(el => {
       if (!el.dataset.path && el.dataset.path !== '') return;
       el.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -3531,7 +3489,7 @@ async function main() {
     // compute the current move's offset WITHIN the scroll container
     // and only adjust that container's scrollTop, never the window.
     try {
-      const cur = ui.moveList.querySelector('.mg-move.current');
+      const cur = ui.moveList.querySelector('.mt-move.current');
       if (cur) {
         const container = ui.moveList;
         const cRect = container.getBoundingClientRect();
