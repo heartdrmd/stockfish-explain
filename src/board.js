@@ -305,7 +305,19 @@ export class BoardController extends EventTarget {
     // replaying from chess.history would desync the board position
     // from the mainline tree.currentPath and, over time, effectively
     // erase the original PGN from the user's perspective.
-    const total = this.totalPlies();
+    //
+    // CRITICAL: `total` must come from the MAINLINE length, NOT from
+    // this.chess.history(). After the user plays a side-variation
+    // move, chess.history is on that branch (shorter than mainline)
+    // — callers like learn-mode asking to navigate to mainline ply 16
+    // would previously get CLAMPED to chess.history.length (e.g. 15),
+    // silently landing one ply earlier than requested.
+    let mainlineLen = 0;
+    {
+      let c = this.tree.root;
+      while (c.children.length) { c = c.children[0]; mainlineLen++; }
+    }
+    const total = mainlineLen;
     const targetN = (n == null || n >= total)
       ? total
       : Math.max(0, n);
