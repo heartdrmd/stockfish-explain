@@ -2685,6 +2685,11 @@ async function main() {
     _learn.bestBeforeCpWhite = prev.cpWhite ?? 0;
     const stm = prev.fen.split(' ')[1];
     _learn.solverColor = stm === 'w' ? 'w' : 'b';
+    // Clear any arrow from a previous mistake (the 'View solution'
+    // button leaves a green best-move arrow on the board; without
+    // clearing it here, the arrow persists when the user clicks
+    // 'Next mistake' and paints over the new position).
+    try { if (board.drawArrows) board.drawArrows([]); } catch {}
     // Lock scroll position through the DOM churn below: goToPly,
     // flipBoard, panel creation + layout reflow can each nudge the
     // window scroll (e.g. a hidden panel becoming visible shifts the
@@ -2740,10 +2745,27 @@ async function main() {
   const btnLearnMistakes = document.getElementById('btn-learn-mistakes');
   const learnCountBadge = document.getElementById('learn-btn-count');
   if (btnLearnMistakes) {
-    btnLearnMistakes.addEventListener('click', () => {
-      const plies = _findMistakePlies();
-      if (plies.length === 0) return;
-      _enterLearnMode(plies[0]);
+    btnLearnMistakes.addEventListener('click', async () => {
+      // Verify before walking: re-probe each candidate mistake at
+      // max strength + 5 s to filter false positives. This runs
+      // automatically at the end of a finished practice game but
+      // NOT for games loaded from the archive — so if the user
+      // clicks Learn on an archived game, we run it on-demand.
+      // Skips if already verified or no candidates.
+      const candidates = _findMistakePlies();
+      if (candidates.length === 0) return;
+      if (!window.__mistakesVerifiedForFen ||
+          window.__mistakesVerifiedForFen !== board.startingFen + '|' + (board.chess.history().join(',') || '')) {
+        try {
+          await verifyMistakesAtMaxStrength();
+          window.__mistakesVerifiedForFen = board.startingFen + '|' + (board.chess.history().join(',') || '');
+        } catch (err) {
+          console.warn('[learn] verify failed, proceeding anyway', err);
+        }
+      }
+      const verified = _findMistakePlies();
+      if (verified.length === 0) return;
+      _enterLearnMode(verified[0]);
     });
   }
   const updateLearnButton = () => {
@@ -2775,7 +2797,12 @@ async function main() {
   // Refresh the button badge whenever accuracy strip re-renders (covers
   // game-end, live moves, navigation).
   board.addEventListener('move', updateLearnButton);
-  board.addEventListener('new-game', updateLearnButton);
+  board.addEventListener('new-game', () => {
+    // Reset the verified-fingerprint so a freshly-started game will
+    // re-verify its mistakes on Learn-click.
+    try { window.__mistakesVerifiedForFen = null; } catch {}
+    updateLearnButton();
+  });
   board.addEventListener('nav', updateLearnButton);
   setTimeout(updateLearnButton, 400);
 
@@ -2945,6 +2972,11 @@ async function main() {
     window.__engineMuted = true;
     window.__mistakesVerifying = true;
     document.body.classList.add('mistakes-verifying');
+    // Force the Learn button to repaint in its grayed 'verifying'
+    // state NOW — without this call the flag is set but the button
+    // only refreshes on board move/nav/new-game events which don't
+    // fire during verification.
+    try { if (typeof updateLearnButton === 'function') updateLearnButton(); } catch {}
     try { engine.stop(); } catch {}
     engine.setSkill(20);
     try {
@@ -2962,6 +2994,7 @@ async function main() {
       window.__engineMuted = wasMuted;
       window.__mistakesVerifying = false;
       document.body.classList.remove('mistakes-verifying');
+      try { if (typeof updateLearnButton === 'function') updateLearnButton(); } catch {}
     }
     return _findMistakePlies().length;
   }
@@ -5495,6 +5528,9 @@ async function main() {
               `🏁 <strong>Game over: ${resultTag}</strong> — 🔍 Verifying mistake ${d}/${t} at full strength…`;
           }
         });
+        // Mark this game-history as verified so the Learn button
+        // doesn't re-run verification if the user clicks it.
+        try { window.__mistakesVerifiedForFen = board.startingFen + '|' + (board.chess.history().join(',') || ''); } catch {}
         if (ui.narrationText) {
           ui.narrationText.innerHTML =
             `🏁 <strong>Game over: ${resultTag}</strong> — ${narrative}. Archived to 📚 My Games. ` +
