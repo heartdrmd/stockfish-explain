@@ -3698,6 +3698,34 @@ async function main() {
         toggleKeyboardHelp();
         e.preventDefault();
         break;
+      case ' ':  // Space — play engine's current top move onto the board
+      case 'Spacebar':  // old IE name — harmless to include
+        {
+          e.preventDefault();
+          // Pull the latest #1 PV from the engine. engine.topMoves is
+          // a Map keyed by multipv — pv[0] of multipv=1 is the best
+          // move in UCI. Falls back to history[last].best if no live
+          // info yet (engine idle between searches).
+          let best = null;
+          try {
+            const top1 = engine.topMoves?.get?.(1);
+            best = top1?.pv?.[0] || null;
+            if (!best && engine.history?.length) {
+              best = engine.history[engine.history.length - 1]?.best || null;
+            }
+          } catch {}
+          if (!best) {
+            console.log('[hotkey] Space: no engine move available yet');
+            break;
+          }
+          try {
+            board.playEngineMove(best);
+            console.log('[hotkey] Space: played', best);
+          } catch (err) {
+            console.warn('[hotkey] Space: playEngineMove failed', err);
+          }
+        }
+        break;
       case 'Escape':
         // Esc — close any open floating card or help overlay
         document.getElementById('kbd-help')?.remove();
@@ -3729,6 +3757,7 @@ async function main() {
           <kbd>→</kbd><kbd>j</kbd><span>Next move</span>
           <kbd>Home</kbd><kbd>0</kbd><span>First move</span>
           <kbd>End</kbd><kbd>$</kbd><span>Last move</span>
+          <kbd>Space</kbd><span></span><span>Play engine's top move</span>
           <kbd>f</kbd><span></span><span>Flip board</span>
           <kbd>u</kbd><span></span><span>Undo</span>
           <kbd>n</kbd><span></span><span>New game</span>
