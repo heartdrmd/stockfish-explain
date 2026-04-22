@@ -220,13 +220,14 @@ export class BoardController extends EventTarget {
           this._clearTargetFirst();
           self._onUserMove(legalSources[0], target, { via: 'target-first-single' });
         } else {
-          // Multi-source CLICK (no drag): bail silently. The old
-          // "multiple candidates, waiting for source click" prompt was
-          // confusing. User picks the piece first via chessground's
-          // native flow on their NEXT click. Drag path above still
-          // handles the reverse-drag-from-target case.
-          console.log('[move-input] target-first: multi-source click, no prompt (use click-piece-first)', { target, sources: legalSources });
-          this._clearTargetFirst();
+          // Multi-source CLICK (no drag): arm pending state so the
+          // user's NEXT click on a legal source resolves the move.
+          // Highlights are intentionally left off to avoid the old
+          // "which piece?" visual — but the pending-source pathway
+          // in pointerdown will still pick up the next click silently.
+          console.log('[move-input] target-first: multi-source click, arming pending', { target, sources: legalSources });
+          self._pendingTarget = target;
+          self._pendingTargetSources = legalSources;
         }
       };
       document.addEventListener('pointermove', onMove);
@@ -397,9 +398,21 @@ export class BoardController extends EventTarget {
   // ──────── user move handling ────────
 
   _coordsToKey(x, y) {
-    const bounds = this.rootEl.getBoundingClientRect();
-    const file = Math.floor((x - bounds.left) / (bounds.width / 8));
-    const rank = 7 - Math.floor((y - bounds.top) / (bounds.height / 8));
+    // Measure against the actual <cg-board> element — not rootEl.
+    // Why: rootEl is the cg-wrap mount point, which may contain
+    // coord labels / SVG overlays that make its bounding rect bigger
+    // than the real playing surface. Using rootEl gives results that
+    // diverge from chessground's own key mapping by whole squares
+    // (observed 2-rank offset → user clicking bishop, chessground
+    // selecting empty square 2 rows away).
+    const boardEl = this._boardEl || this.rootEl.querySelector('cg-board');
+    if (boardEl) this._boardEl = boardEl;
+    const bounds = (boardEl || this.rootEl).getBoundingClientRect();
+    const relX = x - bounds.left;
+    const relY = y - bounds.top;
+    if (relX < 0 || relY < 0 || relX >= bounds.width || relY >= bounds.height) return null;
+    const file = Math.floor(relX / (bounds.width / 8));
+    const rank = 7 - Math.floor(relY / (bounds.height / 8));
     if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
     const fileCh = this.orientation === 'white'
       ? String.fromCharCode(97 + file)
@@ -424,7 +437,9 @@ export class BoardController extends EventTarget {
     // hits, which made the log hard to read and (worse) swallowed
     // pending-source source-pick clicks on own-piece legal sources.
     try {
-      const bounds = this.rootEl.getBoundingClientRect();
+      const boardEl = this._boardEl || this.rootEl.querySelector('cg-board');
+      if (boardEl) this._boardEl = boardEl;
+      const bounds = (boardEl || this.rootEl).getBoundingClientRect();
       const sqW = bounds.width / 8;
       const sqH = bounds.height / 8;
       const NEAR = sqW * 0.33;
