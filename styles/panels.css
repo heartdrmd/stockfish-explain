@@ -732,43 +732,39 @@ details.dissect-details[open] summary {
   padding: 0;
 }
 
-/* Lichess-classic mainline row — flex layout with fixed num column
-   and equal-flex white/black columns. FLEX (not grid) because grid
-   had rendering oddities in a nested flex-column parent on some
-   browsers — moves were ending up on separate lines. Flex with
-   flex-wrap: nowrap guarantees num | white | black stay side-by-side. */
-.mg-row {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: stretch;
-  min-height: 26px;
-}
-.mg-row:hover { background: rgba(255,255,255,0.02); }
-
-/* Index cell: fixed 34px, right-aligned, dim. */
-.mg-num {
-  flex: 0 0 34px;
-  display: flex;
+/* Grid the ENTIRE move list as one 3-column grid: num | white | black.
+   Using a top-level grid (instead of per-row flex) guarantees all
+   columns stay aligned from top to bottom, even when rows contain
+   different content. .mg-row uses display:contents so its children
+   become grid members of the parent. */
+#move-list.tview2-column {
+  display: grid;
+  grid-template-columns: 38px 1fr 1fr;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0 8px 0 4px;
+  row-gap: 0;
+}
+.mg-row { display: contents; }
+.mg-row:hover .mg-num,
+.mg-row:hover .mg-move { background: rgba(255,255,255,0.02); }
+
+/* Index cell — right-aligned, dim. */
+.mg-num {
+  padding: 4px 8px 4px 4px;
   font-size: 13px;
+  text-align: right;
   color: var(--c-font-dimmer, rgba(255,255,255,0.4));
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   user-select: none;
+  line-height: 1.4;
 }
 
-/* Move cell — flex-share the remaining row width equally between
-   white and black. No clipping: lila lets SAN flow freely so Rxa8+,
-   Qxd5# don't get their destination chopped. */
+/* Move cell — fills its grid column. No clipping: lila lets SAN
+   flow freely so Rxa8+, Qxd5# don't get their destination chopped. */
 .mg-move {
-  flex: 1 1 0;
-  display: flex;
-  align-items: center;
-  padding: 0 6px;
+  padding: 4px 8px;
   font-size: 15px;
-  line-height: 1.2;
+  line-height: 1.4;
   cursor: pointer;
   transition: background 0.06s, color 0.06s;
   white-space: nowrap;
@@ -809,8 +805,9 @@ details.dissect-details[open] summary {
    explicit banner so the user never has to guess which column is
    their side's moves. */
 .move-list-side-header {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 38px minmax(0, 1fr) minmax(0, 1fr);
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.08em;

@@ -3485,22 +3485,12 @@ async function main() {
       else            row += `<div class="mg-move mg-empty"></div>`;
       rows.push(`<div class="mg-row">${row}</div>`);
 
-      // Variations — any siblings from white's or black's parent node
-      // (sibling = "if that ply had been played differently").
-      const varsHtml = [];
-      if (whiteEntry.siblings.length) {
-        for (const sib of whiteEntry.siblings) {
-          varsHtml.push(`<span class="mg-var">(${renderVariation(sib, whiteEntry.parentNode, whiteEntry.path.slice(0, -2))})</span>`);
-        }
-      }
-      if (blackEntry && blackEntry.siblings.length) {
-        for (const sib of blackEntry.siblings) {
-          varsHtml.push(`<span class="mg-var">(${renderVariation(sib, blackEntry.parentNode, blackEntry.path.slice(0, -2))})</span>`);
-        }
-      }
-      if (varsHtml.length) {
-        rows.push(`<div class="mg-variations">${varsHtml.join(' ')}</div>`);
-      }
+      // Variations rendering suppressed — user feedback was that
+      // the inter-row variation blocks added noise without giving
+      // value; lila's notation column keeps mainline-only by default
+      // and opens variations in a right-click popup. We keep the
+      // tree so siblings are still navigable, but stop painting
+      // them between rows.
     }
 
     // Side-orientation header — matches which column is which color.
