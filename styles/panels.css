@@ -702,55 +702,106 @@ details.dissect-details[open] summary {
 }
 
 /* ──────────────────────────────────────────────────────────────── */
-/* Move list — lichess "column view" for mainline + inline variations */
+/* Move list — Lichess tview2-column look.                          */
+/* Based on lichess-org/lila ui/lib/css/tree/_tree.scss.            */
 /* ──────────────────────────────────────────────────────────────── */
 .tview2-column {
   font-family: var(--font-san);
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1.35em;
   padding: 2px 0;
 }
 
-/* Each mainline ply-pair is a 3-column grid: [num.] [white] [black].
-   Tuned for neat consistent columns so 20-move games don't visually
-   drift: fixed-width number column, white + black cells flex-equal. */
+/* Mainline ply-pair grid: [num · white · black].
+   Left column is a fixed-width zebra'd "index" cell with a right
+   border, matching lila's index-cell visual. Move cells flex-equal
+   with generous padding and a slightly larger SAN-style font. */
 .mg-row {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) minmax(0, 1fr);
-  align-items: baseline;
-  column-gap: 6px;
-  padding: 1px 2px;
+  grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  min-height: 30px;
 }
-.mg-row:nth-of-type(odd)  { background: rgba(255,255,255,0.02); }
-.mg-row:hover             { background: rgba(255,255,255,0.055); }
+.mg-row:hover { background: rgba(255,255,255,0.015); }
+
+/* Index cell: zebra-tinted, centered, dimmer text, right border. */
 .mg-num {
-  text-align: right;
-  padding: 4px 6px 4px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
   font-size: 12px;
-  color: var(--c-font-dim);
-  font-weight: 600;
-  user-select: none;
+  line-height: 1.35;
+  color: var(--c-font-dimmer, rgba(255,255,255,0.45));
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  user-select: none;
+  background: var(--c-bg-zebra, rgba(255,255,255,0.02));
+  border-right: 1px solid rgba(255,255,255,0.06);
 }
+
+/* Move cell — bigger, tabular, individually hoverable and clickable.
+   Lila's .tview2-column > move style: line-height: 1.75em,
+   font-size: 1.185em, light padding. */
 .mg-move {
-  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px 0 10px;
+  font-size: 15px;
+  line-height: 1.75;
   cursor: pointer;
   border-radius: 3px;
-  transition: background 0.08s, color 0.08s;
+  transition: background 0.06s, color 0.06s;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
+  color: var(--c-font, #e6e6e6);
 }
-.mg-move:hover { background: var(--c-bg-zebra2); }
+.mg-move:hover {
+  background: var(--c-bg-zebra2, rgba(255,255,255,0.05));
+  color: var(--c-font-clear, #fff);
+}
 .mg-move.current {
   background: var(--c-primary);
   color: white;
   font-weight: 700;
+  border: 1px solid var(--c-accent, rgba(255,255,255,0.35));
 }
 .mg-main { font-weight: 500; }
-.mg-empty { cursor: default; }
-.mg-empty:hover { background: transparent; }
+.mg-empty { cursor: default; color: var(--c-font-dimmer, rgba(255,255,255,0.4)); }
+.mg-empty:hover { background: transparent; color: var(--c-font-dimmer, rgba(255,255,255,0.4)); }
+
+/* Top-of-list orientation header — shows who's playing each side.
+   Lichess conveys this via board orientation alone; we add a small
+   explicit banner so the user never has to guess which column is
+   their side's moves. */
+.move-list-side-header {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-font-dimmer, rgba(255,255,255,0.5));
+  border-bottom: 1px solid var(--c-border, rgba(255,255,255,0.06));
+  padding: 4px 0;
+  margin-bottom: 3px;
+  user-select: none;
+}
+.move-list-side-header > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
+.move-list-side-header .mlsh-white::before {
+  content: ''; width: 10px; height: 10px; border-radius: 2px;
+  background: #f5f5f0; border: 1px solid #999;
+}
+.move-list-side-header .mlsh-black::before {
+  content: ''; width: 10px; height: 10px; border-radius: 2px;
+  background: #0f0f11; border: 1px solid #000;
+}
 
 /* Variations live between mainline rows — left-accented block with a
    subtle indent, different typography so the eye distinguishes them

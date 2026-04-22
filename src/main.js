@@ -3409,8 +3409,19 @@ async function main() {
       }
     }
 
+    // Side-orientation header — matches which column is which color.
+    // Also flips the visual order if the user is viewing from Black's
+    // orientation (not the game data — purely the display orientation).
+    const headerHtml = rows.length
+      ? `<div class="move-list-side-header" aria-hidden="true">
+           <span></span>
+           <span class="mlsh-white">White</span>
+           <span class="mlsh-black">Black</span>
+         </div>`
+      : '';
+
     ui.moveList.innerHTML = rows.length
-      ? rows.join('')
+      ? headerHtml + rows.join('')
       : '<div class="muted" style="padding: 8px 10px">No moves yet.</div>';
 
     // Click / right-click handlers on every move cell
