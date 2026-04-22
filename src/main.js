@@ -8185,13 +8185,22 @@ async function main() {
     setTimeout(() => { if (dlModal) dlModal.hidden = true; }, 1200);
   });
   if (btnToggleToolbar) {
-    // Restore persisted state.
+    // Default to collapsed toolbar if the user has never explicitly
+    // expanded it. The toolbar eats ~60 px of vertical real-estate
+    // and most interactions happen on the board or in the side cards
+    // — matches lila's hide-by-default toolbar. Once the user toggles
+    // it open, that preference persists (localStorage key stays '0').
     try {
-      if (localStorage.getItem('stockfish-explain.nav-collapsed') === '1') {
+      const saved = localStorage.getItem('stockfish-explain.nav-collapsed');
+      const collapsed = saved === null ? true : saved === '1';
+      if (collapsed) {
         document.body.classList.add(BODY_NAV_COLLAPSED);
         prevNavCollapsed = true;
       }
-    } catch {}
+    } catch {
+      document.body.classList.add(BODY_NAV_COLLAPSED);
+      prevNavCollapsed = true;
+    }
   }
 
   // Graceful shutdown on page unload — send UCI 'quit' so the engine
