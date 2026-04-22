@@ -2748,6 +2748,19 @@ async function main() {
   }
   const updateLearnButton = () => {
     if (!btnLearnMistakes || !learnCountBadge) return;
+    // While the post-game verification pass is running, keep the
+    // button disabled + gray and swap in a "Verifying…" hint so
+    // the user knows NOT to click until stockfish has double-
+    // checked each candidate mistake at max strength. When done,
+    // the button flips back to the normal blue state.
+    if (window.__mistakesVerifying) {
+      btnLearnMistakes.disabled = true;
+      btnLearnMistakes.classList.add('verifying');
+      learnCountBadge.textContent = '…';
+      btnLearnMistakes.title = 'Verifying mistakes at full strength — please wait';
+      return;
+    }
+    btnLearnMistakes.classList.remove('verifying');
     const count = _findMistakePlies().length;
     if (count === 0) {
       btnLearnMistakes.disabled = true;
@@ -2910,6 +2923,49 @@ async function main() {
   // Expose a stop hook so the 'Stop analysis' button in the reanalyze
   // UI can bail out mid-sweep if the user decides it's taking too long.
   window.__stopRetrospectiveSweep = () => { sweepAbort = true; try { engine.stop(); } catch {} };
+  // Double-check each candidate mistake at MAX stockfish strength +
+  // 5 s per position. Practice games use skill 8-14 which can misjudge
+  // positions — a move the sweep classified as a blunder might be fine
+  // when re-probed at skill 20 / depth 20+. Replaces the eval-cache
+  // entry for the candidate's FEN (and its predecessor) so
+  // _findMistakePlies reclassifies naturally on the next call.
+  async function verifyMistakesAtMaxStrength(onProgress) {
+    const candidates = _findMistakePlies();
+    if (!candidates.length) return 0;
+    const plies = collectTimelinePlies();
+    const fens = new Set();
+    for (const p of candidates) {
+      if (plies[p - 1]) fens.add(plies[p - 1].fen);
+      if (plies[p])     fens.add(plies[p].fen);
+    }
+    const total = fens.size;
+    let done = 0;
+    const savedSkill = engine.skill;
+    const wasMuted = window.__engineMuted === true;
+    window.__engineMuted = true;
+    window.__mistakesVerifying = true;
+    document.body.classList.add('mistakes-verifying');
+    try { engine.stop(); } catch {}
+    engine.setSkill(20);
+    try {
+      for (const fen of fens) {
+        try {
+          await AICoach.probeEngine(engine, fen, 0, 1, 5000);  // 5 s, skill 20
+        } catch (err) {
+          console.warn('[verify] probe failed', fen, err);
+        }
+        done++;
+        if (onProgress) onProgress(done, total);
+      }
+    } finally {
+      engine.setSkill(savedSkill);
+      window.__engineMuted = wasMuted;
+      window.__mistakesVerifying = false;
+      document.body.classList.remove('mistakes-verifying');
+    }
+    return _findMistakePlies().length;
+  }
+
   async function retrospectiveSweep({ minDepth = 12, movetimeMs = 0, onProgress } = {}) {
     if (sweepRunning) return false;
     sweepRunning = true;
@@ -5409,18 +5465,40 @@ async function main() {
       } catch (err) { console.warn('[sweep] failed', err); }
       try {
         archiveCurrentGame({ result: resultTag, ending: narrative, mode: 'practice' });
-        ui.narrationText.innerHTML =
-          `🏁 <strong>Game over: ${resultTag}</strong> — ${narrative}. Archived to 📚 My Games. ` +
-          `Mistakes added to 🎓 Mistake Bank. Use ⏮◀▶⏭ to review.`;
       } catch (err) {
         console.warn('[archive] failed to archive practice game', err);
+      }
+      // Verification pass: re-probe each flagged mistake FEN at
+      // FULL Stockfish strength + 5 s. Catches misclassifications
+      // from the shallow sweep (skill 8-14 play often judged badly
+      // at depth 12). User-visible: Learn button stays disabled and
+      // gray until verification finishes, then re-enables in blue.
+      try {
+        if (ui.narrationText) {
+          ui.narrationText.innerHTML =
+            `🏁 <strong>Game over: ${resultTag}</strong> — ${narrative}. 🔍 Verifying mistakes at full strength…`;
+        }
+        updateLearnButton();  // reflect verifying state
+        const finalCount = await verifyMistakesAtMaxStrength((d, t) => {
+          if (ui.narrationText) {
+            ui.narrationText.innerHTML =
+              `🏁 <strong>Game over: ${resultTag}</strong> — 🔍 Verifying mistake ${d}/${t} at full strength…`;
+          }
+        });
+        if (ui.narrationText) {
+          ui.narrationText.innerHTML =
+            `🏁 <strong>Game over: ${resultTag}</strong> — ${narrative}. Archived to 📚 My Games. ` +
+            `${finalCount} confirmed mistake${finalCount === 1 ? '' : 's'} — click 🎓 Learn to review.`;
+        }
+        updateLearnButton();
+      } catch (err) {
+        console.warn('[verify] mistakes verification failed', err);
+        updateLearnButton();
       }
       // Kick LIVE analysis on the final position. retrospectiveSweep
       // held the engine hostage for the per-ply sweep, so by the time
       // this async chain finishes the engine is idle and no one is
-      // driving the eval bar / PV lines. User reported 'engine didn't
-      // kick in immediately — had to turn off/on'; this restores
-      // live analysis automatically.
+      // driving the eval bar / PV lines.
       try { fireAnalysis(); } catch {}
     })();
     // Swap the card UI into post-game state

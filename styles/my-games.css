@@ -410,6 +410,21 @@
 .btn-learn-mistakes:hover {
   background: linear-gradient(180deg, #42a5f5 0%, #1e88e5 100%);
 }
+/* Verifying state — grayed out, non-clickable, subtle pulse so the
+   user knows the system is working on something. Flips back to the
+   blue gradient when verification completes. */
+.btn-learn-mistakes.verifying,
+.btn-learn-mistakes.verifying:hover {
+  background: linear-gradient(180deg, #555 0%, #3a3a3a 100%);
+  border-color: #2a2a2a;
+  color: rgba(255,255,255,0.65);
+  cursor: wait;
+  animation: learn-verifying-pulse 1.6s ease-in-out infinite;
+}
+@keyframes learn-verifying-pulse {
+  0%, 100% { opacity: 0.75; }
+  50%      { opacity: 1; }
+}
 
 .mg-body {
   flex: 1;
