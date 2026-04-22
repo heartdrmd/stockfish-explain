@@ -712,25 +712,26 @@ details.dissect-details[open] summary {
   padding: 0;
 }
 
-/* Lichess-classic mainline grid — move number | white | black.
-   Tight rows (28 px), clean large text, subtle full-cell highlight
-   on current move (no border). Matches the screenshot of lila's
-   right-column notation. */
+/* Lichess-classic mainline row — flex layout with fixed num column
+   and equal-flex white/black columns. FLEX (not grid) because grid
+   had rendering oddities in a nested flex-column parent on some
+   browsers — moves were ending up on separate lines. Flex with
+   flex-wrap: nowrap guarantees num | white | black stay side-by-side. */
 .mg-row {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr);
+  display: flex;
+  flex-wrap: nowrap;
   align-items: stretch;
-  min-height: 28px;
+  min-height: 26px;
 }
 .mg-row:hover { background: rgba(255,255,255,0.02); }
 
-/* Index cell: dimmer grey, right-aligned. No zebra, no border —
-   cleaner than our earlier look, matches the screenshot. */
+/* Index cell: fixed 34px, right-aligned, dim. */
 .mg-num {
+  flex: 0 0 34px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 10px 0 4px;
+  padding: 0 8px 0 4px;
   font-size: 13px;
   color: var(--c-font-dimmer, rgba(255,255,255,0.4));
   font-weight: 400;
@@ -738,12 +739,11 @@ details.dissect-details[open] summary {
   user-select: none;
 }
 
-/* Move cell — clean, large, tight, full-cell clickable. Lila lets
-   long SAN (Rxa8+, Qxd5#) flow freely — do NOT clip with overflow
-   hidden / ellipsis or the destination square gets chopped (Bg2 →
-   "Bg"). The figurine-prefix rendering also adds width, so clipping
-   truncates even more. */
+/* Move cell — flex-share the remaining row width equally between
+   white and black. No clipping: lila lets SAN flow freely so Rxa8+,
+   Qxd5# don't get their destination chopped. */
 .mg-move {
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   padding: 0 6px;
@@ -815,19 +815,19 @@ details.dissect-details[open] summary {
   background: #0f0f11; border: 1px solid #000;
 }
 
-/* Variations inline between mainline rows — lila-compact:
-   tight padding, smaller font, 1.3 line-height (was 1.55).
-   Previous 6+6=12px vertical padding was pushing mainline rows
-   apart so only 3 full-moves fit in the visible window. */
+/* Variations inline between mainline rows — kept extremely subtle
+   so the mainline visual rhythm dominates. Previous heavy block
+   (border + bg + padding) was rendering as a mystery '◀●▶' strip
+   between each move when the variation content was tiny. */
 .mg-variations {
-  padding: 2px 8px 2px 40px;
-  border-left: 2px solid var(--c-accent);
-  background: rgba(0,0,0,0.12);
+  padding: 1px 8px 1px 38px;
   font-family: var(--font-san);
-  font-size: 13px;
-  line-height: 1.3;
+  font-size: 12px;
+  line-height: 1.25;
   color: var(--c-font-dim);
+  opacity: 0.7;
 }
+.mg-variations:empty { display: none; }
 .mg-var {
   display: inline;
   margin-right: 6px;

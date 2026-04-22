@@ -3577,11 +3577,27 @@ async function main() {
   // ────────── Navigation controls ──────────
 
   // Two sets of nav buttons — one in the Moves panel, one below the board.
+  // During an ACTIVE practice game, ◀ Back under the BOARD is interpreted
+  // as 'I want to take the last move back' (prompt → board.undo()), not
+  // as history navigation — matching how lichess treats it. The panel's
+  // nav-prev stays as history navigation for post-game review. User
+  // confirmed this is the intent.
   for (const prefix of ['nav', 'board-nav']) {
     document.getElementById(`${prefix}-start`).addEventListener('click', () => board.toStart());
-    document.getElementById(`${prefix}-prev`).addEventListener('click',  () => board.backward());
     document.getElementById(`${prefix}-next`).addEventListener('click',  () => board.forward());
     document.getElementById(`${prefix}-end`).addEventListener('click',   () => board.toEnd());
+    document.getElementById(`${prefix}-prev`).addEventListener('click',  () => {
+      const inActivePractice =
+        prefix === 'board-nav' &&
+        document.body.classList.contains('practice-mode') &&
+        !document.body.classList.contains('practice-finished');
+      if (inActivePractice) {
+        if (!confirm('Take back the last move? The engine will re-think its next reply.')) return;
+        board.undo();
+        return;
+      }
+      board.backward();
+    });
   }
 
   // Mouse-wheel on board → navigate history.
